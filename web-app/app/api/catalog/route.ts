@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { loadDefaultCatalog, parseCSVCatalog } from '../../../lib/fruit-catalog'
+import { loadDefaultCatalog, normalizeCatalogEntry, parseCSVCatalog } from '../../../lib/fruit-catalog'
 import { getAuthContext } from '../../../lib/supabase/route-auth'
 
 function mapCatalogEntriesForInsert(versionId: string, entries: ReturnType<typeof parseCSVCatalog>) {
@@ -72,8 +72,10 @@ export async function GET(request: Request) {
     )
   }
 
+  const normalizedCatalog = (entriesResult.data ?? []).map((entry) => normalizeCatalogEntry(entry))
+
   return NextResponse.json({
-    catalog: entriesResult.data ?? [],
+    catalog: normalizedCatalog,
     versions,
     active_version_id: activeVersionId,
     source: 'database',

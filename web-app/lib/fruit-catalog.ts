@@ -3,6 +3,20 @@ import path from 'path'
 import Papa from 'papaparse'
 import type { CatalogEntry, StockMode } from './stock-schema'
 
+function normalizeLegacyTypo(value: string) {
+  return value.replace(/avocada/gi, 'Avocado')
+}
+
+export function normalizeCatalogEntry(entry: CatalogEntry): CatalogEntry {
+  return {
+    ...entry,
+    product: normalizeLegacyTypo(entry.product),
+    attribute: normalizeLegacyTypo(entry.attribute),
+    official_name: normalizeLegacyTypo(entry.official_name),
+    stocklist_name: normalizeLegacyTypo(entry.stocklist_name),
+  }
+}
+
 export function parseCSVCatalog(csvText: string): CatalogEntry[] {
   const result = Papa.parse<Record<string, string>>(csvText.trim(), {
     header: true,
@@ -31,7 +45,7 @@ export function parseCSVCatalog(csvText: string): CatalogEntry[] {
       rowPosition = 'right'
     }
 
-    entries.push({
+    entries.push(normalizeCatalogEntry({
       id: Number.parseInt(row.ID, 10),
       code: (row.Code || row.CODE || row.code || '').trim(),
       location: row.Location.trim(),
@@ -43,7 +57,7 @@ export function parseCSVCatalog(csvText: string): CatalogEntry[] {
       stocklist_name: row['Name on Stocklist']?.trim() || '',
       navigation_guide: guide.trim(),
       row_position: rowPosition,
-    })
+    }))
   }
 
   return entries

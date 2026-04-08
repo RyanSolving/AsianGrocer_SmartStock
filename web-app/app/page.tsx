@@ -263,7 +263,8 @@ export default function Home() {
     const allItems = parsedData.items.map((item, index) => ({ item, index, source: 'parsed' as const }))
 
     // Inject Missing Catalog Items into their designated locations (amber text)
-    const missingItems = missingCatalogItems.map((c_item) => ({
+    // Use negative indices starting at -1000 to avoid collision with parsed items
+    const missingItems = missingCatalogItems.map((c_item, pos) => ({
       item: {
         catalog_id: c_item.id,
         product_raw: c_item.stocklist_name || c_item.official_name,
@@ -280,14 +281,15 @@ export default function Home() {
         confidence: 'high' as const,
         notes: null
       },
-      index: -1, 
+      index: -1000 - pos,  // Unique index for each missing item
       source: 'missing' as const
     }))
 
     // Inject Unknown items (red text, "Unknown" location)
-    const unknownMapped = unknownItems.map((u_item) => ({
+    // Use negative indices starting at -2000 to distinguish from missing items
+    const unknownMapped = unknownItems.map((u_item, pos) => ({
       item: (u_item as unknown) as StockItem,
-      index: -2,
+      index: -2000 - pos,  // Unique index for each unknown item
       source: 'unknown' as const
     }))
 
@@ -394,7 +396,41 @@ export default function Home() {
   }
 
   function updateItem(index: number, patch: Partial<StockItem>) {
-    if (index < 0) return // Editing missing and unknown items inline is restricted 
+    // Handle missing items (index: -1000, -1001, -1002, ...)
+    if (index <= -1000 && index > -2000) {
+      const pos = -1000 - index
+      setMissingCatalogItems((current) => {
+        if (pos < 0 || pos >= current.length) return current
+        const next = [...current]
+        const item = next[pos]
+        // Update applicable fields from the patch
+        if (patch.official_name !== undefined) item.official_name = patch.official_name
+        if (patch.product !== undefined) item.product = patch.product
+        if (patch.attribute !== undefined) item.attribute = patch.attribute
+        return next
+      })
+      return
+    }
+
+    // Handle unknown items (index: -2000, -2001, -2002, ...)
+    if (index <= -2000) {
+      const pos = -2000 - index
+      setUnknownItems((current) => {
+        if (pos < 0 || pos >= current.length) return current
+        const next = [...current]
+        const item = next[pos]
+        // Update applicable fields from the patch
+        if (patch.official_name !== undefined) item.official_name = patch.official_name
+        if (patch.product_raw !== undefined) item.product_raw = patch.product_raw
+        if (patch.quantity !== undefined) item.quantity = patch.quantity
+        if (patch.quantity_raw !== undefined) item.quantity_raw = patch.quantity_raw
+        if (patch.quantity_conflict_flag !== undefined) item.quantity_conflict_flag = patch.quantity_conflict_flag
+        return next
+      })
+      return
+    }
+
+    // Handle regular parsed items (index >= 0)
     setParsedData((current) => {
       if (!current) return current
       const next = [...current.items]
