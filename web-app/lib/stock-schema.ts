@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 export const catalogEntrySchema = z.object({
   id: z.number(),
+  code: z.string().optional(),
   location: z.string(),
   sub_location: z.string(),
   category: z.string(),
@@ -16,6 +17,7 @@ export const catalogEntrySchema = z.object({
 
 export const itemSchema = z.object({
   catalog_id: z.number().nullable().default(null),
+  item_code: z.string().nullable().default(null),
   product_raw: z.string().min(1),
   
   // Populated from catalog if matched, otherwise left to AI inference
@@ -41,6 +43,7 @@ export const itemSchema = z.object({
 
 export const parsedStockSchema = z.object({
   photo_id: z.string().min(1),
+  parse_mode: z.enum(['stock-closing', 'stock-in']).default('stock-closing'),
   upload_date: z.string().datetime(),
   stock_date: z.string().date(),
   photo_url: z.string().url().nullable().default(null),

@@ -3,6 +3,8 @@ import path from 'path'
 import Papa from 'papaparse'
 import type { CatalogEntry } from './stock-schema'
 
+type ParseMode = 'stock-closing' | 'stock-in'
+
 export function parseCSVCatalog(csvText: string): CatalogEntry[] {
   const result = Papa.parse<Record<string, string>>(csvText.trim(), {
     header: true,
@@ -15,8 +17,11 @@ export function parseCSVCatalog(csvText: string): CatalogEntry[] {
 
   const entries: CatalogEntry[] = []
 
-  for (const row of result.data) {
-    if (!row.ID || !row.Location || !row['Sub-location'] || !row.Product || !row['Official Name']) {
+  for (let index = 0; index < result.data.length; index += 1) {
+    const row = result.data[index]
+    const rawId = row.ID || row['No.'] || row.No || ''
+
+    if (!rawId || !row.Location || !row['Sub-location'] || !row.Product || !row['Official Name']) {
       continue // Skip malformed rows
     }
 
@@ -32,7 +37,8 @@ export function parseCSVCatalog(csvText: string): CatalogEntry[] {
     }
 
     entries.push({
-      id: Number.parseInt(row.ID, 10),
+      id: Number.parseInt(rawId, 10) || index + 1,
+      code: row.Code?.trim() || '',
       location: row.Location.trim(),
       sub_location: row['Sub-location'].trim(),
       category: row.Category?.trim() || '',
@@ -59,10 +65,52 @@ export function loadDefaultCatalog(): CatalogEntry[] {
   }
 }
 
-export function buildCatalogPrompt(catalog: CatalogEntry[]) {
+export function buildCatalogPrompt(catalog: CatalogEntry[], parseMode: ParseMode = 'stock-closing') {
   let catalogText = ''
   for (const item of catalog) {
     catalogText += `- [ID: ${item.id}] "${item.stocklist_name}" (${item.official_name}) \u2192 ${item.navigation_guide}\n`
+  }
+
+  if (parseMode === 'stock-in') {
+    return `You are an expert OCR extraction agent for fruit stock-in notes.
+Your task is to extract every visibly listed stock-in line into strict JSON.
+
+Input note characteristics:
+- mostly free-form text lines, often "item: qty"
+- sometimes missing colon, e.g. "Autumn crisp loose 96"
+- occasional spacing or typo issues from OCR/handwriting
+- arrival header usually contains date like "Arrival stocks 30 Mar 2026"
+
+Rules:
+1. Extract only visibly present lines; do not infer unseen rows.
+2. For each line, parse product_raw and quantity.
+3. Tolerate missing separators and parse trailing numeric quantity when present.
+4. Keep product_raw close to handwritten text, but normalize obvious OCR spacing noise.
+5. Try to match against MASTER CATALOG first by label and context.
+6. If confidently matched, set catalog_id. If uncertain, set catalog_id to null.
+7. quantity_conflict_flag=true when quantity is ambiguous/unreadable.
+8. Use notes for important parse hints only (for example: "from_missing_colon=true").
+9. Return strict JSON only.
+
+MASTER CATALOG:
+${catalogText}
+
+Output JSON:
+{
+  "stock_date": "YYYY-MM-DD or null",
+  "confidence_overall": "high|medium|low",
+  "items": [
+    {
+      "catalog_id": <number or null>,
+      "product_raw": "<line item text>",
+      "quantity_raw": "<raw quantity text or null>",
+      "quantity": <integer or null>,
+      "quantity_conflict_flag": <true|false>,
+      "confidence": "<high|medium|low>",
+      "notes": "<string or null>"
+    }
+  ]
+}`
   }
 
   return `You are an expert document-vision extraction agent for a fruit store stocklist form.

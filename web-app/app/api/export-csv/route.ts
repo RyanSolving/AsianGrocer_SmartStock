@@ -12,7 +12,9 @@ function escapeCsv(value: string) {
 
 function toCsv(data: ParsedStock) {
   const header = [
+    'Parse Mode',
     'Date',
+    'Item Code',
     'Location',
     'Sub-location',
     'Category',
@@ -28,7 +30,9 @@ function toCsv(data: ParsedStock) {
 
   const rows = data.items.map((item) =>
     [
+      data.parse_mode,
       data.stock_date,
+      item.item_code ?? '',
       item.location,
       item.sub_location,
       item.category,

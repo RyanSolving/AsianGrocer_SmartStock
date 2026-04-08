@@ -18,6 +18,7 @@ import {
 
 type StockItem = {
   catalog_id: number | null
+  item_code: string | null
   product_raw: string
   category: string
   location: string
@@ -38,6 +39,7 @@ type StockItem = {
 
 type UnknownItem = {
   catalog_id: null
+  item_code?: string | null
   product_raw: string
   category: string
   location: string
@@ -51,10 +53,12 @@ type UnknownItem = {
   row_position: 'left' | 'right' | 'single'
   confidence: 'high' | 'medium' | 'low'
   catalog_match_status: 'unknown'
+  notes?: string | null
 }
 
 type CatalogItem = {
   id: number
+  code?: string
   location: string
   sub_location: string
   category: string
@@ -68,6 +72,7 @@ type CatalogItem = {
 
 type ParsedPayload = {
   photo_id: string
+  parse_mode?: 'stock-closing' | 'stock-in'
   upload_date: string
   stock_date: string
   photo_url: string | null
@@ -81,6 +86,8 @@ type IndexedItem = {
   index: number
   source: 'parsed' | 'missing' | 'unknown'
 }
+
+type ParseMode = 'stock-closing' | 'stock-in'
 
 function splitRows(items: IndexedItem[]) {
   return {
@@ -103,6 +110,7 @@ function formatSheetDate(value?: string) {
 
 export default function Home() {
   const [photoFile, setPhotoFile] = useState<File | null>(null)
+  const [parseMode, setParseMode] = useState<ParseMode>('stock-closing')
   const [activeCatalog, setActiveCatalog] = useState<CatalogItem[] | null>(null)
   const [isCatalogOpen, setIsCatalogOpen] = useState(false)
   const [parsedData, setParsedData] = useState<ParsedPayload | null>(null)
@@ -138,6 +146,7 @@ export default function Home() {
     const missingItems = missingCatalogItems.map((c_item) => ({
       item: {
         catalog_id: c_item.id,
+        item_code: c_item.code?.trim() ? c_item.code.trim() : null,
         product_raw: c_item.stocklist_name || c_item.official_name,
         category: c_item.category,
         location: c_item.location as StockItem['location'],
@@ -172,7 +181,7 @@ export default function Home() {
     const asian = indexedItems.filter((row) => row.item.location === 'Inside Coolroom' && row.item.sub_location === 'Asian')
 
     const melons = indexedItems.filter((row) => row.item.location === 'Inside Coolroom' && row.item.sub_location === 'Melon')
-    const allYear = indexedItems.filter((row) => row.item.location === 'Inside Coolroom' && (row.item.sub_location === 'All year' || row.item.sub_location === 'All Year'))
+    const allYear = indexedItems.filter((row) => row.item.location === 'Inside Coolroom' && row.item.sub_location === 'All year')
     const seasonal = indexedItems.filter((row) => row.item.location === 'Inside Coolroom' && row.item.sub_location === 'Seasonal')
     const stonefruit = indexedItems.filter((row) => row.item.location === 'Inside Coolroom' && row.item.sub_location === 'Stonefruit')
     
@@ -209,6 +218,7 @@ export default function Home() {
     try {
       const formData = new FormData()
       formData.append('photo', photoFile)
+      formData.append('parse_mode', parseMode)
       if (activeCatalog) {
         formData.append('catalog', JSON.stringify(activeCatalog))
       }
@@ -229,11 +239,7 @@ export default function Home() {
 
       const json = await response.json()
       if (!response.ok) {
-        let detailsStr = '';
-        if (json?.details) {
-          detailsStr = typeof json.details === 'object' ? JSON.stringify(json.details) : String(json.details);
-        }
-        throw new Error(detailsStr ? `${json.error} Details: ${detailsStr}` : (json?.error ?? 'Parse request failed.'))
+        throw new Error(json?.error ?? 'Parse request failed.')
       }
 
       setParsedData(json.data)
@@ -299,7 +305,17 @@ export default function Home() {
       const response = await fetch('/api/export-csv', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(parsedData),
+        body: JSON.stringify({
+          ...parsedData,
+          total_items: parsedData.items.length + unknownItems.length,
+          items: [
+            ...parsedData.items,
+            ...unknownItems.map((item) => ({
+              ...item,
+              notes: item.notes ?? 'unmatched_catalog=true',
+            })),
+          ],
+        }),
       })
 
       if (!response.ok) {
@@ -408,6 +424,32 @@ export default function Home() {
                   {photoFile ? `Photo: ${photoFile.name}` : 'No photo selected'}
                 </p>
 
+                <div className="mt-4 rounded-lg border border-slate-200 bg-white p-3 text-left">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Parse mode</p>
+                  <div className="mt-2 flex flex-wrap gap-3 text-sm text-slate-700">
+                    <label className="inline-flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="parse-mode"
+                        value="stock-closing"
+                        checked={parseMode === 'stock-closing'}
+                        onChange={() => setParseMode('stock-closing')}
+                      />
+                      Stock Closing
+                    </label>
+                    <label className="inline-flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="parse-mode"
+                        value="stock-in"
+                        checked={parseMode === 'stock-in'}
+                        onChange={() => setParseMode('stock-in')}
+                      />
+                      Stock In (arrival notes)
+                    </label>
+                  </div>
+                </div>
+
                 <div className="mt-4 border-t border-slate-200 pt-4 flex flex-col gap-2">
                   <input
                     id="catalog-upload"
@@ -426,7 +468,8 @@ export default function Home() {
                           complete: (results) => {
                             const entries: CatalogItem[] = []
                             for (const row of results.data) {
-                              if (!row.ID || !row.Location || !row['Sub-location'] || !row.Product || !row['Official Name']) continue
+                              const rawId = row.ID || row['No.'] || row.No || ''
+                              if (!rawId || !row.Location || !row['Sub-location'] || !row.Product || !row['Official Name']) continue
                               
                               const guide = row['Nagivation Guide'] || row['Navigation Guide'] || ''
                               let rowPosition: 'left' | 'right' | 'single' = 'single'
@@ -435,7 +478,8 @@ export default function Home() {
                               else if (guideLower.includes('right')) rowPosition = 'right'
 
                               entries.push({
-                                id: parseInt(row.ID, 10),
+                                id: parseInt(rawId, 10),
+                                code: row.Code?.trim() || '',
                                 location: row.Location.trim(),
                                 sub_location: row['Sub-location'].trim(),
                                 category: row.Category?.trim() || '',
@@ -475,7 +519,7 @@ export default function Home() {
                     </button>
                   </div>
                   <p className="mt-2 text-xs text-slate-500">
-                    Source: {catalogSource === 'master' ? 'Default Catalog' : catalogSource === 'uploaded' ? 'Uploaded CSV' : 'Edited Catalog'} 
+                    Source: {!catalogSource ? 'Loading...' : catalogSource === 'master' ? 'Default Catalog' : catalogSource === 'uploaded' ? 'Uploaded CSV' : 'Edited Catalog'} 
                     {catalogItemCount !== null ? ` (${catalogItemCount} items)` : ''}
                   </p>
                 </div>
@@ -487,7 +531,7 @@ export default function Home() {
                   className="mt-4 inline-flex min-w-[170px] items-center justify-center gap-2 rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
                 >
                   {isParsing ? <Loader2 className="h-4 w-4 animate-spin" /> : <ListChecks className="h-4 w-4" />}
-                  {isParsing ? 'Parsing...' : 'Parse Stocklist'}
+                  {isParsing ? 'Parsing...' : parseMode === 'stock-in' ? 'Parse Stock-In Note' : 'Parse Stocklist'}
                 </button>
               </div>
 
@@ -532,6 +576,9 @@ export default function Home() {
             {parsedData && (
               <div className="space-y-6">
                 <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm md:grid-cols-3">
+                  <p>
+                    <span className="font-semibold text-slate-700">Mode:</span> {parsedData.parse_mode === 'stock-in' ? 'Stock In' : 'Stock Closing'}
+                  </p>
                   <p>
                     <span className="font-semibold text-slate-700">Known items:</span> {parsedData.total_items}
                   </p>
@@ -1002,80 +1049,106 @@ export default function Home() {
         </div>
       </div>
 
-      {isCatalogOpen && activeCatalog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
-          <div className="flex h-[90vh] w-full max-w-7xl flex-col rounded-2xl bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900">Catalog Viewer & Editor</h2>
-                <p className="text-sm text-slate-500">Edit items before parsing to fine-tune AI extraction.</p>
+      {isCatalogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-2 sm:p-4 backdrop-blur-sm">
+          <div className="flex h-[90vh] w-full sm:max-w-7xl flex-col rounded-xl sm:rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between border-b border-slate-200 px-3 sm:px-6 py-3 sm:py-4 gap-2">
+              <div className="min-w-0">
+                <h2 className="text-base sm:text-lg font-semibold text-slate-900">Catalog Viewer & Editor</h2>
+                <p className="text-xs sm:text-sm text-slate-500 hidden sm:block">Edit items before parsing to fine-tune AI extraction.</p>
               </div>
-              <button onClick={() => setIsCatalogOpen(false)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+              <button onClick={() => setIsCatalogOpen(false)} className="rounded-lg p-2 flex-shrink-0 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
                 <X className="h-5 w-5" />
               </button>
             </div>
             
-            <div className="flex-1 overflow-auto p-6">
-              <table className="w-full border-collapse text-left text-sm">
+            <div className="flex-1 overflow-auto p-2 sm:p-6">
+              {!activeCatalog ? (
+                <div className="flex h-full items-center justify-center text-slate-500">
+                  <div className="text-center">
+                    <Loader2 className="mx-auto mb-2 h-8 w-8 animate-spin text-brand-500" />
+                    <p>Loading catalog data...</p>
+                  </div>
+                </div>
+              ) : activeCatalog.length === 0 ? (
+                <div className="flex h-full items-center justify-center text-slate-500">
+                  The catalog is empty.
+                </div>
+              ) : (
+                <div className="overflow-x-auto -m-2 sm:m-0">
+                <table className="w-full border-collapse text-left text-xs sm:text-sm min-w-max sm:min-w-full">
                 <thead>
-                  <tr className="border-b border-slate-200 text-slate-500">
-                    <th className="pb-2 font-medium">ID</th>
-                    <th className="pb-2 font-medium">Location</th>
-                    <th className="pb-2 font-medium pl-2">Sub-location</th>
-                    <th className="pb-2 font-medium pl-2">Category</th>
-                    <th className="pb-2 font-medium pl-2">Product</th>
-                    <th className="pb-2 font-medium pl-2">Attribute</th>
-                    <th className="pb-2 font-medium pl-2">Official Name</th>
-                    <th className="pb-2 font-medium pl-2">Name on Stocklist</th>
-                    <th className="pb-2 font-medium pl-2">Navigation Guide</th>
+                  <tr className="border-b border-slate-200 text-slate-500 bg-slate-50 sticky top-0 z-10">
+                    <th className="py-2 px-1 sm:px-2 font-medium">ID</th>
+                    <th className="py-2 px-1 sm:px-2 font-medium">Code</th>
+                    <th className="py-2 px-1 sm:px-2 font-medium">Location</th>
+                    <th className="py-2 px-1 sm:px-2 font-medium hidden sm:table-cell">Sub-location</th>
+                    <th className="py-2 px-1 sm:px-2 font-medium hidden lg:table-cell">Category</th>
+                    <th className="py-2 px-1 sm:px-2 font-medium">Product</th>
+                    <th className="py-2 px-1 sm:px-2 font-medium hidden md:table-cell">Attribute</th>
+                    <th className="py-2 px-1 sm:px-2 font-medium">Official Name</th>
+                    <th className="py-2 px-1 sm:px-2 font-medium hidden xl:table-cell">Name on Stocklist</th>
+                    <th className="py-2 px-1 sm:px-2 font-medium hidden 2xl:table-cell">Navigation Guide</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {activeCatalog.map((item, index) => (
                     <tr key={index} className="hover:bg-slate-50">
-                      <td className="py-2 pr-2 text-slate-500">{item.id}</td>
-                      <td className="py-2 pr-2">
-                        <input className="w-full min-w-[130px] rounded border border-transparent bg-transparent px-2 py-1 hover:border-slate-300 focus:border-brand-500 focus:bg-white focus:outline-none" value={item.location} onChange={(e) => { const c = [...activeCatalog]; c[index].location = e.target.value; setActiveCatalog(c); setCatalogSource('edited') }} />
+                      <td className="py-2 px-1 sm:px-2 text-slate-500 text-xs">{item.id}</td>
+                      <td className="py-2 px-1 sm:px-2">
+                        <input className="w-full min-w-[80px] sm:min-w-[110px] rounded border border-transparent bg-transparent px-1 sm:px-2 py-1 hover:border-slate-300 focus:border-brand-500 focus:bg-white focus:outline-none text-xs sm:text-sm" value={item.code ?? ''} onChange={(e) => { const c = [...activeCatalog]; c[index].code = e.target.value; setActiveCatalog(c); setCatalogSource('edited') }} />
                       </td>
-                      <td className="py-2 pr-2">
-                        <input className="w-full min-w-[100px] rounded border border-transparent bg-transparent px-2 py-1 hover:border-slate-300 focus:border-brand-500 focus:bg-white focus:outline-none" value={item.sub_location} onChange={(e) => { const c = [...activeCatalog]; c[index].sub_location = e.target.value; setActiveCatalog(c); setCatalogSource('edited') }} />
+                      <td className="py-2 px-1 sm:px-2">
+                        <input className="w-full min-w-[100px] sm:min-w-[130px] rounded border border-transparent bg-transparent px-1 sm:px-2 py-1 hover:border-slate-300 focus:border-brand-500 focus:bg-white focus:outline-none text-xs sm:text-sm" value={item.location} onChange={(e) => { const c = [...activeCatalog]; c[index].location = e.target.value; setActiveCatalog(c); setCatalogSource('edited') }} />
                       </td>
-                      <td className="py-2 pr-2">
-                        <input className="w-full min-w-[100px] rounded border border-transparent bg-transparent px-2 py-1 hover:border-slate-300 focus:border-brand-500 focus:bg-white focus:outline-none" value={item.category} onChange={(e) => { const c = [...activeCatalog]; c[index].category = e.target.value; setActiveCatalog(c); setCatalogSource('edited') }} />
+                      <td className="py-2 px-1 sm:px-2 hidden sm:table-cell">
+                        <input className="w-full min-w-[90px] rounded border border-transparent bg-transparent px-1 sm:px-2 py-1 hover:border-slate-300 focus:border-brand-500 focus:bg-white focus:outline-none text-xs sm:text-sm" value={item.sub_location} onChange={(e) => { const c = [...activeCatalog]; c[index].sub_location = e.target.value; setActiveCatalog(c); setCatalogSource('edited') }} />
                       </td>
-                      <td className="py-2 pr-2">
-                        <input className="w-full min-w-[110px] rounded border border-transparent bg-transparent px-2 py-1 hover:border-slate-300 focus:border-brand-500 focus:bg-white focus:outline-none" value={item.product} onChange={(e) => { const c = [...activeCatalog]; c[index].product = e.target.value; setActiveCatalog(c); setCatalogSource('edited') }} />
+                      <td className="py-2 px-1 sm:px-2 hidden lg:table-cell">
+                        <input className="w-full min-w-[90px] rounded border border-transparent bg-transparent px-1 sm:px-2 py-1 hover:border-slate-300 focus:border-brand-500 focus:bg-white focus:outline-none text-xs sm:text-sm" value={item.category} onChange={(e) => { const c = [...activeCatalog]; c[index].category = e.target.value; setActiveCatalog(c); setCatalogSource('edited') }} />
                       </td>
-                      <td className="py-2 pr-2">
-                        <input className="w-full min-w-[110px] rounded border border-transparent bg-transparent px-2 py-1 hover:border-slate-300 focus:border-brand-500 focus:bg-white focus:outline-none" value={item.attribute} onChange={(e) => { const c = [...activeCatalog]; c[index].attribute = e.target.value; setActiveCatalog(c); setCatalogSource('edited') }} />
+                      <td className="py-2 px-1 sm:px-2">
+                        <input className="w-full min-w-[90px] sm:min-w-[110px] rounded border border-transparent bg-transparent px-1 sm:px-2 py-1 hover:border-slate-300 focus:border-brand-500 focus:bg-white focus:outline-none text-xs sm:text-sm" value={item.product} onChange={(e) => { const c = [...activeCatalog]; c[index].product = e.target.value; setActiveCatalog(c); setCatalogSource('edited') }} />
                       </td>
-                      <td className="py-2 pr-2">
-                        <input className="w-full min-w-[130px] rounded border border-transparent bg-transparent px-2 py-1 hover:border-slate-300 focus:border-brand-500 focus:bg-white focus:outline-none" value={item.official_name} onChange={(e) => { const c = [...activeCatalog]; c[index].official_name = e.target.value; setActiveCatalog(c); setCatalogSource('edited') }} />
+                      <td className="py-2 px-1 sm:px-2 hidden md:table-cell">
+                        <input className="w-full min-w-[90px] rounded border border-transparent bg-transparent px-1 sm:px-2 py-1 hover:border-slate-300 focus:border-brand-500 focus:bg-white focus:outline-none text-xs sm:text-sm" value={item.attribute} onChange={(e) => { const c = [...activeCatalog]; c[index].attribute = e.target.value; setActiveCatalog(c); setCatalogSource('edited') }} />
                       </td>
-                      <td className="py-2 pr-2">
-                        <input className="w-full min-w-[140px] rounded border border-transparent bg-transparent px-2 py-1 hover:border-slate-300 focus:border-brand-500 focus:bg-white focus:outline-none" value={item.stocklist_name} onChange={(e) => { const c = [...activeCatalog]; c[index].stocklist_name = e.target.value; setActiveCatalog(c); setCatalogSource('edited') }} />
+                      <td className="py-2 px-1 sm:px-2">
+                        <input className="w-full min-w-[100px] sm:min-w-[130px] rounded border border-transparent bg-transparent px-1 sm:px-2 py-1 hover:border-slate-300 focus:border-brand-500 focus:bg-white focus:outline-none text-xs sm:text-sm" value={item.official_name} onChange={(e) => { const c = [...activeCatalog]; c[index].official_name = e.target.value; setActiveCatalog(c); setCatalogSource('edited') }} />
                       </td>
-                      <td className="py-2 pr-2">
-                        <input className="w-full min-w-[200px] rounded border border-transparent bg-transparent px-2 py-1 hover:border-slate-300 focus:border-brand-500 focus:bg-white focus:outline-none" value={item.navigation_guide} onChange={(e) => { const c = [...activeCatalog]; c[index].navigation_guide = e.target.value; setActiveCatalog(c); setCatalogSource('edited') }} />
+                      <td className="py-2 px-1 sm:px-2 hidden xl:table-cell">
+                        <input className="w-full min-w-[120px] rounded border border-transparent bg-transparent px-1 sm:px-2 py-1 hover:border-slate-300 focus:border-brand-500 focus:bg-white focus:outline-none text-xs sm:text-sm" value={item.stocklist_name} onChange={(e) => { const c = [...activeCatalog]; c[index].stocklist_name = e.target.value; setActiveCatalog(c); setCatalogSource('edited') }} />
+                      </td>
+                      <td className="py-2 px-1 sm:px-2 hidden 2xl:table-cell">
+                        <input className="w-full min-w-[150px] rounded border border-transparent bg-transparent px-1 sm:px-2 py-1 hover:border-slate-300 focus:border-brand-500 focus:bg-white focus:outline-none text-xs sm:text-sm" value={item.navigation_guide} onChange={(e) => { const c = [...activeCatalog]; c[index].navigation_guide = e.target.value; setActiveCatalog(c); setCatalogSource('edited') }} />
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+                </div>
+              )}
             </div>
             
-            <div className="border-t border-slate-200 px-6 py-4 flex justify-between gap-3 bg-slate-50 rounded-b-2xl">
-              <button onClick={() => {
-                const newRow = { id: activeCatalog.length ? Math.max(...activeCatalog.map(c => c.id)) + 1 : 1, location: '', sub_location: '', category: '', product: '', attribute: '', official_name: '', stocklist_name: '', navigation_guide: '', row_position: 'single' as const }
-                setActiveCatalog([...activeCatalog, newRow])
-                setCatalogSource('edited')
-              }} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2">
-                <Plus className="h-4 w-4" /> Add Row
-              </button>
-              <button onClick={() => setIsCatalogOpen(false)} className="rounded-lg bg-brand-600 px-8 py-2 text-sm font-medium text-white hover:bg-brand-700">
-                Done ({activeCatalog.length} items)
-              </button>
-            </div>
+            {activeCatalog && (
+              <div className="border-t border-slate-200 px-3 sm:px-6 py-3 sm:py-4 flex flex-col sm:flex-row justify-between gap-2 sm:gap-3 bg-slate-50 rounded-b-xl sm:rounded-b-2xl">
+                <p className="text-xs sm:text-sm text-slate-500 self-center order-last sm:order-first">
+                  Changes persist until refresh
+                </p>
+                <div className="flex gap-2 sm:gap-3 w-full sm:w-auto">
+                  <button onClick={() => {
+                    const newRow = { id: activeCatalog.length ? Math.max(...activeCatalog.map(c => c.id)) + 1 : 1, code: '', location: '', sub_location: '', category: '', product: '', attribute: '', official_name: '', stocklist_name: '', navigation_guide: '', row_position: 'single' as const }
+                    setActiveCatalog([...activeCatalog, newRow])
+                    setCatalogSource('edited')
+                  }} className="rounded-lg border border-slate-300 bg-white px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-1 sm:gap-2 flex-1 sm:flex-none justify-center sm:justify-start">
+                    <Plus className="h-4 w-4" /> <span className="hidden sm:inline">Add Row</span>
+                  </button>
+                  <button onClick={() => setIsCatalogOpen(false)} className="rounded-lg bg-brand-600 px-4 sm:px-8 py-2 text-xs sm:text-sm font-medium text-white hover:bg-brand-700 flex-1 sm:flex-none">
+                    Done <span className="hidden sm:inline">({activeCatalog.length} items)</span>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

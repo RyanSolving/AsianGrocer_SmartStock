@@ -6,12 +6,14 @@ import { loadDefaultCatalog, buildCatalogPrompt, parseCSVCatalog } from '../../.
 import { catalogEntrySchema, parsedStockSchema } from '../../../lib/stock-schema'
 import type { CatalogEntry } from '../../../lib/stock-schema'
 
+type ParseMode = 'stock-closing' | 'stock-in'
+
 const allowedUnits = new Set(['kg', 'box', 'punnet', 'pack'])
 
 const ocrExtractionSchema = z.object({
-  stock_date: z.union([z.string(), z.null()]).optional(),
-  confidence_overall: z.union([z.string(), z.null()]).optional(),
-  items: z.array(z.record(z.unknown())).nullish().transform(v => v ?? []),
+  stock_date: z.string().optional(),
+  confidence_overall: z.string().optional(),
+  items: z.array(z.record(z.unknown())).default([]),
 })
 
 const validCategories = [
@@ -46,35 +48,6 @@ const validLocations = [
 export const maxDuration = 300 // Allows 5 minutes max on Vercel Pro/Local
 const OPENAI_TIMEOUT_MS = Number(process.env.OPENAI_TIMEOUT_MS ?? 300000)
 
-const OCR_EXTRACTION_PROMPT = `You are extracting rows from a handwritten fruit stocklist image.
-
-Rules:
-1. Extract only rows that are visibly present in the image.
-2. Do not infer missing catalog items.
-3. Keep product_raw exactly close to handwritten text.
-4. quantity can be null when unreadable or missing.
-5. quantity_raw should keep original handwritten/OCR text for the quantity field when possible.
-6. Set confidence to high|medium|low.
-7. If quantity is ambiguous, set quantity_conflict_flag=true.
-8. If the item matches a catalog entry, provide its catalog_id (from the section lists). Leave null if unknown.
-
-Return strict JSON only:
-{
-  "stock_date": "YYYY-MM-DD or null",
-  "confidence_overall": "high|medium|low",
-  "items": [
-    {
-      "catalog_id": "number or null",
-      "product_raw": "string",
-      "quantity_raw": "string or null",
-      "quantity": "number or null",
-      "quantity_conflict_flag": false,
-      "confidence": "high|medium|low",
-      "notes": "string or null"
-    }
-  ]
-}`
-
 const LABEL_ALIAS_MAP: Array<[RegExp, string]> = [
   [/\bpackham\s*p\b/g, 'packham pear'],
   [/\bp\s*\/\s*pack\b/g, 'pear pack'],
@@ -92,6 +65,17 @@ const MATCH_WEIGHTS = {
 }
 
 const MATCH_THRESHOLD_FUZZY = 0.62
+
+function parseModeFromFormData(formData: FormData): ParseMode {
+  const raw = String(formData.get('parse_mode') ?? '').trim().toLowerCase()
+  return raw === 'stock-in' ? 'stock-in' : 'stock-closing'
+}
+
+function appendNote(current: string | null, note: string) {
+  if (!current || !current.trim()) return note
+  if (current.includes(note)) return current
+  return `${current}; ${note}`
+}
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -279,6 +263,7 @@ function tryParseJson(text: string) {
 export async function POST(request: Request) {
   const formData = await request.formData()
   const uploadedFile = formData.get('photo')
+  const parseMode = parseModeFromFormData(formData)
 
   let catalog = [] as z.infer<typeof catalogEntrySchema>[]
   let catalogSource: 'master' | 'uploaded' = 'master'
@@ -322,17 +307,17 @@ export async function POST(request: Request) {
   const dataUrl = `data:${uploadedFile.type};base64,${base64}`
 
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-  const model = process.env.OPENAI_VISION_MODEL || 'gpt-5.2'
+  const model = process.env.OPENAI_VISION_MODEL || 'gpt-4o'
 
   let parsedJson: unknown
 
   try {
-    const catalogPrompt = buildCatalogPrompt(catalog)
+    const catalogPrompt = buildCatalogPrompt(catalog, parseMode)
     const completion = await withTimeout(
       client.chat.completions.create({
         model,
         temperature: 0,
-        max_completion_tokens: 16384,
+        max_tokens: 16384,
         response_format: { type: 'json_object' },
         messages: [
           {
@@ -455,7 +440,7 @@ export async function POST(request: Request) {
             const tokenScore = tokenOverlapScore(rawTokens, candidate.tokenCandidates[i])
             const charScore = diceCoefficient(normRaw, candidate.candidates[i])
             const score = tokenScore * 0.6 + charScore * 0.4
-
+            
             if (score > bestFuzzyScore) {
               bestFuzzyScore = score
               bestMatch = candidate.entry
@@ -463,7 +448,7 @@ export async function POST(request: Request) {
           }
         }
 
-        if (bestFuzzyScore > 0.6) {
+        if (bestFuzzyScore >= MATCH_THRESHOLD_FUZZY) {
           matchedEntry = bestMatch
           matchStatus = 'fuzzy'
         }
@@ -473,6 +458,7 @@ export async function POST(request: Request) {
     if (!matchedEntry) {
       unknownItems.push({
         ...item,
+        item_code: null,
         location: 'Unknown',
         sub_location: 'Unknown',
         category: 'Unknown',
@@ -481,6 +467,7 @@ export async function POST(request: Request) {
         official_name: 'Unknown',
         row_position: 'single',
         catalog_match_status: 'unknown',
+        notes: appendNote(item.notes, 'unmatched_catalog=true'),
       })
       continue
     }
@@ -492,6 +479,7 @@ export async function POST(request: Request) {
 
     knownItems.push({
       catalog_id: matchedEntry.id,
+      item_code: matchedEntry.code?.trim() ? matchedEntry.code.trim() : null,
       product_raw: item.product_raw,
       location: matchedEntry.location,
       sub_location: matchedEntry.sub_location,
@@ -512,10 +500,11 @@ export async function POST(request: Request) {
   }
 
   const derivedConfidence = knownItems.some(i => i.confidence === 'low') ? 'low' :
-    knownItems.some(i => i.confidence === 'medium') ? 'medium' : 'high'
+                            knownItems.some(i => i.confidence === 'medium') ? 'medium' : 'high'
 
   const finalPayload = {
     photo_id: `${now.getTime()}-${uploadedFile.name}`,
+    parse_mode: parseMode,
     upload_date: isoNow,
     stock_date: normalizeStockDate(extracted.data.stock_date, stockDate),
     photo_url: null,
@@ -524,7 +513,7 @@ export async function POST(request: Request) {
     items: knownItems,
   }
 
-  const missingCatalogItems = catalog.filter(c => !matchedCatalogIds.has(c.id))
+  const missingCatalogItems = parseMode === 'stock-in' ? [] : catalog.filter(c => !matchedCatalogIds.has(c.id))
   const reviewRequiredCount = unknownItems.length + fuzzyCount + quantityConflictCount
 
   const validated = parsedStockSchema.safeParse(finalPayload)
