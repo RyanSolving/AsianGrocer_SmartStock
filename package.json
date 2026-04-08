@@ -1,7 +1,9 @@
 {
   "name": "asiangrocer-smartstock-workspace",
   "private": true,
-  "dependencies": {},
+  "dependencies": {
+    "next": "14.2.3"
+  },
   "scripts": {
     "prebuild": "npm --prefix web-app install",
     "dev": "npm --prefix web-app run dev",
