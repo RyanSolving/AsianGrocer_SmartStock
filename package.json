@@ -1,0 +1,10 @@
+{
+  "name": "asiangrocer-smartstock-workspace",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix web-app run dev",
+    "build": "npm --prefix web-app run build",
+    "start": "npm --prefix web-app run start",
+    "lint": "npm --prefix web-app run lint"
+  }
+}

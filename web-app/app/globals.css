@@ -1,0 +1,185 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+	--bg: #f6f9ff;
+	--ink: #0f172a;
+	--muted: #475569;
+	--card: #ffffff;
+	--line: #dbe5f4;
+	--brand: #0070f3;
+	--danger: #ef4444;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html,
+body {
+	margin: 0;
+	padding: 0;
+}
+
+body {
+	color: var(--ink);
+	background:
+		radial-gradient(circle at 15% 10%, rgba(0, 112, 243, 0.12), transparent 28%),
+		radial-gradient(circle at 85% 0%, rgba(37, 99, 235, 0.08), transparent 25%),
+		var(--bg);
+}
+
+.card-surface {
+	background: var(--card);
+	border: 1px solid var(--line);
+	box-shadow: 0 8px 30px rgba(16, 24, 40, 0.08);
+}
+
+.stock-paper-wrap {
+	background: #c8ccd3;
+	padding: 14px;
+	border-radius: 14px;
+	border: 1px solid #b9c1ce;
+}
+
+.stock-paper {
+	background: #fefefe;
+	border: 1px solid #b8b8b8;
+	box-shadow: 0 8px 22px rgba(0, 0, 0, 0.22);
+}
+
+.stock-date-row {
+	display: flex;
+	justify-content: flex-end;
+	gap: 6px;
+	font-size: 12px;
+	font-weight: 700;
+	padding: 8px 10px 4px;
+	letter-spacing: 0.05em;
+}
+
+.stock-date-hand {
+	font-size: 16px;
+	font-style: italic;
+	font-weight: 700;
+	letter-spacing: 0.03em;
+	color: #1f2937;
+}
+
+.stock-sec-hdr {
+	background: #111;
+	color: #fff;
+	text-align: center;
+	font-size: 12px;
+	font-weight: 700;
+	letter-spacing: 0.2em;
+	padding: 6px;
+}
+
+.stock-inside-grid {
+	display: grid;
+	grid-template-columns: 56% 44%;
+}
+
+.stock-col {
+	border-left: 1px solid #333;
+}
+
+.stock-col-left {
+	border-left: none;
+	border-right: 2px solid #333;
+}
+
+.stock-sub-hdr {
+	font-weight: 700;
+	font-size: 11px;
+	padding: 4px 6px;
+	background: #ececec;
+	border-top: 1px solid #c7c7c7;
+	border-bottom: 1px solid #3f3f3f;
+	letter-spacing: 0.06em;
+}
+
+.stock-pt {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 10.5px;
+	table-layout: fixed;
+}
+
+.stock-pt td {
+	border-bottom: 1px solid #e7e7e7;
+	padding: 2px 4px;
+	vertical-align: middle;
+}
+
+.stock-lbl {
+	/* width defined in colgroup */
+}
+
+.stock-qty {
+	/* width defined in colgroup */
+}
+
+.stock-input,
+.stock-qty-input {
+	width: 100%;
+	min-width: 0; /* Prevents input blowout inside tables */
+	border: none;
+	background: transparent;
+	font-size: 11px;
+	padding: 1px 2px;
+	color: #111827;
+}
+
+.stock-input:focus,
+.stock-qty-input:focus {
+	outline: 1px dashed #6b7280;
+	background: #fffee7;
+}
+
+.stock-qty-input {
+	font-style: italic;
+	font-weight: 700;
+	color: #1f3a6e;
+}
+
+/* Hide spin buttons to prevent width bloat in narrow columns */
+.stock-qty-input::-webkit-outer-spin-button,
+.stock-qty-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.stock-qty-input[type=number] {
+  -moz-appearance: textfield;
+}
+
+.stock-hw-row td {
+	background: #fffff4;
+}
+
+.stock-input-hw {
+	font-style: italic;
+	font-weight: 700;
+	color: #1f3a6e;
+}
+
+.stock-outside-grid {
+	display: grid;
+	grid-template-columns: 1fr 1fr 1fr;
+}
+
+.stock-oc-col {
+	border-right: 1px solid #aaa;
+}
+
+.stock-oc-col:last-child {
+	border-right: none;
+}
+
+@media (max-width: 900px) {
+	.stock-paper-wrap {
+		padding: 8px;
+	}
+}

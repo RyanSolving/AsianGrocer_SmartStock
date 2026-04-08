@@ -1,0 +1,133 @@
+﻿ID,Location,Sub-location,Category,Product,Attribute,Official Name,Name on Stocklist,Nagivation Guide
+1,Inside Coolroom,Apples,Apple,Fuji,"Medium, 12kg",Fuji Small,Fuji Med (12kg),Apples section - Left - Printed
+2,Inside Coolroom,Apples,Apple,Fuji,Large,Fuji Large,Large,Apples section - Right side in Fuji Med (12kg) row  - Printed 
+3,Inside Coolroom,Apples,Apple,Royal Gala,"Medium, 12kg",Royal Gala Small,R. Gala Med (12kg),Apples section - Left - Printed
+4,Inside Coolroom,Apples,Apple,Royal Gala,Large,Royal Gala Large,Large,Apples section - Right side in R.Gala Med (12kg) row - Printed
+5,Inside Coolroom,Apples,Apple,Granny Smith,12kg,Granny Smith,Granny Smith (12kg),Apples section - Left - Printed
+6,Inside Coolroom,Apples,Apple,Pink Lady,12kg,Pink Lady,Pink Lady (12kg),Apples section - Right - Printed
+7,Inside Coolroom,Apples,Pear,Packham Pear,13kg,Packham Pear,Packham Pear (13kg),Apples section - Left - Printed
+8,Inside Coolroom,Apples,Pear,Aus Nashi,-,Aus Nashi,Aus Nashi,Apples section - Right - Printed
+9,Inside Coolroom,Apples,Apple,Rockit,P/pack 1kg,Rockit,Rockit P/pack 1kg,Apples section - Left - Printed
+10,Inside Coolroom,Apples,Apple,Missile,3kg,Missile,Missile (3kg),Apples section - Right - Printed
+11,Inside Coolroom,Apples,Apple,Bravo,-,Bravo,Bravo,Apples section - Left - Printed
+12,Inside Coolroom,Apples,Apple,Yello,"Large, 7kg",Yello Large,Yello Large (7kg),Apples section - Right - Printed
+13,Inside Coolroom,Apples,Apple,Kanzi,-,Kanzi,Kanzi,Apples section - Left - Printed
+14,Inside Coolroom,Apples,Apple,Yello,Small,Yello Small,Yello Sml,Apples section - Right - Printed
+15,Inside Coolroom,Citrus,Orange,Navel,"Loose, 15-18kg",Navel,Navel Loose (15-18kg),Citrus section - Left - Printed
+16,Inside Coolroom,Citrus,Orange,Cara Cara,"Loose, 15kg",Cara Cara,Cara Loose (15kg),Citrus section - Right - Printed
+17,Inside Coolroom,Citrus,Grapefruit,Grapefruit,"White, 15kg",Grapefruit,Grapefruit White (15kg),Citrus section - Left - Printed
+18,Inside Coolroom,Citrus,Grapefruit,Ruby Grapefruit,15kg,Ruby Grapefruit,Ruby (15kg),Citrus section - Right - Printed
+19,Inside Coolroom,Citrus,Mandarin,Imperial Mandarin,9-13kg,Imperial Mandarin,Imperial Mandarin (9-13kg),Citrus section - Left - Printed
+20,Inside Coolroom,Citrus,Orange,Easy Peel Orange,-,Easy Peel Orange,Easy Peel Orange,Citrus section - Right - Printed
+21,Inside Coolroom,Citrus,Mandarin,Tangold Mandarin,9kg,Tangold Mandarin,Tangold Mandarin (9kg),Citrus section - Left - Printed
+22,Inside Coolroom,Citrus,Mandarin,Afourer,"Seedless, 9kg",Afourer,Afourer Seedless (9kg),Citrus section - Right - Printed
+23,Inside Coolroom,Citrus,Mandarin,Honey Murcott,18kg,Honey Murcott,Honey Murcott (18kg),Citrus section - Left - Printed
+24,Inside Coolroom,Citrus,Orange,Blood Orange,-,Blood Orange,Blood Orange,Citrus section - Right - Printed
+25,Inside Coolroom,Citrus,Pomelo,Pomelo,White,Pomelo White,Pomelo White,Citrus section - Left - Printed
+26,Inside Coolroom,Citrus,Pomelo,Pomelo,Red,Pomelo Red,Red,Citrus section - Right side in Pomelo White row - Printed
+27,Inside Coolroom,Asian,Apple,China Fuji,5kg,China Fuji,China Fuji (5kg),Asian section - Left - Printed
+28,Inside Coolroom,Asian,Pear,Qiu Yue Li,4kg,Qiu Yue Li,Qiu Yue Li (4kg),Asian section - Right - Printed
+29,Inside Coolroom,Asian,Pear,Asian White Nashi,10kg,Asian White Nashi,Asian White Nashi (10kg),Asian section - Left - Printed
+30,Inside Coolroom,Asian,Pear,Brown Nashi,10kg,Brown Nashi,Brown Nashi (10kg); Brown Nashi,Asian section - Right - Printed
+31,Inside Coolroom,Asian,Pear,Ya Pear,10kg,Ya Pear,Ya pear (10kg),Asian section - Left - Printed
+32,Inside Coolroom,Asian,Coconut,Young Coconut,-,Young Coconut,Young Coconut,Asian section - Left - Printed
+33,Inside Coolroom,Asian,Coconut,Coco Thumb,-,Coco Thumb,Coco Thumb,Asian section - Right - Printed
+34,Inside Coolroom,Asian,Coconut,Dried Coconut,-,Dried Coconut,Dried Coconut,Asian section - Left - Printed
+35,Inside Coolroom,Asian,Tropical,Lychee,-,Lychee,Lychee,Asian section - Left - Printed
+36,Inside Coolroom,Asian,Tropical,Guava,-,Guava,Guava,Asian section - Right - Printed
+37,Inside Coolroom,Asian,Mango,Green Mango,"Sweet, 10kg",Green Sweet Mango,Green Mango Sweet (10kg),Asian section - Left - Printed
+38,Inside Coolroom,Asian,Mango,Green Mango,"Sour, 10kg",Green Sour Mango,Sour (10kg),Asian section - Right  side in Green Mango Sweet (10kg) row - Printed
+39,Inside Coolroom,Asian,Dragonfruit,Dragonfruit,"White, 4.5-5kg",White Dragonfruit,Dragonfruit White (4.5-5kg),Asian section - Left - Printed
+40,Inside Coolroom,Asian,Dragonfruit,Dragonfruit,"Red, 4.5-5kg",Red Dragonfruit,Red (4.5-5kg),Asian section - Right side in Dragonfruit White (4.5-5kg) row - Printed
+41,Inside Coolroom,Asian,Tropical,Longan,-,Longan,Longan,Asian section - Left - Printed
+42,Inside Coolroom,Asian,Tropical,Rambutan,-,Rambutan,Rambutan,Asian section - Right - Printed
+43,Inside Coolroom,Melon,Melon,Rockmelon,-,Rockmelon,Rockmelon,Melon section - Left - Printed
+44,Inside Coolroom,Melon,Melon,Honeydew,White,White Honeydew,Honeydew White,Melon section - Left - Printed
+45,Inside Coolroom,Melon,Melon,Honeydew,Yellow,Yellow Honeydew,Yellow,Melon section - Right side in Honeydew White row - Printed
+46,Inside Coolroom,Melon,Melon,Sapo Melon,-,Sapo Melon,Sapo Melon,Melon section - Left - Printed
+47,Inside Coolroom,Melon,Melon,Dino Melon,-,Dino Melon,Dino Melon,Melon section - Right - Printed
+48,Inside Coolroom,All Year,Avocado,Avocado,Loose,Loose Avocado,Avocado Loose,All Year section - Left - Printed
+49,Inside Coolroom,All Year,Avocado,Avocado,Packing,Pack Avocada,Packing,All Year section - Right - Printed
+50,Inside Coolroom,All Year,Berries,Strawberry,ASD,ASD Strawberry,Strawberry ASD,All Year section - Left - Printed
+51,Inside Coolroom,All Year,Berries,Raspberry,-,Raspberry,Raspberry,All Year section - Right - Printed
+52,Inside Coolroom,All Year,Berries,Strawberry,Premium,Premium Strawberry,Strawberry Premium,All Year section - Left - Printed
+53,Inside Coolroom,All Year,Berries,Blackberry,-,Blackberry,Blackberry,All Year section - Right - Printed
+54,Inside Coolroom,All Year,Berries,Blueberry,Jumbo,Jumbo Blueberry,Blueberry Jumbo,All Year section - Left - Printed
+55,Inside Coolroom,All Year,Berries,Blueberry,Standard,Blueberry,Blueberry,All Year section - Right - Printed
+56,Inside Coolroom,All Year,Kiwi,Kiwi,Gold,Gold Kiwi,Gold Kiwi,All Year section - Left - Printed
+57,Inside Coolroom,Seasonal,Grape,Grape,White,White Grape,White Grape,Seasonal section - Left - Printed
+58,Inside Coolroom,Seasonal,Grape,Grape,Red,Red Grape,Red Grape,Seasonal section - Right - Printed
+59,Inside Coolroom,Seasonal,Grape,Grape,Black,Black Grape,Black Grape,Seasonal section - Left - Printed
+60,Inside Coolroom,Seasonal,Grape,Grape,Sultana,Sultana Grape,Sultana Grape,Seasonal section - Right - Printed
+61,Inside Coolroom,Seasonal,Persimmon,Persimmon,-,Persimmon,Persimmon,Seasonal section - Left - Printed
+62,Inside Coolroom,Seasonal,Pomegranate,Pomegranate,-,Pomegranate,Pomegranate,Seasonal section - Right - Printed
+63,Inside Coolroom,Seasonal,Nut,Chestnut,Small,Small Chestnut,Chestnut Small,Seasonal section - Left - Printed
+64,Inside Coolroom,Seasonal,Nut,Chestnut,Large,Large Chestnut,Chestnut Large,Seasonal section - Right - Printed
+65,Inside Coolroom,Seasonal,Nut,Walnut,-,Walnut,Walnut,Seasonal section - Left - Printed
+66,Inside Coolroom,Stonefruit,Nectarine,Nectarine,White,White Nectarine,White Nectarine,Stonefruit section - Left - Printed
+67,Inside Coolroom,Stonefruit,Nectarine,Nectarine,Yellow,Yellow Nectarine,Yellow,Stonefruit section - Right  side in White Nectarine row - Printed
+68,Inside Coolroom,Stonefruit,Peach,Peach,White,White Peach,White Peach,Stonefruit section - Left - Printed
+69,Inside Coolroom,Stonefruit,Peach,Peach,Yellow,Yellow Peach,Yellow,Stonefruit section - Right side in White Peach row - Printed
+70,Inside Coolroom,Stonefruit,Plum,Plum,Black,Black Plum,Plum Black,Stonefruit section - Left - Printed
+71,Inside Coolroom,Stonefruit,Plum,Plum,Red,Red Plum,Red,Stonefruit section - Right side in Plum Black row - Printed
+72,Inside Coolroom,Stonefruit,Plum,Plum,Yellow,Yello Plum,Yellow Plum,Stonefruit section - Left - Printed
+73,Inside Coolroom,Stonefruit,Peach,Clingstone Peach,-,Clingstone Peach,Clingstone Peach,Stonefruit section - Right - Printed
+74,Inside Coolroom,Stonefruit,Apricot,Apricot,-,Apricot,Apricot,Stonefruit section - Left - Printed
+75,Inside Coolroom,Stonefruit,Cherry,Cherry,5kg,5kg Cherry,Cherry 5kg,Stonefruit section - Left - Printed
+76,Inside Coolroom,Stonefruit,Cherry,Cherry,White,White Cherry,White Cherry,Stonefruit section - Right - Printed
+77,Inside Coolroom,Stonefruit,Cherry,Cherry,2kg,2kg Cherry,Cherry 2kg,Stonefruit section - Left - Printed
+78,Inside Coolroom,Stonefruit,Cherry,Cherry,28mm+,28+ Cherry,28+,Stonefruit section - Right - Printed
+79,Inside Coolroom,Stonefruit,Cherry,Cherry Hill,30mm+,30+ Cherry,Cherry Hill 30+,Stonefruit section - Left - Printed
+80,Inside Coolroom,Stonefruit,Cherry,Cherry Hill,32mm+,32+ Cherry,32+,Stonefruit section - Right - Printed
+81,Inside Coolroom,Stonefruit,Cherry,Wandin Cherry,30mm+,30+ Wandin Cherry,Wandin 30+,Stonefruit section - Left - Printed
+82,Inside Coolroom,Stonefruit,Cherry,Wandin Cherry,32mm+,32+ Wandin Cherry,32+,Stonefruit section - Right - Printed
+83,Outside Coolroom,Outside Coolroom,Banana,Banana,15kg,Banana,Banana (15kg),Outside Coolroom - Left - Printed
+84,Outside Coolroom,Outside Coolroom,Banana,Lady Finger Banana,12kg,Lady Finger Banana,Lady Finger (12kg),Outside Coolroom - Right - Printed
+85,Outside Coolroom,Outside Coolroom,Papaya,Papaya,-,Papaya,Papaya,Outside Coolroom - Left - Printed
+86,Outside Coolroom,Outside Coolroom,Custard Apple,Custard Apple,-,Custard Apple,Custard Apple,Outside Coolroom - Right - Printed
+87,Outside Coolroom,Outside Coolroom,Tropical,Mangosteen,-,Mangosteen,Mangosteen,Outside Coolroom - Left - Printed
+88,Outside Coolroom,Outside Coolroom,Tropical,Jackfruit,-,Jackfruit,Jackfruit,Outside Coolroom - Right - Printed
+89,Outside Coolroom,Outside Coolroom,Mango,Kensington Pride,-,Kensington Pride,Kensington Pride,Outside Coolroom - Left - Printed
+90,Outside Coolroom,Outside Coolroom,Mango,R2E2,-,R2E2,R2E2 Mango,Outside Coolroom - Right - Printed
+91,Outside Coolroom,Outside Coolroom,Mango,Calypso,-,Calypso,Calypso Mango,Outside Coolroom - Left - Printed
+92,Outside Coolroom,Outside Coolroom,Mango,Maha,-,Maha,Maha Mango,Outside Coolroom - Right - Printed
+93,Outside Coolroom,Outside Coolroom,Mango,Keitt,-,Keitt,Keitt Mango,Outside Coolroom - Left - Printed
+94,Outside Coolroom,Outside Coolroom,Watermelon,Watermelon Mini Lee,Standard,Watermelon Mini Lee,Watermelon Mini Lee,Outside Coolroom - Right - Printed
+95,Outside Coolroom,Outside Coolroom,Watermelon,Watermelon,XL,Watermelon,XL,Outside Coolroom - Right in Watermelon Mini Lee row - Printed
+97,Outside Coolroom,Outside Coolroom,Orange,Orange,Bag 3kg,3kg Orange (in box),Box,Outside Coolroom - Right - Printed
+98,Outside Coolroom,Outside Coolroom,Orange,Orange,Bag 3kg,3kg Orange (in bin),Bin,Outside Coolroom - Right side in Box row - Printed
+99,Outside Coolroom,Outside Coolroom,Pineapple,Pineapple,Top On,Top-on Pineapple,Pineapple Top On,Outside Coolroom - Right - Printed
+100,Outside Coolroom,Outside Coolroom,Pineapple,Pineapple,Top Off,Top-off Pineapple,Top Off,Outside Coolroom - Right in Pineapple Top On row - Printed
+101,Inside Coolroom,Apples,Apple,Golden Apple,-,Golden Apple,Golden apple,Apples section - Left - Handwritten
+102,Inside Coolroom,Apples,Apple,Jazz,-,Jazz,Jazz,Apples section - Left - Handwritten
+103,Inside Coolroom,Citrus,Mandarin,USA Mandarin,-,USA Mandarin,USA Mandarin,Citrus section - Left side in Imperial Mandarin row - Handwritten (Or somewhere else)
+104,Inside Coolroom,Citrus,Orange,Valencia,In box,Valencia,Valencia (in box),Citrus section - Left - Handwritten (Or somewhere else)
+106,Inside Coolroom,Asian,Coconut,Green Skin Coconut,-,Green Skin Coconut,Colo Green Skin; Coco Green Skin,Asian section - Right side in Dried Coconut row - Handwritten (Or somewhere else)
+107,Inside Coolroom,Stonefruit,Plum,Sugar Crunch,-,Sugar Crunch,Sugar Crunch,Asian - Left - Handwritten (Or somewhere else)
+108,Inside Coolroom,Stonefruit,Plum,Sugar Plumcot,-,Sugar Plumcot,Sugar plumcot,Asian - Left - Handwritten (Or somewhere else)
+109,Inside Coolroom,Stonefruit,Plum,Sugar Plum,-,Sugar Plum,Sugar plum,Asian - Left - Handwritten (Or somewhere else)
+110,Inside Coolroom,Stonefruit,Plum,Blueberry Plum,-,Blueberry Plum,Blueberry plum,Asian - Left - Handwritten (Or somewhere else)
+111,Inside Coolroom,Stonefruit,Peach,Paradise Peach,-,Paradise Peach,Paradise Peach,Asian - Left - Handwritten  (Or somewhere else)
+113,Inside Coolroom,Stonefruit,Plum,Cherry Plum,-,Cherry Plum,Cherry plum,Asian - Left - Handwritten
+114,Inside Coolroom,Stonefruit,Plumcot,Plumcot,-,Plumcot,Plumcot; Sugar plumcot,Asian - Left - Handwritten
+115,Inside Coolroom,Stonefruit,Plumcot,Golden Plumcot,-,Golden Plumcot,Golden Plumcot,Asian - Left - Handwritten
+116,Inside Coolroom,Asian,Pear,Paradise Pear,-,Paradise Pear,Paradise pear,Asian section - Left - Handwritten
+117,Inside Coolroom,Asian,Tropical,Jujube,-,Jujube,JuJube,Asian section - Left - Handwritten
+118,Inside Coolroom,Seasonal,Tropical,Passion Fruit,-,Passion Fruit,Passion fruit,Outside Coolroom - Left - Handwritten
+119,Inside Coolroom,Seasonal,Tropical,Fig,-,Fig,Fig; Zig; Figs; Zigs,Outside Coolroom - Left - Handwritten
+120,Inside Coolroom,All Year,Avocado,Hass Avocado,18kg,Hass Avocado,Hass (18),All Year section - Left side in section header row - Handwritten
+121,Inside Coolroom,All Year,Avocado,Shepard Avocado,18kg,Shepard Avocado,Shepard (18),All Year section - Left side in section header row - Handwritten
+122,Inside Coolroom,All Year,Avocado,Reed Avocado,-,Reed Avocado,Packing Reed,All Year section - Right side in Packing row - Handwritten
+123,Inside Coolroom,All Year,Kiwi,Kiwi,Red,,Red Kiwi,All Year section - Right side in Gold Kiwi row - Handwritten
+124,Inside Coolroom,All Year,Kiwi,Kiwi Berry,-,Kiwi Berry,Kiwi berry,All Year section - Left - Handwritten
+125,Inside Coolroom,Seasonal,Grape,Kyoho Grape,1kg,Kyoho Grape,Kyoho (1kg),Seasonal section - Left side in section header row - Handwritten
+126,Inside Coolroom,Seasonal,Grape,Autumn Crisp Grape,Loose,Autumn Crisp Loose,Autumn Crisp loose,Seasonal section - Left - Handwritten
+127,Inside Coolroom,Seasonal,Grape,Autumn Crisp Grape,Bag,Autumn Crisp Bag,Autumn Crisp bag,Seasonal section - Left - Handwritten
+128,Inside Coolroom,Seasonal,Grape,Autumn Crisp Grape,Orange Box,Autumn Crisp Loose,Autumn Crisp (orange box),Seasonal section - Left - Handwritten
+129,Inside Coolroom,Seasonal,Grape,Cotton Candy Grape,-,Cotton Candy Grape,Cotton candy,Seasonal section - Right side in Walnut row - Handwritten
+130,Inside Coolroom,Seasonal,Grape,Sapphire Black Grape,-,Sapphire Black Grape,Sapphire black,Seasonal section - Left - Handwritten
+131,Inside Coolroom,Stonefruit,Plum,Turtle Egg Plum,-,Turtle Egg Plum,Turtle Egg plum,Stonefruit section - Left - Handwritten
+132,Inside Coolroom,Stonefruit,Peach,Donut Peach,-,Donut Peach,Donut Peach,Stonefruit section - Left - Handwritten
+133,Inside Coolroom,Asian,Mango,Taiwan Mango,-,Taiwan Mango,Taiwan Mango,Outside Coolroom - Right side in Keitt Mango row - Handwritten
+134,Inside Coolroom,Asian,Melon,Korean Melon,-,Korean Melon,Korean Melon,Outside Coolroom - Right - Handwritten
+135,Inside Coolroom,Asian,Persimmon,Dried Persimmon,-,Dried Persimmon,Dried Persimmon,Outside Coolroom - Left - Handwritten (below table)
