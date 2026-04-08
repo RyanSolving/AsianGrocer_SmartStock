@@ -33,6 +33,7 @@ export function parseCSVCatalog(csvText: string): CatalogEntry[] {
 
     entries.push({
       id: Number.parseInt(row.ID, 10),
+      code: (row.Code || row.CODE || row.code || '').trim(),
       location: row.Location.trim(),
       sub_location: row['Sub-location'].trim(),
       category: row.Category?.trim() || '',

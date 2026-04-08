@@ -1,7 +1,6 @@
 'use client'
 
 import { useMemo, useState, useEffect } from 'react'
-import Papa from 'papaparse'
 import {
   BarChart3,
   CheckCircle2,
@@ -56,6 +55,7 @@ type UnknownItem = {
 
 type CatalogItem = {
   id: number
+  code?: string
   location: string
   sub_location: string
   category: string
@@ -65,6 +65,14 @@ type CatalogItem = {
   stocklist_name: string
   navigation_guide: string
   row_position?: 'left' | 'right' | 'single'
+}
+
+type CatalogVersion = {
+  id: string
+  version_name: string
+  uploaded_at: string
+  item_count: number
+  is_active: boolean
 }
 
 type StockMode = 'stock-in' | 'stock-closing'
@@ -78,6 +86,14 @@ type ParsedPayload = {
   total_items: number
   confidence_overall: 'high' | 'medium' | 'low'
   items: StockItem[]
+}
+
+type SessionPayload = {
+  user: {
+    id: string
+    email: string | null
+  }
+  roles: string[]
 }
 
 type IndexedItem = {
@@ -145,6 +161,8 @@ export default function Home() {
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [stockMode, setStockMode] = useState<StockMode>('stock-in')
   const [activeCatalog, setActiveCatalog] = useState<CatalogItem[] | null>(null)
+  const [catalogVersions, setCatalogVersions] = useState<CatalogVersion[]>([])
+  const [selectedCatalogVersionId, setSelectedCatalogVersionId] = useState<string | null>(null)
   const [isCatalogOpen, setIsCatalogOpen] = useState(false)
   const [parsedData, setParsedData] = useState<ParsedPayload | null>(null)
   const [unknownItems, setUnknownItems] = useState<UnknownItem[]>([])
@@ -155,21 +173,88 @@ export default function Home() {
   const [isParsing, setIsParsing] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [isCatalogUploading, setIsCatalogUploading] = useState(false)
+  const [session, setSession] = useState<SessionPayload | null>(null)
+  const [isAuthLoading, setIsAuthLoading] = useState(true)
+  const [latestGenerateUid, setLatestGenerateUid] = useState<string | null>(null)
   const [apiError, setApiError] = useState<string | null>(null)
   const [apiStatus, setApiStatus] = useState<string | null>(null)
 
+  async function loadCatalogFromApi(versionId?: string) {
+    const query = versionId ? `?version_id=${encodeURIComponent(versionId)}` : ''
+    const response = await fetch(`/api/catalog${query}`)
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(data?.error ?? 'Failed to load catalog data.')
+    }
+
+    const catalog = Array.isArray(data?.catalog) ? data.catalog : []
+    const versions = Array.isArray(data?.versions) ? data.versions : []
+
+    setActiveCatalog(catalog)
+    setCatalogVersions(versions)
+    setSelectedCatalogVersionId(data?.active_version_id ?? versions[0]?.id ?? null)
+    setCatalogItemCount(catalog.length)
+    setCatalogSource(data?.source === 'database' ? 'uploaded' : 'master')
+  }
+
   useEffect(() => {
-    fetch('/api/catalog')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data && data.catalog) {
-          setActiveCatalog(data.catalog)
-          setCatalogSource('master')
-          setCatalogItemCount(data.catalog.length)
+    fetch('/api/auth/session')
+      .then(async (res) => {
+        if (!res.ok) {
+          setSession(null)
+          return
+        }
+
+        const data = await res.json()
+        setSession(data)
+
+        try {
+          await loadCatalogFromApi()
+        } catch (catalogError) {
+          console.error('Failed to load catalog', catalogError)
+          setApiError(catalogError instanceof Error ? catalogError.message : 'Failed to load catalog.')
         }
       })
-      .catch((error) => console.error('Failed to load default catalog', error))
+      .catch(() => setSession(null))
+      .finally(() => setIsAuthLoading(false))
   }, [])
+
+  async function uploadCatalogToDatabase(file: File) {
+    setIsCatalogUploading(true)
+    setApiError(null)
+
+    try {
+      const formData = new FormData()
+      formData.append('csv_file', file)
+      const baseName = file.name.replace(/\.csv$/i, '')
+      const versionName = `${baseName}-${new Date().toISOString().slice(0, 10)}`
+      formData.append('version_name', versionName)
+
+      const response = await fetch('/api/catalog', {
+        method: 'POST',
+        body: formData,
+      })
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data?.error ?? 'Failed to upload catalog.')
+      }
+
+      setActiveCatalog(data.catalog ?? [])
+      setCatalogVersions(data.versions ?? [])
+      setSelectedCatalogVersionId(data.active_version_id ?? null)
+      setCatalogItemCount(Array.isArray(data.catalog) ? data.catalog.length : 0)
+      setCatalogSource('uploaded')
+      setIsCatalogOpen(true)
+      setApiStatus('Catalog uploaded and saved to database.')
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : 'Unexpected catalog upload error.')
+    } finally {
+      setIsCatalogUploading(false)
+    }
+  }
 
   const indexedItems = useMemo(() => {
     if (!parsedData) return []
@@ -273,6 +358,9 @@ export default function Home() {
       }
 
       const json = await response.json()
+      if (response.status === 401) {
+        throw new Error('Unauthorized. Please sign in at /login before parsing photos.')
+      }
       if (!response.ok) {
         let detailsStr = '';
         if (json?.details) {
@@ -282,10 +370,15 @@ export default function Home() {
       }
 
       setParsedData(json.data)
+      setLatestGenerateUid(typeof json.uid_generate === 'string' ? json.uid_generate : null)
       setUnknownItems(json.unknown_items ?? [])
       setMissingCatalogItems(json.missing_catalog_items ?? [])
       setReviewRequiredCount(json.review_required_count ?? 0)
-      setCatalogSource(json.catalog_source ?? null)
+      if (selectedCatalogVersionId) {
+        setCatalogSource('uploaded')
+      } else {
+        setCatalogSource(json.catalog_source ?? null)
+      }
       setCatalogItemCount(typeof json.catalog_item_count === 'number' ? json.catalog_item_count : null)
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
@@ -389,10 +482,15 @@ export default function Home() {
           data: parsedData,
           unknown_items: unknownItems,
           missing_catalog_items: missingCatalogItems,
+          uid_generate: latestGenerateUid,
         }),
       })
 
       const payload = await response.json()
+
+      if (response.status === 401) {
+        throw new Error('Unauthorized. Please sign in at /login before saving to Snowflake.')
+      }
 
       if (!response.ok) {
         const details = payload?.details
@@ -416,6 +514,33 @@ export default function Home() {
 
   return (
     <main className="min-h-screen px-4 py-4 md:px-8 md:py-7">
+      <div className="mx-auto mb-3 flex w-full max-w-7xl items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-600">
+        <p>
+          {isAuthLoading
+            ? 'Checking sign-in session...'
+            : session
+            ? `Signed in as ${session.user.email ?? session.user.id} (${session.roles.join(', ') || 'no role'})`
+            : 'Not signed in'}
+        </p>
+        <div className="flex items-center gap-2">
+          {!session ? (
+            <a href="/login" className="rounded-md border border-slate-300 px-3 py-1.5 text-slate-700 hover:bg-slate-50">
+              Sign in
+            </a>
+          ) : (
+            <button
+              type="button"
+              onClick={async () => {
+                await fetch('/api/auth/logout', { method: 'POST' })
+                window.location.href = '/login'
+              }}
+              className="rounded-md border border-slate-300 px-3 py-1.5 text-slate-700 hover:bg-slate-50"
+            >
+              Sign out
+            </button>
+          )}
+        </div>
+      </div>
       <div className="mx-auto flex max-w-7xl flex-col gap-4 md:flex-row">
         <aside className="card-surface rounded-2xl p-4 md:min-h-[85vh] md:w-72 md:p-6">
           <div className="mb-8">
@@ -527,6 +652,36 @@ export default function Home() {
                 </p>
 
                 <div className="mt-4 border-t border-slate-200 pt-4 flex flex-col gap-2">
+                  <div className="rounded-lg border border-slate-200 bg-white p-3 text-left">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Catalog Version</p>
+                    <select
+                      className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
+                      value={selectedCatalogVersionId ?? ''}
+                      onChange={async (event) => {
+                        const versionId = event.target.value
+                        setSelectedCatalogVersionId(versionId || null)
+                        if (!versionId) return
+                        try {
+                          await loadCatalogFromApi(versionId)
+                        } catch (error) {
+                          setApiError(error instanceof Error ? error.message : 'Failed to switch catalog version.')
+                        }
+                      }}
+                    >
+                      {catalogVersions.length === 0 ? (
+                        <option value="">No DB catalog yet</option>
+                      ) : (
+                        catalogVersions.map((version) => (
+                          <option key={version.id} value={version.id}>
+                            {version.version_name} ({version.item_count} items)
+                          </option>
+                        ))
+                      )}
+                    </select>
+                    <p className="mt-2 text-xs text-slate-500">
+                      Upload a CSV once, then choose any version stored in Supabase.
+                    </p>
+                  </div>
                   <input
                     id="catalog-upload"
                     type="file"
@@ -535,44 +690,7 @@ export default function Home() {
                     onChange={(event) => {
                       const file = event.target.files?.[0]
                       if (!file) return
-                      const reader = new FileReader()
-                      reader.onload = (e) => {
-                        const text = e.target?.result as string
-                        Papa.parse<Record<string, string>>(text.trim(), {
-                          header: true,
-                          skipEmptyLines: true,
-                          complete: (results) => {
-                            const entries: CatalogItem[] = []
-                            for (const row of results.data) {
-                              if (!row.ID || !row.Location || !row['Sub-location'] || !row.Product || !row['Official Name']) continue
-                              
-                              const guide = row['Nagivation Guide'] || row['Navigation Guide'] || ''
-                              let rowPosition: 'left' | 'right' | 'single' = 'single'
-                              const guideLower = guide.toLowerCase()
-                              if (guideLower.includes('left')) rowPosition = 'left'
-                              else if (guideLower.includes('right')) rowPosition = 'right'
-
-                              entries.push({
-                                id: parseInt(row.ID, 10),
-                                location: row.Location.trim(),
-                                sub_location: row['Sub-location'].trim(),
-                                category: row.Category?.trim() || '',
-                                product: row.Product.trim(),
-                                attribute: row.Attribute?.trim() || '',
-                                official_name: row['Official Name'].trim(),
-                                stocklist_name: row['Name on Stocklist']?.trim() || '',
-                                navigation_guide: guide.trim(),
-                                row_position: rowPosition,
-                              })
-                            }
-                            setActiveCatalog(entries)
-                            setCatalogSource('uploaded')
-                            setCatalogItemCount(entries.length)
-                            setIsCatalogOpen(true)
-                          }
-                        })
-                      }
-                      reader.readAsText(file)
+                      void uploadCatalogToDatabase(file)
                     }}
                   />
                   <div className="flex items-center justify-center gap-2">
@@ -581,7 +699,7 @@ export default function Home() {
                       className="inline-flex cursor-pointer items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
                     >
                       <Database className="mr-2 h-4 w-4" />
-                      Upload CSV Catalog
+                      {isCatalogUploading ? 'Uploading Catalog...' : 'Upload CSV Catalog to DB'}
                     </label>
                     <button
                       type="button"
@@ -667,6 +785,9 @@ export default function Home() {
                     <span className="font-semibold text-slate-700">Catalog source:</span>{' '}
                     {catalogSource === 'uploaded' ? 'Uploaded file' : 'Project master catalog'}
                     {catalogItemCount !== null ? ` (${catalogItemCount} items)` : ''}
+                  </p>
+                  <p className="md:col-span-3">
+                    <span className="font-semibold text-slate-700">UID_generate:</span> {latestGenerateUid ?? '-'}
                   </p>
                 </div>
 
@@ -1154,6 +1275,7 @@ export default function Home() {
                 <thead>
                   <tr className="border-b border-slate-200 text-slate-500">
                     <th className="pb-2 font-medium">ID</th>
+                    <th className="pb-2 font-medium pl-2">Code</th>
                     <th className="pb-2 font-medium">Location</th>
                     <th className="pb-2 font-medium pl-2">Sub-location</th>
                     <th className="pb-2 font-medium pl-2">Category</th>
@@ -1168,6 +1290,9 @@ export default function Home() {
                   {activeCatalog.map((item, index) => (
                     <tr key={index} className="hover:bg-slate-50">
                       <td className="py-2 pr-2 text-slate-500">{item.id}</td>
+                      <td className="py-2 pr-2">
+                        <input className="w-full min-w-[90px] rounded border border-transparent bg-transparent px-2 py-1 hover:border-slate-300 focus:border-brand-500 focus:bg-white focus:outline-none" value={item.code ?? ''} onChange={(e) => { const c = [...activeCatalog]; c[index].code = e.target.value; setActiveCatalog(c); setCatalogSource('edited') }} />
+                      </td>
                       <td className="py-2 pr-2">
                         <input className="w-full min-w-[130px] rounded border border-transparent bg-transparent px-2 py-1 hover:border-slate-300 focus:border-brand-500 focus:bg-white focus:outline-none" value={item.location} onChange={(e) => { const c = [...activeCatalog]; c[index].location = e.target.value; setActiveCatalog(c); setCatalogSource('edited') }} />
                       </td>
@@ -1200,7 +1325,7 @@ export default function Home() {
             
             <div className="border-t border-slate-200 px-6 py-4 flex justify-between gap-3 bg-slate-50 rounded-b-2xl">
               <button onClick={() => {
-                const newRow = { id: activeCatalog.length ? Math.max(...activeCatalog.map(c => c.id)) + 1 : 1, location: '', sub_location: '', category: '', product: '', attribute: '', official_name: '', stocklist_name: '', navigation_guide: '', row_position: 'single' as const }
+                const newRow = { id: activeCatalog.length ? Math.max(...activeCatalog.map(c => c.id)) + 1 : 1, code: '', location: '', sub_location: '', category: '', product: '', attribute: '', official_name: '', stocklist_name: '', navigation_guide: '', row_position: 'single' as const }
                 setActiveCatalog([...activeCatalog, newRow])
                 setCatalogSource('edited')
               }} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2">

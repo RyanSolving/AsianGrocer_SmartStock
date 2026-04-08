@@ -3,6 +3,8 @@ import OpenAI from 'openai'
 import { z } from 'zod'
 
 import { loadDefaultCatalog, buildCatalogPrompt, parseCSVCatalog } from '../../../lib/fruit-catalog'
+import { logGenerateEvent } from '../../../lib/supabase/events'
+import { getAuthContext } from '../../../lib/supabase/route-auth'
 import { catalogEntrySchema, parsedStockSchema, stockModeSchema } from '../../../lib/stock-schema'
 import type { CatalogEntry, StockMode } from '../../../lib/stock-schema'
 
@@ -286,6 +288,11 @@ export async function POST(request: Request) {
   let parsedJson: unknown
 
   try {
+    const auth = await getAuthContext()
+    if (auth instanceof NextResponse) {
+      return auth
+    }
+
     const formData = await request.formData()
     const uploadedFile = formData.get('photo')
     const mode = normalizeStockMode(formData.get('mode'))
@@ -547,10 +554,33 @@ export async function POST(request: Request) {
     )
   }
 
+  const eventInsert = await logGenerateEvent(auth.supabase, {
+    user: {
+      userId: auth.user.id,
+    },
+    inputFileName: uploadedFile.name,
+    catalogVersion: catalogSource,
+    outputFromModel: extracted.data,
+    finalOutput: validated.data,
+    edited: false,
+    stockMode: mode,
+  })
+
+  if (eventInsert.error) {
+    return NextResponse.json(
+      {
+        error: 'Failed to log generate event.',
+        details: eventInsert.error.message,
+      },
+      { status: 500 }
+    )
+  }
+
   return NextResponse.json(
     {
         message: 'Photo parsed successfully with OCR extraction.',
       data: validated.data,
+      uid_generate: eventInsert.data?.uid_generate ?? null,
       unknown_items: unknownItems,
       missing_catalog_items: missingCatalogItems,
       review_required_count: reviewRequiredCount,

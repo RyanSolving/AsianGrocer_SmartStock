@@ -4,6 +4,7 @@ export const stockModeSchema = z.enum(['stock-in', 'stock-closing'])
 
 export const catalogEntrySchema = z.object({
   id: z.number(),
+  code: z.string().optional(),
   location: z.string(),
   sub_location: z.string(),
   category: z.string(),

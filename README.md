@@ -31,9 +31,32 @@ By capturing a photo of a handwritten closing stock sheet, this application leve
    ```env
    OPENAI_API_KEY="sk-..."
    OPENAI_VISION_MODEL="gpt-4o" # or gpt-4.5-preview / gpt-5.4
+   NEXT_PUBLIC_SUPABASE_URL="https://YOUR_PROJECT_REF.supabase.co"
+   NEXT_PUBLIC_SUPABASE_ANON_KEY="YOUR_SUPABASE_ANON_KEY"
    ```
 
-2. **Run The Application:**
+2. **Run Supabase SQL Migration:**
+   Execute `web-app/supabase/migrations/20260408_auth_events.sql` in your Supabase SQL editor.
+   Then execute `web-app/supabase/migrations/20260408_normalize_events.sql`.
+   Then execute `web-app/supabase/migrations/20260408_catalog_db.sql`.
+   If your catalog tables were already created, also execute `web-app/supabase/migrations/20260408_catalog_add_code.sql` to add the `code` column.
+   This creates:
+   - `user_roles` (multiple roles per user)
+   - `event_generate`
+   - `event_stock_check`
+   - `event_catalog_save`
+   - `event_push`
+   - `catalog_versions`
+   - `catalog_entries`
+   - Row Level Security policies for per-user access and admin override
+   Event tables are normalized to store `user_id` as the user reference source.
+
+3. **Catalog Workflow (Database-backed):**
+   - On first use, upload a catalog CSV from the UI to store it in Supabase.
+   - After upload, choose catalog versions from the dropdown (loaded from database) for parsing.
+   - The selected DB catalog is sent to the parser for each run.
+
+4. **Run The Application:**
    ```bash
    cd web-app
    npm install
@@ -41,7 +64,10 @@ By capturing a photo of a handwritten closing stock sheet, this application leve
    ```
    Navigate to `http://localhost:3000` to access the parser dashboard.
 
-3. **Uploading Data:** Choose the master `catalog_v2.csv` (or use the one in `public/`), upload a high-quality photo of your closing stocklist, and hit parse!
+5. **Sign In:**
+   Open `http://localhost:3000/login` to sign up/sign in with email + password.
+
+6. **Uploading Data:** Choose a DB catalog version, upload a high-quality photo of your closing stocklist, and hit parse!
 
 ## 🔮 Next Phases / Roadmap
 

@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import snowflake from 'snowflake-sdk'
 
+import { logPushToSnowflakeEvent } from '../../../lib/supabase/events'
+import { getAuthContext } from '../../../lib/supabase/route-auth'
 import {
   catalogEntrySchema,
   itemSchema,
@@ -174,6 +176,11 @@ function buildSnowflakeStagingRecord(input: {
 }
 
 export async function POST(request: Request) {
+  const auth = await getAuthContext()
+  if (auth instanceof NextResponse) {
+    return auth
+  }
+
   let payload: unknown
 
   try {
@@ -188,12 +195,14 @@ export async function POST(request: Request) {
           data: parsedStockSchema.safeParse((payload as { data?: unknown }).data),
           unknownItems: (payload as { unknown_items?: unknown }).unknown_items,
           missingCatalogItems: (payload as { missing_catalog_items?: unknown }).missing_catalog_items,
+          uidGenerate: (payload as { uid_generate?: unknown }).uid_generate,
         }
       : null
 
   let parsedData
   let unknownItems: unknown[] = []
   let missingCatalogItems: unknown[] = []
+  let uidGenerate: string | null = null
 
   if (envelope) {
     const unknownResult = unknownItemSchema.array().default([]).safeParse(envelope.unknownItems)
@@ -232,6 +241,7 @@ export async function POST(request: Request) {
     parsedData = envelope.data.data
     unknownItems = unknownResult.data
     missingCatalogItems = missingResult.data
+    uidGenerate = typeof envelope.uidGenerate === 'string' && envelope.uidGenerate.length > 0 ? envelope.uidGenerate : null
   } else {
     const parsed = parsedStockSchema.safeParse(payload)
 
@@ -315,6 +325,24 @@ export async function POST(request: Request) {
         JSON.stringify(stagedRecord.item_data),
       ]
     )
+
+    const pushEvent = await logPushToSnowflakeEvent(auth.supabase, {
+      user: {
+        userId: auth.user.id,
+      },
+      uidGenerate,
+    })
+
+    if (pushEvent.error) {
+      return NextResponse.json(
+        {
+          error: 'Snowflake row inserted but push event logging failed.',
+          details: pushEvent.error.message,
+          query_id: result.queryId,
+        },
+        { status: 500 }
+      )
+    }
 
     return NextResponse.json(
       {
