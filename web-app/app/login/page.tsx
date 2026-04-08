@@ -23,7 +23,8 @@ export default function LoginPage() {
     try {
       const { error: loginError } = await supabase.auth.signInWithPassword({ email, password })
       if (loginError) throw loginError
-      window.location.href = '/'
+      const nextPath = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('next') : null
+      window.location.href = nextPath && nextPath.startsWith('/') ? nextPath : '/'
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : 'Unexpected auth error.')
     } finally {

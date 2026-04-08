@@ -2,6 +2,7 @@
   "name": "asiangrocer-smartstock-workspace",
   "private": true,
   "scripts": {
+    "prebuild": "npm --prefix web-app install",
     "dev": "npm --prefix web-app run dev",
     "build": "npm --prefix web-app run build",
     "start": "npm --prefix web-app run start",
