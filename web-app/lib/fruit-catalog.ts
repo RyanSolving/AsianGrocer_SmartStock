@@ -1,7 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import Papa from 'papaparse'
-import type { CatalogEntry } from './stock-schema'
+import type { CatalogEntry, StockMode } from './stock-schema'
 
 export function parseCSVCatalog(csvText: string): CatalogEntry[] {
   const result = Papa.parse<Record<string, string>>(csvText.trim(), {
@@ -59,14 +59,17 @@ export function loadDefaultCatalog(): CatalogEntry[] {
   }
 }
 
-export function buildCatalogPrompt(catalog: CatalogEntry[]) {
+export function buildCatalogPrompt(catalog: CatalogEntry[], mode: StockMode) {
   let catalogText = ''
   for (const item of catalog) {
     catalogText += `- [ID: ${item.id}] "${item.stocklist_name}" (${item.official_name}) \u2192 ${item.navigation_guide}\n`
   }
 
+  const sheetKind = mode === 'stock-closing' ? 'closing stock sheet' : 'stock-in sheet'
+
   return `You are an expert document-vision extraction agent for a fruit store stocklist form.
-Your task is to extract ALL visibly present stock records from a photographed stock sheet into strict JSON.
+Your task is to extract ALL visibly present stock records from a photographed ${sheetKind} into strict JSON.
+The current mode is: ${mode}.
 
 This form contains:
 - printed product names
@@ -109,6 +112,7 @@ ${catalogText}
 
 ## Output \u2014 Strict JSON Format (return only this, no extra text)
 {
+  "mode": "stock-in|stock-closing",
   "stock_date": "YYYY-MM-DD or null if not found",
   "confidence_overall": "high|medium|low",
   "items": [

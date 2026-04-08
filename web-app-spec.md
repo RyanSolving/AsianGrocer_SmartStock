@@ -51,6 +51,7 @@
 ```json
 {
   "photo_id": "uuid-or-filename",
+  "mode": "stock-in|stock-closing",
   "upload_date": "2024-04-01T12:00:00Z",
   "stock_date": "2026-03-26",  // Extracted/parsed from photo
   "photo_url": "https://vercel-blob/photo.jpg",  // Optional cloud storage
@@ -79,6 +80,7 @@
 ```sql
 CREATE TABLE stock_photos_raw (
   photo_id VARCHAR,
+  mode VARCHAR,
   upload_date TIMESTAMP,
   stock_date DATE,
   photo_url VARCHAR,
@@ -87,6 +89,40 @@ CREATE TABLE stock_photos_raw (
   item_data VARIANT,  // JSON array of items
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+```
+
+**Exact row shape written by `/api/save-to-snowflake`:**
+```json
+{
+  "photo_id": "string",
+  "mode": "stock-in|stock-closing",
+  "upload_date": "ISO timestamp",
+  "stock_date": "YYYY-MM-DD",
+  "photo_url": "string or null",
+  "total_items": 0,
+  "confidence_overall": "high|medium|low",
+  "item_data": [
+    {
+      "catalog_id": 123,
+      "product_raw": "string",
+      "location": "string",
+      "sub_location": "string",
+      "category": "string",
+      "product": "string",
+      "attribute": "string",
+      "official_name": "string",
+      "stocklist_name": "string|null",
+      "navigation_guide": "string|null",
+      "row_position": "left|right|single",
+      "quantity_raw": "string|null",
+      "quantity": 0,
+      "quantity_conflict_flag": false,
+      "confidence": "high|medium|low",
+      "catalog_match_status": "exact|fuzzy|unknown",
+      "notes": "string|null"
+    }
+  ]
+}
 ```
 
 ## 4. Features (MVP)
@@ -177,7 +213,7 @@ CREATE TABLE stock_photos_raw (
 |----------|--------|-------------|
 | `/api/parse-photo` | POST | {photo: File} → JSON structured data |
 | `/api/history` | GET | List past uploads |
-| `/api/save-to-snowflake` | POST | {jsonData} → Insert to staging |
+| `/api/save-to-snowflake` | POST | { data, unknown_items, missing_catalog_items } → Insert one JSON staging row, including `mode` |
 | `/api/export-csv` | POST | {jsonData} → CSV download |
 
 ## 9. Deployment (Vercel)

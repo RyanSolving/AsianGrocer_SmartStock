@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+export const stockModeSchema = z.enum(['stock-in', 'stock-closing'])
+
 export const catalogEntrySchema = z.object({
   id: z.number(),
   location: z.string(),
@@ -41,6 +43,7 @@ export const itemSchema = z.object({
 
 export const parsedStockSchema = z.object({
   photo_id: z.string().min(1),
+  mode: stockModeSchema.default('stock-in'),
   upload_date: z.string().datetime(),
   stock_date: z.string().date(),
   photo_url: z.string().url().nullable().default(null),
@@ -49,6 +52,19 @@ export const parsedStockSchema = z.object({
   items: z.array(itemSchema),
 })
 
+export const snowflakeStagingRecordSchema = z.object({
+  photo_id: z.string().min(1),
+  mode: stockModeSchema.default('stock-in'),
+  upload_date: z.string().datetime(),
+  stock_date: z.string().date(),
+  photo_url: z.string().url().nullable().default(null),
+  total_items: z.number().int().nonnegative(),
+  confidence_overall: z.enum(['high', 'medium', 'low']).default('medium'),
+  item_data: z.array(itemSchema),
+})
+
 export type CatalogEntry = z.infer<typeof catalogEntrySchema>
 export type ParsedStock = z.infer<typeof parsedStockSchema>
 export type StockItem = z.infer<typeof itemSchema>
+export type SnowflakeStagingRecord = z.infer<typeof snowflakeStagingRecordSchema>
+export type StockMode = z.infer<typeof stockModeSchema>

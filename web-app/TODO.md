@@ -21,7 +21,7 @@
 - [x] Reconstruct parsed output in paper-like stocklist review layout (photo-matching sections)
 - [x] Add CSV export from edited OCR result state
 - [x] Add catalog source audit metadata in parse response + UI (`master|uploaded`, item count)
-- [ ] Implement actual Snowflake insert in `/api/save-to-snowflake`
+- [x] Implement actual Snowflake insert in `/api/save-to-snowflake`
 - [ ] Add upload history API + UI (`/api/history`)
 
 Phase 1: 98% complete

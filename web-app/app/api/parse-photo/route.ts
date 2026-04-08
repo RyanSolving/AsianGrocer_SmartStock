@@ -3,12 +3,13 @@ import OpenAI from 'openai'
 import { z } from 'zod'
 
 import { loadDefaultCatalog, buildCatalogPrompt, parseCSVCatalog } from '../../../lib/fruit-catalog'
-import { catalogEntrySchema, parsedStockSchema } from '../../../lib/stock-schema'
-import type { CatalogEntry } from '../../../lib/stock-schema'
+import { catalogEntrySchema, parsedStockSchema, stockModeSchema } from '../../../lib/stock-schema'
+import type { CatalogEntry, StockMode } from '../../../lib/stock-schema'
 
 const allowedUnits = new Set(['kg', 'box', 'punnet', 'pack'])
 
 const ocrExtractionSchema = z.object({
+  mode: z.union([stockModeSchema, z.string()]).optional(),
   stock_date: z.union([z.string(), z.null()]).optional(),
   confidence_overall: z.union([z.string(), z.null()]).optional(),
   items: z.array(z.record(z.unknown())).nullish().transform(v => v ?? []),
@@ -276,133 +277,140 @@ function tryParseJson(text: string) {
   }
 }
 
+function normalizeStockMode(value: unknown): StockMode {
+  const parsed = stockModeSchema.safeParse(value)
+  return parsed.success ? parsed.data : 'stock-in'
+}
+
 export async function POST(request: Request) {
-  const formData = await request.formData()
-  const uploadedFile = formData.get('photo')
-
-  let catalog = [] as z.infer<typeof catalogEntrySchema>[]
-  let catalogSource: 'master' | 'uploaded' = 'master'
-
-  try {
-    const catalogPayload = await parseCatalogFromFormData(formData)
-    catalog = catalogPayload.catalog
-    catalogSource = catalogPayload.catalog_source
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Invalid catalog payload'
-    return NextResponse.json(
-      {
-        error: 'Catalog parsing failed. Provide a JSON array via "catalog" or "catalog_file".',
-        details: message,
-      },
-      { status: 400 }
-    )
-  }
-
-  if (!(uploadedFile instanceof File)) {
-    return NextResponse.json({ error: 'Missing photo file in form-data field "photo".' }, { status: 400 })
-  }
-
-  const now = new Date()
-  const isoNow = now.toISOString()
-  const stockDate = isoNow.slice(0, 10)
-
-  if (!process.env.OPENAI_API_KEY) {
-    return NextResponse.json(
-      { error: 'OPENAI_API_KEY is missing. Configure it in your environment variables.' },
-      { status: 501 }
-    )
-  }
-
-  if (!uploadedFile.type.startsWith('image/')) {
-    return NextResponse.json({ error: 'Only image uploads are supported.' }, { status: 400 })
-  }
-
-  const buffer = Buffer.from(await uploadedFile.arrayBuffer())
-  const base64 = buffer.toString('base64')
-  const dataUrl = `data:${uploadedFile.type};base64,${base64}`
-
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-  const model = process.env.OPENAI_VISION_MODEL || 'gpt-5.2'
-
   let parsedJson: unknown
 
   try {
-    const catalogPrompt = buildCatalogPrompt(catalog)
-    const completion = await withTimeout(
-      client.chat.completions.create({
-        model,
-        temperature: 0,
-        max_completion_tokens: 16384,
-        response_format: { type: 'json_object' },
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: catalogPrompt,
-              },
-              {
-                type: 'image_url',
-                image_url: {
-                  url: dataUrl,
-                  detail: 'high',
-                },
-              },
-            ],
-          },
-        ],
-      }),
-      OPENAI_TIMEOUT_MS,
-      `OpenAI request timed out after ${OPENAI_TIMEOUT_MS}ms.`
-    )
+    const formData = await request.formData()
+    const uploadedFile = formData.get('photo')
+    const mode = normalizeStockMode(formData.get('mode'))
 
-    const content = completion.choices[0]?.message?.content ?? ''
-    parsedJson = tryParseJson(content)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown OpenAI error'
-    return NextResponse.json({ error: 'Failed to parse image with OpenAI Vision.', details: message }, { status: 502 })
-  }
+    let catalog = [] as z.infer<typeof catalogEntrySchema>[]
+    let catalogSource: 'master' | 'uploaded' = 'master'
 
-  if (!parsedJson) {
-    return NextResponse.json(
-      {
-        error: 'OpenAI response did not contain valid JSON.',
-      },
-      { status: 502 }
-    )
-  }
-
-  const extracted = ocrExtractionSchema.safeParse(parsedJson)
-  if (!extracted.success) {
-    return NextResponse.json(
-      {
-        error: 'Failed to validate OCR extraction output.',
-        details: extracted.error.flatten(),
-      },
-      { status: 502 }
-    )
-  }
-
-  const normalizedItems = extracted.data.items.map((rawItem) => {
-    const productRawCandidate = String(rawItem.product_raw ?? '').trim()
-    const quantityRawCandidate = String(rawItem.quantity_raw ?? rawItem.quantity ?? '').trim()
-    const quantityCandidate = parseNullableQuantity(rawItem.quantity ?? rawItem.quantity_raw)
-    const conf = String(rawItem.confidence ?? 'medium').toLowerCase()
-
-    return {
-      catalog_id: typeof rawItem.catalog_id === 'number' ? rawItem.catalog_id : null,
-      product_raw: productRawCandidate || 'Unknown Product',
-      quantity_raw: quantityRawCandidate || (quantityCandidate !== null ? String(quantityCandidate) : null),
-      quantity: quantityCandidate,
-      quantity_conflict_flag: Boolean(rawItem.quantity_conflict_flag),
-      confidence: (conf === 'high' || conf === 'low') ? conf : 'medium' as 'high' | 'medium' | 'low',
-      notes: rawItem.notes ? String(rawItem.notes).trim() : null,
+    try {
+      const catalogPayload = await parseCatalogFromFormData(formData)
+      catalog = catalogPayload.catalog
+      catalogSource = catalogPayload.catalog_source
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Invalid catalog payload'
+      return NextResponse.json(
+        {
+          error: 'Catalog parsing failed. Provide a JSON array via "catalog" or "catalog_file".',
+          details: message,
+        },
+        { status: 400 }
+      )
     }
-  })
 
-  // Build lookups
-  const catalogById = new Map<number, CatalogEntry>()
+    if (!(uploadedFile instanceof File)) {
+      return NextResponse.json({ error: 'Missing photo file in form-data field "photo".' }, { status: 400 })
+    }
+
+    const now = new Date()
+    const isoNow = now.toISOString()
+    const stockDate = isoNow.slice(0, 10)
+
+    if (!process.env.OPENAI_API_KEY) {
+      return NextResponse.json(
+        { error: 'OPENAI_API_KEY is missing. Configure it in your environment variables.' },
+        { status: 501 }
+      )
+    }
+
+    if (!uploadedFile.type.startsWith('image/')) {
+      return NextResponse.json({ error: 'Only image uploads are supported.' }, { status: 400 })
+    }
+
+    const buffer = Buffer.from(await uploadedFile.arrayBuffer())
+    const base64 = buffer.toString('base64')
+    const dataUrl = `data:${uploadedFile.type};base64,${base64}`
+
+    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+    const model = process.env.OPENAI_VISION_MODEL || 'gpt-5.2'
+
+    try {
+      const catalogPrompt = buildCatalogPrompt(catalog, mode)
+      const completion = await withTimeout(
+        client.chat.completions.create({
+          model,
+          temperature: 0,
+          max_completion_tokens: 16384,
+          response_format: { type: 'json_object' },
+          messages: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: catalogPrompt,
+                },
+                {
+                  type: 'image_url',
+                  image_url: {
+                    url: dataUrl,
+                    detail: 'high',
+                  },
+                },
+              ],
+            },
+          ],
+        }),
+        OPENAI_TIMEOUT_MS,
+        `OpenAI request timed out after ${OPENAI_TIMEOUT_MS}ms.`
+      )
+
+      const content = completion.choices[0]?.message?.content ?? ''
+      parsedJson = tryParseJson(content)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown OpenAI error'
+      return NextResponse.json({ error: 'Failed to parse image with OpenAI Vision.', details: message }, { status: 502 })
+    }
+
+    if (!parsedJson) {
+      return NextResponse.json(
+        {
+          error: 'OpenAI response did not contain valid JSON.',
+        },
+        { status: 502 }
+      )
+    }
+
+    const extracted = ocrExtractionSchema.safeParse(parsedJson)
+    if (!extracted.success) {
+      return NextResponse.json(
+        {
+          error: 'Failed to validate OCR extraction output.',
+          details: extracted.error.flatten(),
+        },
+        { status: 502 }
+      )
+    }
+
+    const normalizedItems = extracted.data.items.map((rawItem) => {
+      const productRawCandidate = String(rawItem.product_raw ?? '').trim()
+      const quantityRawCandidate = String(rawItem.quantity_raw ?? rawItem.quantity ?? '').trim()
+      const quantityCandidate = parseNullableQuantity(rawItem.quantity ?? rawItem.quantity_raw)
+      const conf = String(rawItem.confidence ?? 'medium').toLowerCase()
+
+      return {
+        catalog_id: typeof rawItem.catalog_id === 'number' ? rawItem.catalog_id : null,
+        product_raw: productRawCandidate || 'Unknown Product',
+        quantity_raw: quantityRawCandidate || (quantityCandidate !== null ? String(quantityCandidate) : null),
+        quantity: quantityCandidate,
+        quantity_conflict_flag: Boolean(rawItem.quantity_conflict_flag),
+        confidence: (conf === 'high' || conf === 'low') ? conf : 'medium' as 'high' | 'medium' | 'low',
+        notes: rawItem.notes ? String(rawItem.notes).trim() : null,
+      }
+    })
+
+    // Build lookups
+    const catalogById = new Map<number, CatalogEntry>()
   const catalogSearch = catalog.map((entry) => {
     catalogById.set(entry.id, entry)
     const candidates = [entry.stocklist_name, entry.official_name]
@@ -516,6 +524,7 @@ export async function POST(request: Request) {
 
   const finalPayload = {
     photo_id: `${now.getTime()}-${uploadedFile.name}`,
+      mode,
     upload_date: isoNow,
     stock_date: normalizeStockDate(extracted.data.stock_date, stockDate),
     photo_url: null,
@@ -540,7 +549,7 @@ export async function POST(request: Request) {
 
   return NextResponse.json(
     {
-      message: 'Photo parsed successfully with OCR extraction.',
+        message: 'Photo parsed successfully with OCR extraction.',
       data: validated.data,
       unknown_items: unknownItems,
       missing_catalog_items: missingCatalogItems,
@@ -551,4 +560,25 @@ export async function POST(request: Request) {
     },
     { status: 200 }
   )
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unexpected parse error.'
+
+    if (message.includes('Request body size')) {
+      return NextResponse.json(
+        {
+          error: 'Uploaded image is too large for the parser request.',
+          details: message,
+        },
+        { status: 413 }
+      )
+    }
+
+    return NextResponse.json(
+      {
+        error: 'Unexpected parse failure.',
+        details: message,
+      },
+      { status: 500 }
+    )
+  }
 }

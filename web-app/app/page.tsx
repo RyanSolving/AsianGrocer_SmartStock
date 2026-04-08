@@ -6,6 +6,7 @@ import {
   BarChart3,
   CheckCircle2,
   Database,
+  AlertTriangle,
   FileImage,
   Loader2,
   ListChecks,
@@ -66,8 +67,11 @@ type CatalogItem = {
   row_position?: 'left' | 'right' | 'single'
 }
 
+type StockMode = 'stock-in' | 'stock-closing'
+
 type ParsedPayload = {
   photo_id: string
+  mode: StockMode
   upload_date: string
   stock_date: string
   photo_url: string | null
@@ -101,8 +105,45 @@ function formatSheetDate(value?: string) {
   return `${d} ${month ?? m} ${y.slice(-2)}`
 }
 
+function FeedbackBanner({
+  tone,
+  title,
+  message,
+  detail,
+}: {
+  tone: 'success' | 'error'
+  title: string
+  message: string
+  detail: string
+}) {
+  const isSuccess = tone === 'success'
+  const wrapperClass = isSuccess
+    ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+    : 'border-red-200 bg-red-50 text-red-900'
+  const badgeClass = isSuccess ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
+
+  return (
+    <div className={`mt-4 rounded-2xl border px-4 py-4 shadow-sm ${wrapperClass}`}>
+      <div className="flex items-start gap-3">
+        <div className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${badgeClass}`}>
+          {isSuccess ? <CheckCircle2 className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />}
+        </div>
+        <div className="flex-1">
+          <p className={`text-xs font-semibold uppercase tracking-[0.18em] ${isSuccess ? 'text-emerald-700' : 'text-red-700'}`}>
+            {isSuccess ? 'Load successful' : 'Load error'}
+          </p>
+          <h3 className="mt-1 text-base font-semibold">{title}</h3>
+          <p className="mt-1 text-sm leading-6 text-slate-700">{message}</p>
+          <p className="mt-2 text-xs leading-5 text-slate-500">{detail}</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Home() {
   const [photoFile, setPhotoFile] = useState<File | null>(null)
+  const [stockMode, setStockMode] = useState<StockMode>('stock-in')
   const [activeCatalog, setActiveCatalog] = useState<CatalogItem[] | null>(null)
   const [isCatalogOpen, setIsCatalogOpen] = useState(false)
   const [parsedData, setParsedData] = useState<ParsedPayload | null>(null)
@@ -113,7 +154,9 @@ export default function Home() {
   const [catalogItemCount, setCatalogItemCount] = useState<number | null>(null)
   const [isParsing, setIsParsing] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
   const [apiError, setApiError] = useState<string | null>(null)
+  const [apiStatus, setApiStatus] = useState<string | null>(null)
 
   useEffect(() => {
     fetch('/api/catalog')
@@ -205,10 +248,12 @@ export default function Home() {
 
     setIsParsing(true)
     setApiError(null)
+    setApiStatus(null)
 
     try {
       const formData = new FormData()
       formData.append('photo', photoFile)
+      formData.append('mode', stockMode)
       if (activeCatalog) {
         formData.append('catalog', JSON.stringify(activeCatalog))
       }
@@ -245,6 +290,8 @@ export default function Home() {
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
         setApiError('Parsing timed out after 5 minutes. The AI is taking longer than expected to process all items.')
+      } else if (error instanceof Error && /failed to fetch|networkerror/i.test(error.message)) {
+        setApiError('Could not reach the parser API. Check that the dev server is running and try a smaller image if the file is large.')
       } else {
         setApiError(error instanceof Error ? error.message : 'Unexpected parse error.')
       }
@@ -294,6 +341,7 @@ export default function Home() {
 
     setIsExporting(true)
     setApiError(null)
+    setApiStatus(null)
 
     try {
       const response = await fetch('/api/export-csv', {
@@ -323,8 +371,47 @@ export default function Home() {
     }
   }
 
-  function saveToSnowflake() {
-    setApiError('Save to Snowflake UI action is not wired yet. API endpoint is ready for next step.')
+  async function saveToSnowflake() {
+    if (!parsedData) {
+      setApiError('No parsed data to save yet. Parse a stock photo first.')
+      return
+    }
+
+    setIsSaving(true)
+    setApiError(null)
+    setApiStatus(null)
+
+    try {
+      const response = await fetch('/api/save-to-snowflake', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          data: parsedData,
+          unknown_items: unknownItems,
+          missing_catalog_items: missingCatalogItems,
+        }),
+      })
+
+      const payload = await response.json()
+
+      if (!response.ok) {
+        const details = payload?.details
+        const detailsText = typeof details === 'string' ? details : details ? JSON.stringify(details) : ''
+        throw new Error(
+          detailsText
+            ? `${payload?.error ?? 'Snowflake save failed.'} Details: ${detailsText}`
+            : payload?.error ?? 'Snowflake save failed.'
+        )
+      }
+
+      setApiStatus(
+        `${payload?.message ?? 'Saved to Snowflake staging.'} ${payload?.query_id ? `Query ID: ${payload.query_id}.` : ''}`.trim()
+      )
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : 'Unexpected Snowflake save error.')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   return (
@@ -385,6 +472,37 @@ export default function Home() {
                 </div>
                 <h2 className="text-lg font-semibold text-slate-900">Drop stocklist photo</h2>
                 <p className="mt-1 text-sm text-slate-500">JPEG / PNG up to 5MB + optional catalog JSON</p>
+
+                <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3 text-left">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Mode</p>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    {([
+                      ['stock-in', 'Stock-in'],
+                      ['stock-closing', 'Stock-closing'],
+                    ] as const).map(([value, label]) => {
+                      const active = stockMode === value
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => setStockMode(value)}
+                          className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
+                            active
+                              ? 'bg-brand-600 text-white shadow-sm'
+                              : 'border border-slate-300 bg-slate-50 text-slate-700 hover:bg-white'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">
+                    {stockMode === 'stock-in'
+                      ? 'Use this for incoming stock counts.'
+                      : 'Use this for end-of-day closing stock counts.'}
+                  </p>
+                </div>
 
                 <input
                   id="photo-upload"
@@ -540,6 +658,10 @@ export default function Home() {
                   </p>
                   <p>
                     <span className="font-semibold text-slate-700">Review required:</span> {reviewRequiredCount}
+                  </p>
+                  <p>
+                    <span className="font-semibold text-slate-700">Mode:</span>{' '}
+                    {parsedData.mode === 'stock-closing' ? 'Stock-closing' : 'Stock-in'}
                   </p>
                   <p className="md:col-span-3">
                     <span className="font-semibold text-slate-700">Catalog source:</span>{' '}
@@ -975,16 +1097,28 @@ export default function Home() {
             )}
 
             {apiError && (
-              <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                {apiError}
-              </div>
+              <FeedbackBanner
+                tone="error"
+                title="Snowflake load did not complete"
+                message={apiError}
+                detail="Check the staging table name, credentials, and whether the Snowflake warehouse is running, then try again."
+              />
+            )}
+
+            {apiStatus && (
+              <FeedbackBanner
+                tone="success"
+                title="Row written to Snowflake staging"
+                message={apiStatus}
+                detail="The reviewed payload was accepted as one JSON staging record. You can export CSV or continue with the next photo."
+              />
             )}
 
             <div className="mt-5 flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={exportCsv}
-                disabled={!parsedData || isExporting}
+                disabled={!parsedData || isExporting || isSaving}
                 className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
               >
                 {isExporting ? 'Exporting...' : 'Export CSV'}
@@ -992,10 +1126,10 @@ export default function Home() {
               <button
                 type="button"
                 onClick={saveToSnowflake}
-                disabled={!parsedData}
+                disabled={!parsedData || isSaving || isExporting}
                 className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-brand-300"
               >
-                Validate & Save to Snowflake
+                {isSaving ? 'Saving to Snowflake...' : 'Validate & Save to Snowflake'}
               </button>
             </div>
           </section>
