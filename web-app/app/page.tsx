@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 
 import { CatalogManagementView } from './catalog/CatalogManagementView'
+import { EmbeddedStockCheckPanel } from './components/EmbeddedStockCheckPanel'
 import { TranscriptionHistoryDialog } from './components/TranscriptionHistoryDialog'
 
 type StockItem = {
@@ -101,13 +102,23 @@ type HistoryEntry = {
   isPushed: boolean
 }
 
+type StockCheckHistoryEntry = {
+  uid_stock_check: string
+  timestamp: string
+  stock_date: string
+  mode: string
+  validated: boolean
+  item_count: number
+  unknown_count: number
+}
+
 type IndexedItem = {
   item: StockItem
   index: number
   source: 'parsed' | 'missing' | 'unknown'
 }
 
-type HubSection = 'data-entry' | 'catalog'
+type HubSection = 'data-entry' | 'stock-check' | 'catalog'
 
 function splitRows(items: IndexedItem[]) {
   return {
@@ -190,8 +201,12 @@ export default function Home() {
   const [isHistoryLoading, setIsHistoryLoading] = useState(false)
   const [isRepushing, setIsRepushing] = useState(false)
   const [selectedHistoryUid, setSelectedHistoryUid] = useState<string | null>(null)
-  const [historySearchTerm, setHistorySearchTerm] = useState('')
-  const [historyStatusFilter, setHistoryStatusFilter] = useState<'all' | 'pending' | 'pushed'>('all')
+  const [dataEntrySearchTerm, setDataEntrySearchTerm] = useState('')
+  const [dataEntryStatusFilter, setDataEntryStatusFilter] = useState<'all' | 'pending' | 'pushed'>('all')
+  const [stockCheckHistory, setStockCheckHistory] = useState<StockCheckHistoryEntry[]>([])
+  const [isStockCheckHistoryLoading, setIsStockCheckHistoryLoading] = useState(false)
+  const [stockCheckSearchTerm, setStockCheckSearchTerm] = useState('')
+  const [stockCheckStatusFilter, setStockCheckStatusFilter] = useState<'all' | 'validated' | 'unvalidated'>('all')
   const [hasLoadedToDb, setHasLoadedToDb] = useState(false)
   const [isValidatedByStaff, setIsValidatedByStaff] = useState(false)
 
@@ -230,6 +245,26 @@ export default function Home() {
     }
   }, [])
 
+  const loadStockCheckHistory = useCallback(async () => {
+    setIsStockCheckHistoryLoading(true)
+    setApiError(null)
+
+    try {
+      const response = await fetch('/api/stock-check/history')
+      const payload = await response.json()
+
+      if (!response.ok) {
+        throw new Error(payload?.error ?? 'Failed to load stock check history.')
+      }
+
+      setStockCheckHistory(Array.isArray(payload.history) ? payload.history : [])
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : 'Failed to load stock check history.')
+    } finally {
+      setIsStockCheckHistoryLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     fetch('/api/auth/session')
       .then(async (res) => {
@@ -244,6 +279,7 @@ export default function Home() {
         try {
           await loadCatalogFromApi()
           await loadTranscriptionHistory()
+          await loadStockCheckHistory()
         } catch (catalogError) {
           console.error('Failed to load catalog', catalogError)
           setApiError(catalogError instanceof Error ? catalogError.message : 'Failed to load catalog.')
@@ -251,7 +287,13 @@ export default function Home() {
       })
       .catch(() => setSession(null))
       .finally(() => setIsAuthLoading(false))
-  }, [loadTranscriptionHistory])
+  }, [loadStockCheckHistory, loadTranscriptionHistory])
+
+  useEffect(() => {
+    if (activeSection === 'stock-check') {
+      void loadStockCheckHistory()
+    }
+  }, [activeSection, loadStockCheckHistory])
 
   async function uploadCatalogToDatabase(file: File) {
     setIsCatalogUploading(true)
@@ -652,23 +694,39 @@ export default function Home() {
     }
   }
 
-  const sidebarHistory = historyData.filter((entry) => {
+  const sidebarDataEntryHistory = historyData.filter((entry) => {
     const statusMatches =
-      historyStatusFilter === 'all' ||
-      (historyStatusFilter === 'pushed' && entry.isPushed) ||
-      (historyStatusFilter === 'pending' && !entry.isPushed)
+      dataEntryStatusFilter === 'all'
+      || (dataEntryStatusFilter === 'pushed' && entry.isPushed)
+      || (dataEntryStatusFilter === 'pending' && !entry.isPushed)
 
-    const term = historySearchTerm.trim().toLowerCase()
+    const term = dataEntrySearchTerm.trim().toLowerCase()
     const searchMatches =
-      term.length === 0 ||
-      entry.filename.toLowerCase().includes(term) ||
-      new Date(entry.timestamp).toLocaleDateString('en-US').toLowerCase().includes(term)
+      term.length === 0
+      || entry.filename.toLowerCase().includes(term)
+      || new Date(entry.timestamp).toLocaleDateString('en-US').toLowerCase().includes(term)
+
+    return statusMatches && searchMatches
+  })
+
+  const sidebarStockCheckHistory = stockCheckHistory.filter((entry) => {
+    const statusMatches =
+      stockCheckStatusFilter === 'all'
+      || (stockCheckStatusFilter === 'validated' && entry.validated)
+      || (stockCheckStatusFilter === 'unvalidated' && !entry.validated)
+
+    const term = stockCheckSearchTerm.trim().toLowerCase()
+    const searchMatches =
+      term.length === 0
+      || entry.uid_stock_check.toLowerCase().includes(term)
+      || entry.stock_date.toLowerCase().includes(term)
 
     return statusMatches && searchMatches
   })
   const hasUploadedPhoto = Boolean(photoFile)
   const hasParsedPhoto = Boolean(parsedData)
   const hasValidated = hasParsedPhoto && isValidatedByStaff
+  const isStockCheckTab = activeSection === 'stock-check'
 
   const validateReviewedData = () => {
     if (!parsedData) {
@@ -782,7 +840,15 @@ export default function Home() {
               <FileImage className="h-4 w-4" />
               Data Entry
             </button>
-            <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-slate-600 hover:bg-slate-100">
+            <button
+              type="button"
+              onClick={() => setActiveSection('stock-check')}
+              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm ${
+                activeSection === 'stock-check'
+                  ? 'bg-brand-50 font-semibold text-brand-700'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
               <Search className="h-4 w-4" />
               Check Stock
             </button>
@@ -813,73 +879,126 @@ export default function Home() {
           <div className="mt-5 rounded-xl border border-slate-200 bg-white p-3">
             <div className="mb-2 flex items-center justify-between">
               <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                Data Entry History
+                {isStockCheckTab ? 'Stock Check Record' : 'Data Entry History'}
               </p>
-              <button
-                type="button"
-                onClick={() => {
-                  void openHistory()
-                }}
-                className="text-xs font-semibold text-brand-600 hover:text-brand-700"
-              >
-                View all
-              </button>
+              {!isStockCheckTab && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void openHistory()
+                  }}
+                  className="text-xs font-semibold text-brand-600 hover:text-brand-700"
+                >
+                  View all
+                </button>
+              )}
             </div>
 
             <div className="mb-2 space-y-2">
               <input
                 type="text"
-                value={historySearchTerm}
-                onChange={(event) => setHistorySearchTerm(event.target.value)}
-                placeholder="Filter by file/date"
+                value={isStockCheckTab ? stockCheckSearchTerm : dataEntrySearchTerm}
+                onChange={(event) => {
+                  if (isStockCheckTab) {
+                    setStockCheckSearchTerm(event.target.value)
+                  } else {
+                    setDataEntrySearchTerm(event.target.value)
+                  }
+                }}
+                placeholder={isStockCheckTab ? 'Filter by date/UID' : 'Filter by file/date'}
                 className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-700 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none"
               />
               <select
-                value={historyStatusFilter}
-                onChange={(event) => setHistoryStatusFilter(event.target.value as 'all' | 'pending' | 'pushed')}
+                value={isStockCheckTab ? stockCheckStatusFilter : dataEntryStatusFilter}
+                onChange={(event) => {
+                  if (isStockCheckTab) {
+                    setStockCheckStatusFilter(event.target.value as 'all' | 'validated' | 'unvalidated')
+                  } else {
+                    setDataEntryStatusFilter(event.target.value as 'all' | 'pending' | 'pushed')
+                  }
+                }}
                 className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-700 focus:border-brand-500 focus:outline-none"
               >
                 <option value="all">All status</option>
-                <option value="pending">Pending</option>
-                <option value="pushed">Pushed</option>
+                {isStockCheckTab ? (
+                  <>
+                    <option value="validated">Validated</option>
+                    <option value="unvalidated">Unvalidated</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="pending">Pending</option>
+                    <option value="pushed">Pushed</option>
+                  </>
+                )}
               </select>
             </div>
 
-            {isHistoryLoading ? (
+            {isStockCheckTab ? isStockCheckHistoryLoading : isHistoryLoading ? (
               <p className="text-xs text-slate-500">Loading history...</p>
-            ) : sidebarHistory.length === 0 ? (
+            ) : isStockCheckTab ? sidebarStockCheckHistory.length === 0 : sidebarDataEntryHistory.length === 0 ? (
               <p className="text-xs text-slate-500">No records yet.</p>
             ) : (
               <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
-                {sidebarHistory.map((entry) => (
-                  <button
-                    key={entry.uid_generate}
-                    type="button"
-                    onClick={() => {
-                      void openHistory(entry.uid_generate)
-                    }}
-                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-left transition hover:bg-slate-100"
-                  >
-                    <p className="truncate text-xs font-semibold text-slate-700">{entry.filename}</p>
-                    <div className="mt-1 flex items-center justify-between gap-2">
-                      <p className="truncate text-[11px] text-slate-500">
-                        {new Date(entry.timestamp).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                        })}
+                {isStockCheckTab ? (
+                  sidebarStockCheckHistory.map((entry) => (
+                    <div
+                      key={entry.uid_stock_check}
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-left"
+                    >
+                      <p className="truncate text-xs font-semibold text-slate-700">
+                        {entry.stock_date} ({entry.item_count} items)
                       </p>
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                          entry.isPushed
-                            ? 'bg-emerald-100 text-emerald-700'
-                            : 'bg-amber-100 text-amber-700'
-                        }`}
-                      >
-                        {entry.isPushed ? 'Pushed' : 'Pending'}
-                      </span>
+                      <div className="mt-1 flex items-center justify-between gap-2">
+                        <p className="truncate text-[11px] text-slate-500">
+                          {new Date(entry.timestamp).toLocaleDateString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                          })}
+                        </p>
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                            entry.validated
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : 'bg-amber-100 text-amber-700'
+                          }`}
+                        >
+                          {entry.validated ? 'Validated' : 'Unvalidated'}
+                        </span>
+                      </div>
                     </div>
-                  </button>
-                ))}
+                  ))
+                ) : (
+                  sidebarDataEntryHistory.map((entry) => (
+                    <button
+                      key={entry.uid_generate}
+                      type="button"
+                      onClick={() => {
+                        void openHistory(entry.uid_generate)
+                      }}
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-left transition hover:bg-slate-100"
+                    >
+                      <p className="truncate text-xs font-semibold text-slate-700">{entry.filename}</p>
+                      <div className="mt-1 flex items-center justify-between gap-2">
+                        <p className="truncate text-[11px] text-slate-500">
+                          {new Date(entry.timestamp).toLocaleDateString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                          })}
+                        </p>
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                            entry.isPushed
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : 'bg-amber-100 text-amber-700'
+                          }`}
+                        >
+                          {entry.isPushed ? 'Pushed' : 'Pending'}
+                        </span>
+                      </div>
+                    </button>
+                  ))
+                )}
               </div>
             )}
           </div>
@@ -888,6 +1007,8 @@ export default function Home() {
         <div className="flex-1">
           {activeSection === 'catalog' ? (
             <CatalogManagementView embedded />
+          ) : activeSection === 'stock-check' ? (
+            <EmbeddedStockCheckPanel catalogItems={activeCatalog} />
           ) : (
             <div className="space-y-4">
               <section className="card-surface rounded-2xl p-6 md:p-8">
