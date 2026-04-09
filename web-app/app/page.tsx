@@ -685,6 +685,10 @@ export default function Home() {
               <FileImage className="h-4 w-4" />
               Data Entry
             </button>
+            <a href="/catalog" className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-slate-600 hover:bg-slate-100">
+              <Database className="h-4 w-4" />
+              Catalog
+            </a>
             <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-slate-600 hover:bg-slate-100">
               <Search className="h-4 w-4" />
               Check Stock
