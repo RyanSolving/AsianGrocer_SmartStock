@@ -132,7 +132,7 @@ function catalogEntryToStagedItem(entry: unknown) {
   const parsed = catalogEntrySchema.parse(entry)
 
   return {
-    catalog_id: parsed.id,
+    catalog_code: parsed.code,
     product_raw: parsed.stocklist_name || parsed.official_name,
     location: parsed.location,
     sub_location: parsed.sub_location,

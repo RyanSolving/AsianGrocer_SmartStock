@@ -4,7 +4,7 @@ export const stockModeSchema = z.enum(['stock-in', 'stock-closing'])
 
 export const catalogEntrySchema = z.object({
   id: z.number(),
-  code: z.string().optional(),
+  code: z.string(),
   location: z.string(),
   sub_location: z.string(),
   category: z.string(),
@@ -18,7 +18,7 @@ export const catalogEntrySchema = z.object({
 })
 
 export const itemSchema = z.object({
-  catalog_id: z.number().nullable().default(null),
+  catalog_code: z.string().nullable().default(null),
   product_raw: z.string().min(1),
   
   // Populated from catalog if matched, otherwise left to AI inference

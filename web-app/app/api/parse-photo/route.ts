@@ -59,7 +59,7 @@ Rules:
 5. quantity_raw should keep original handwritten/OCR text for the quantity field when possible.
 6. Set confidence to high|medium|low.
 7. If quantity is ambiguous, set quantity_conflict_flag=true.
-8. If the item matches a catalog entry, provide its catalog_id (from the section lists). Leave null if unknown.
+8. If the item matches a catalog entry, provide its catalog_code (from the section lists). Leave null if unknown.
 
 Return strict JSON only:
 {
@@ -67,7 +67,7 @@ Return strict JSON only:
   "confidence_overall": "high|medium|low",
   "items": [
     {
-      "catalog_id": "number or null",
+      "catalog_code": "string or null",
       "product_raw": "string",
       "quantity_raw": "string or null",
       "quantity": "number or null",
@@ -406,7 +406,7 @@ export async function POST(request: Request) {
       const conf = String(rawItem.confidence ?? 'medium').toLowerCase()
 
       return {
-        catalog_id: typeof rawItem.catalog_id === 'number' ? rawItem.catalog_id : null,
+        catalog_code: typeof rawItem.catalog_code === 'string' ? rawItem.catalog_code : null,
         product_raw: productRawCandidate || 'Unknown Product',
         quantity_raw: quantityRawCandidate || (quantityCandidate !== null ? String(quantityCandidate) : null),
         quantity: quantityCandidate,
@@ -417,9 +417,12 @@ export async function POST(request: Request) {
     })
 
     // Build lookups
-    const catalogById = new Map<number, CatalogEntry>()
+    const catalogByCode = new Map<string, CatalogEntry[]>()
   const catalogSearch = catalog.map((entry) => {
-    catalogById.set(entry.id, entry)
+    if (!catalogByCode.has(entry.code)) {
+      catalogByCode.set(entry.code, [])
+    }
+    catalogByCode.get(entry.code)!.push(entry)
     const candidates = [entry.stocklist_name, entry.official_name]
       .filter(Boolean)
       .map(v => normalizeText(v))
@@ -438,7 +441,7 @@ export async function POST(request: Request) {
     }
   }
 
-  const matchedCatalogIds = new Set<number>()
+  const matchedCatalogCodes = new Set<string>()
   const knownItems = [] as any[]
   const unknownItems = [] as any[]
 
@@ -449,9 +452,9 @@ export async function POST(request: Request) {
     let matchedEntry: CatalogEntry | null = null
     let matchStatus: 'exact' | 'fuzzy' | 'unknown' = 'unknown'
 
-    // Primary Match: catalog_id from AI
-    if (item.catalog_id !== null && catalogById.has(item.catalog_id)) {
-      matchedEntry = catalogById.get(item.catalog_id)!
+    // Primary Match: catalog_code from AI
+    if (item.catalog_code !== null && catalogByCode.has(item.catalog_code)) {
+      matchedEntry = catalogByCode.get(item.catalog_code)![0]
       matchStatus = 'exact'
     } else {
       // Secondary Match: text exact
@@ -500,13 +503,13 @@ export async function POST(request: Request) {
       continue
     }
 
-    matchedCatalogIds.add(matchedEntry.id)
+    matchedCatalogCodes.add(matchedEntry.code)
 
     if (matchStatus === 'fuzzy') fuzzyCount++
     if (item.quantity_conflict_flag) quantityConflictCount++
 
     knownItems.push({
-      catalog_id: matchedEntry.id,
+      catalog_code: matchedEntry.code,
       product_raw: item.product_raw,
       location: matchedEntry.location,
       sub_location: matchedEntry.sub_location,
@@ -540,7 +543,7 @@ export async function POST(request: Request) {
     items: knownItems,
   }
 
-  const missingCatalogItems = catalog.filter(c => !matchedCatalogIds.has(c.id))
+  const missingCatalogItems = catalog.filter(c => !matchedCatalogCodes.has(c.code))
   const reviewRequiredCount = unknownItems.length + fuzzyCount + quantityConflictCount
 
   const validated = parsedStockSchema.safeParse(finalPayload)

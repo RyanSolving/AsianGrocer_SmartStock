@@ -17,7 +17,7 @@ import {
 import { TranscriptionHistoryDialog } from './components/TranscriptionHistoryDialog'
 
 type StockItem = {
-  catalog_id: number | null
+  catalog_code: string | null
   product_raw: string
   category: string
   location: string
@@ -37,7 +37,7 @@ type StockItem = {
 }
 
 type UnknownItem = {
-  catalog_id: null
+  catalog_code: null
   product_raw: string
   category: string
   location: string
@@ -55,7 +55,7 @@ type UnknownItem = {
 
 type CatalogItem = {
   id: number
-  code?: string
+  code: string
   location: string
   sub_location: string
   category: string
@@ -65,14 +65,6 @@ type CatalogItem = {
   stocklist_name: string
   navigation_guide: string
   row_position?: 'left' | 'right' | 'single'
-}
-
-type CatalogVersion = {
-  id: string
-  version_name: string
-  uploaded_at: string
-  item_count: number
-  is_active: boolean
 }
 
 type StockMode = 'stock-in' | 'stock-closing'
@@ -170,8 +162,6 @@ export default function Home() {
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [stockMode, setStockMode] = useState<StockMode>('stock-in')
   const [activeCatalog, setActiveCatalog] = useState<CatalogItem[] | null>(null)
-  const [catalogVersions, setCatalogVersions] = useState<CatalogVersion[]>([])
-  const [selectedCatalogVersionId, setSelectedCatalogVersionId] = useState<string | null>(null)
   const [isCatalogOpen, setIsCatalogOpen] = useState(false)
   const [parsedData, setParsedData] = useState<ParsedPayload | null>(null)
   const [unknownItems, setUnknownItems] = useState<UnknownItem[]>([])
@@ -197,9 +187,8 @@ export default function Home() {
   const [historyStatusFilter, setHistoryStatusFilter] = useState<'all' | 'pending' | 'pushed'>('all')
   const [hasLoadedToDb, setHasLoadedToDb] = useState(false)
 
-  async function loadCatalogFromApi(versionId?: string) {
-    const query = versionId ? `?version_id=${encodeURIComponent(versionId)}` : ''
-    const response = await fetch(`/api/catalog${query}`)
+  async function loadCatalogFromApi() {
+    const response = await fetch('/api/catalog')
     const data = await response.json()
 
     if (!response.ok) {
@@ -207,11 +196,7 @@ export default function Home() {
     }
 
     const catalog = Array.isArray(data?.catalog) ? data.catalog : []
-    const versions = Array.isArray(data?.versions) ? data.versions : []
-
     setActiveCatalog(catalog)
-    setCatalogVersions(versions)
-    setSelectedCatalogVersionId(data?.active_version_id ?? versions[0]?.id ?? null)
     setCatalogItemCount(catalog.length)
     setCatalogSource(data?.source === 'database' ? 'uploaded' : 'master')
   }
@@ -282,8 +267,6 @@ export default function Home() {
       }
 
       setActiveCatalog(data.catalog ?? [])
-      setCatalogVersions(data.versions ?? [])
-      setSelectedCatalogVersionId(data.active_version_id ?? null)
       setCatalogItemCount(Array.isArray(data.catalog) ? data.catalog.length : 0)
       setCatalogSource('uploaded')
       setIsCatalogOpen(true)
@@ -305,7 +288,7 @@ export default function Home() {
     // Use negative indices starting at -1000 to avoid collision with parsed items
     const missingItems = missingCatalogItems.map((c_item, pos) => ({
       item: {
-        catalog_id: c_item.id,
+        catalog_code: c_item.code,
         product_raw: c_item.stocklist_name || c_item.official_name,
         category: c_item.category,
         location: c_item.location as StockItem['location'],
@@ -416,11 +399,7 @@ export default function Home() {
       setUnknownItems(json.unknown_items ?? [])
       setMissingCatalogItems(json.missing_catalog_items ?? [])
       setReviewRequiredCount(json.review_required_count ?? 0)
-      if (selectedCatalogVersionId) {
-        setCatalogSource('uploaded')
-      } else {
-        setCatalogSource(json.catalog_source ?? null)
-      }
+      setCatalogSource(json.catalog_source ?? null)
       setCatalogItemCount(typeof json.catalog_item_count === 'number' ? json.catalog_item_count : null)
 
       // Keep sidebar history in sync without requiring a page reload.
@@ -885,30 +864,11 @@ export default function Home() {
                 <div className="mt-3 flex flex-col gap-2 border-t border-slate-200 pt-3">
                   <div className="rounded-lg border border-slate-200 bg-white p-3 text-left">
                     <p className="text-xs font-medium text-slate-500">Catalog</p>
-                    <select
-                      className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
-                      value={selectedCatalogVersionId ?? ''}
-                      onChange={async (event) => {
-                        const versionId = event.target.value
-                        setSelectedCatalogVersionId(versionId || null)
-                        if (!versionId) return
-                        try {
-                          await loadCatalogFromApi(versionId)
-                        } catch (error) {
-                          setApiError(error instanceof Error ? error.message : 'Failed to switch catalog version.')
-                        }
-                      }}
-                    >
-                      {catalogVersions.length === 0 ? (
-                        <option value="">No DB catalog yet</option>
-                      ) : (
-                        catalogVersions.map((version) => (
-                          <option key={version.id} value={version.id}>
-                            {version.version_name} ({version.item_count} items)
-                          </option>
-                        ))
-                      )}
-                    </select>
+                    <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                      {catalogItemCount ?? 0} items loaded
+                      {catalogSource === 'uploaded' && <span className="ml-2 text-emerald-600">✓ from database</span>}
+                      {catalogSource === 'master' && <span className="ml-2 text-slate-500">(default)</span>}
+                    </div>
                   </div>
                   <input
                     id="catalog-upload"
@@ -1481,7 +1441,6 @@ export default function Home() {
               <table className="w-full border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 text-slate-500">
-                    <th className="pb-2 font-medium">ID</th>
                     <th className="pb-2 font-medium pl-2">Code</th>
                     <th className="pb-2 font-medium">Location</th>
                     <th className="pb-2 font-medium pl-2">Sub-location</th>
@@ -1496,7 +1455,6 @@ export default function Home() {
                 <tbody className="divide-y divide-slate-100">
                   {activeCatalog.map((item, index) => (
                     <tr key={index} className="hover:bg-slate-50">
-                      <td className="py-2 pr-2 text-slate-500">{item.id}</td>
                       <td className="py-2 pr-2">
                         <input className="w-full min-w-[90px] rounded border border-transparent bg-transparent px-2 py-1 hover:border-slate-300 focus:border-brand-500 focus:bg-white focus:outline-none" value={item.code ?? ''} onChange={(e) => { const c = [...activeCatalog]; c[index].code = e.target.value; setActiveCatalog(c); setCatalogSource('edited') }} />
                       </td>
@@ -1532,7 +1490,11 @@ export default function Home() {
             
             <div className="border-t border-slate-200 px-6 py-4 flex justify-between gap-3 bg-slate-50 rounded-b-2xl">
               <button onClick={() => {
-                const newRow = { id: activeCatalog.length ? Math.max(...activeCatalog.map(c => c.id)) + 1 : 1, code: '', location: '', sub_location: '', category: '', product: '', attribute: '', official_name: '', stocklist_name: '', navigation_guide: '', row_position: 'single' as const }
+                const cat3 = 'XXX'
+                const prod3 = 'NEW'
+                const attr3 = 'STD'
+                const newCode = `${cat3}-${prod3}-${attr3}`
+                const newRow = { id: 0, code: newCode, location: '', sub_location: '', category: '', product: '', attribute: '', official_name: '', stocklist_name: '', navigation_guide: '', row_position: 'single' as const }
                 setActiveCatalog([...activeCatalog, newRow])
                 setCatalogSource('edited')
               }} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2">

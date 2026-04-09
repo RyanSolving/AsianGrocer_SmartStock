@@ -10,6 +10,7 @@ function normalizeLegacyTypo(value: string) {
 export function normalizeCatalogEntry(entry: CatalogEntry): CatalogEntry {
   return {
     ...entry,
+    code: entry.code,
     product: normalizeLegacyTypo(entry.product),
     attribute: normalizeLegacyTypo(entry.attribute),
     official_name: normalizeLegacyTypo(entry.official_name),
@@ -77,7 +78,7 @@ export function loadDefaultCatalog(): CatalogEntry[] {
 export function buildCatalogPrompt(catalog: CatalogEntry[], mode: StockMode) {
   let catalogText = ''
   for (const item of catalog) {
-    catalogText += `- [ID: ${item.id}] "${item.stocklist_name}" (${item.official_name}) \u2192 ${item.navigation_guide}\n`
+    catalogText += `- [CODE: ${item.code}] "${item.stocklist_name}" (${item.official_name}) → ${item.navigation_guide}\n`
   }
 
   const sheetKind = mode === 'stock-closing' ? 'closing stock sheet' : 'stock-in sheet'
@@ -119,20 +120,20 @@ For completely handwritten products, transcribe the handwritten product name int
 Do not copy pack size quantities (like "12kg", "3kg") into the \`quantity\` field. Pack sizes belong strictly to the product name.
 
 ## Catalog Association
-Below is the MASTER CATALOG mapped by ID. Use the "Navigation Guide" to spatially locate the printed text on the physical page. 
-For every item you extract from the image, try to confidently match it to an ID from this catalogue based on what is printed on the page and its location. If you are very confident, provide its \`catalog_id\`. If unsure, leave \`catalog_id\` null.
+Below is the MASTER CATALOG mapped by CODE. Use the "Navigation Guide" to spatially locate the printed text on the physical page.
+For every item you extract from the image, try to confidently match it to a CODE from this catalogue based on what is printed on the page and its location. If you are very confident, provide its \`catalog_code\`. If unsure, leave \`catalog_code\` null.
 
 MASTER CATALOG:
 ${catalogText}
 
-## Output \u2014 Strict JSON Format (return only this, no extra text)
+## Output — Strict JSON Format (return only this, no extra text)
 {
   "mode": "stock-in|stock-closing",
   "stock_date": "YYYY-MM-DD or null if not found",
   "confidence_overall": "high|medium|low",
   "items": [
     {
-      "catalog_id": <number or null>,
+      "catalog_code": "<string code from catalog or null>",
       "product_raw": "<exact PRINTED text from form>",
       "quantity_raw": "<quantity string exactly as written, or null>",
       "quantity": <integer or null>,
