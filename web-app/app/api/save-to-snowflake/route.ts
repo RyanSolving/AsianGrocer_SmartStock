@@ -98,6 +98,7 @@ async function ensureSnowflakeTableExists(
       CREATE TABLE IF NOT EXISTS ${tableName} (
         photo_id VARCHAR,
         mode VARCHAR,
+        validated VARCHAR,
         upload_date TIMESTAMP_TZ,
         stock_date DATE,
         photo_url VARCHAR,
@@ -111,6 +112,7 @@ async function ensureSnowflakeTableExists(
   )
 
   await executeSnowflake(connection, `ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS mode VARCHAR`, [])
+  await executeSnowflake(connection, `ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS validated VARCHAR`, [])
 }
 
 function closeSnowflakeConnection(connection: ReturnType<typeof snowflake.createConnection>) {
@@ -154,6 +156,7 @@ function catalogEntryToStagedItem(entry: unknown) {
 
 function buildSnowflakeStagingRecord(input: {
   parsedData: ReturnType<typeof parsedStockSchema.parse>
+  validated: 'yes' | 'no'
   unknownItems: unknown[]
   missingCatalogItems: unknown[]
 }) {
@@ -166,6 +169,7 @@ function buildSnowflakeStagingRecord(input: {
   return snowflakeStagingRecordSchema.parse({
     photo_id: input.parsedData.photo_id,
     mode: input.parsedData.mode,
+    validated: input.validated,
     upload_date: input.parsedData.upload_date,
     stock_date: input.parsedData.stock_date,
     photo_url: input.parsedData.photo_url,
@@ -193,6 +197,7 @@ export async function POST(request: Request) {
   const isRepush = payload && typeof payload === 'object' && 'uid_generate' in payload && !('data' in payload)
   let uidGenerate: string | null = null
   let parsedData
+  let validated: 'yes' | 'no' = 'no'
   let unknownItems: unknown[] = []
   let missingCatalogItems: unknown[] = []
 
@@ -247,6 +252,7 @@ export async function POST(request: Request) {
       payload && typeof payload === 'object' && 'data' in payload
         ? {
             data: parsedStockSchema.safeParse((payload as { data?: unknown }).data),
+            validated: (payload as { validated?: unknown }).validated,
             unknownItems: (payload as { unknown_items?: unknown }).unknown_items,
             missingCatalogItems: (payload as { missing_catalog_items?: unknown }).missing_catalog_items,
             uidGenerate: (payload as { uid_generate?: unknown }).uid_generate,
@@ -287,7 +293,17 @@ export async function POST(request: Request) {
         )
       }
 
+      if (envelope.validated !== undefined && envelope.validated !== 'yes' && envelope.validated !== 'no') {
+        return NextResponse.json(
+          {
+            error: 'Validated payload must be either "yes" or "no".',
+          },
+          { status: 400 }
+        )
+      }
+
       parsedData = envelope.data.data
+      validated = envelope.validated === 'yes' ? 'yes' : 'no'
       unknownItems = unknownResult.data
       missingCatalogItems = missingResult.data
       uidGenerate = typeof envelope.uidGenerate === 'string' && envelope.uidGenerate.length > 0 ? envelope.uidGenerate : null
@@ -322,6 +338,7 @@ export async function POST(request: Request) {
 
   const stagedRecord = buildSnowflakeStagingRecord({
     parsedData,
+    validated,
     unknownItems,
     missingCatalogItems,
   })
@@ -347,6 +364,7 @@ export async function POST(request: Request) {
         INSERT INTO ${tableName} (
           photo_id,
           mode,
+          validated,
           upload_date,
           stock_date,
           photo_url,
@@ -354,6 +372,7 @@ export async function POST(request: Request) {
           confidence_overall,
           item_data
         ) SELECT
+          ?,
           ?,
           ?,
           TO_TIMESTAMP_TZ(?),
@@ -367,6 +386,7 @@ export async function POST(request: Request) {
       [
         stagedRecord.photo_id,
         stockModeSchema.parse(stagedRecord.mode),
+        stagedRecord.validated,
         stagedRecord.upload_date,
         stagedRecord.stock_date,
         stagedRecord.photo_url,
@@ -402,6 +422,7 @@ export async function POST(request: Request) {
         inserted: {
           photo_id: stagedRecord.photo_id,
           mode: stagedRecord.mode,
+          validated: stagedRecord.validated,
           total_items: stagedRecord.total_items,
         },
       },

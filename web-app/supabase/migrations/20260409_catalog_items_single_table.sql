@@ -59,6 +59,8 @@ create index if not exists idx_catalog_items_location on public.catalog_items (l
 -- Enable RLS
 alter table public.catalog_items enable row level security;
 
+grant select, insert, update, delete on public.catalog_items to authenticated;
+
 drop policy if exists catalog_items_select_authenticated on public.catalog_items;
 create policy catalog_items_select_authenticated on public.catalog_items
 for select

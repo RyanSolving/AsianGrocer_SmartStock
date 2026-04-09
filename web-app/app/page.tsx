@@ -4,8 +4,8 @@ import { useMemo, useState, useEffect, useCallback } from 'react'
 import {
   BarChart3,
   CheckCircle2,
-  Database,
   AlertTriangle,
+  Database,
   FileImage,
   Loader2,
   Search,
@@ -14,6 +14,7 @@ import {
   Plus
 } from 'lucide-react'
 
+import { CatalogManagementView } from './catalog/CatalogManagementView'
 import { TranscriptionHistoryDialog } from './components/TranscriptionHistoryDialog'
 
 type StockItem = {
@@ -65,6 +66,9 @@ type CatalogItem = {
   stocklist_name: string
   navigation_guide: string
   row_position?: 'left' | 'right' | 'single'
+  quantity_raw?: string | null
+  quantity?: number | null
+  quantity_conflict_flag?: boolean
 }
 
 type StockMode = 'stock-in' | 'stock-closing'
@@ -102,6 +106,8 @@ type IndexedItem = {
   index: number
   source: 'parsed' | 'missing' | 'unknown'
 }
+
+type HubSection = 'data-entry' | 'catalog'
 
 function splitRows(items: IndexedItem[]) {
   return {
@@ -159,6 +165,7 @@ function FeedbackBanner({
 }
 
 export default function Home() {
+  const [activeSection, setActiveSection] = useState<HubSection>('data-entry')
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [stockMode, setStockMode] = useState<StockMode>('stock-in')
   const [activeCatalog, setActiveCatalog] = useState<CatalogItem[] | null>(null)
@@ -186,6 +193,7 @@ export default function Home() {
   const [historySearchTerm, setHistorySearchTerm] = useState('')
   const [historyStatusFilter, setHistoryStatusFilter] = useState<'all' | 'pending' | 'pushed'>('all')
   const [hasLoadedToDb, setHasLoadedToDb] = useState(false)
+  const [isValidatedByStaff, setIsValidatedByStaff] = useState(false)
 
   async function loadCatalogFromApi() {
     const response = await fetch('/api/catalog')
@@ -296,9 +304,9 @@ export default function Home() {
         product: c_item.product,
         attribute: c_item.attribute,
         official_name: c_item.official_name,
-        quantity_raw: null,
-        quantity: null,
-        quantity_conflict_flag: false,
+        quantity_raw: c_item.quantity_raw ?? null,
+        quantity: typeof c_item.quantity === 'number' ? c_item.quantity : null,
+        quantity_conflict_flag: Boolean(c_item.quantity_conflict_flag),
         row_position: c_item.row_position || 'single',
         confidence: 'high' as const,
         notes: null
@@ -357,6 +365,7 @@ export default function Home() {
 
     setIsParsing(true)
     setHasLoadedToDb(false)
+    setIsValidatedByStaff(false)
     setApiError(null)
     setApiStatus(null)
 
@@ -397,7 +406,14 @@ export default function Home() {
       setParsedData(json.data)
       setLatestGenerateUid(typeof json.uid_generate === 'string' ? json.uid_generate : null)
       setUnknownItems(json.unknown_items ?? [])
-      setMissingCatalogItems(json.missing_catalog_items ?? [])
+      setMissingCatalogItems(
+        (json.missing_catalog_items ?? []).map((item: CatalogItem) => ({
+          ...item,
+          quantity_raw: item.quantity_raw ?? null,
+          quantity: typeof item.quantity === 'number' ? item.quantity : null,
+          quantity_conflict_flag: Boolean(item.quantity_conflict_flag),
+        }))
+      )
       setReviewRequiredCount(json.review_required_count ?? 0)
       setCatalogSource(json.catalog_source ?? null)
       setCatalogItemCount(typeof json.catalog_item_count === 'number' ? json.catalog_item_count : null)
@@ -418,6 +434,8 @@ export default function Home() {
   }
 
   function updateItem(index: number, patch: Partial<StockItem>) {
+    setIsValidatedByStaff(false)
+
     // Handle missing items (index: -1000, -1001, -1002, ...)
     if (index <= -1000 && index > -2000) {
       const pos = -1000 - index
@@ -429,6 +447,9 @@ export default function Home() {
         if (patch.official_name !== undefined) item.official_name = patch.official_name
         if (patch.product !== undefined) item.product = patch.product
         if (patch.attribute !== undefined) item.attribute = patch.attribute
+        if (patch.quantity !== undefined) item.quantity = patch.quantity
+        if (patch.quantity_raw !== undefined) item.quantity_raw = patch.quantity_raw
+        if (patch.quantity_conflict_flag !== undefined) item.quantity_conflict_flag = patch.quantity_conflict_flag
         return next
       })
       return
@@ -490,6 +511,11 @@ export default function Home() {
       return
     }
 
+    if (!isValidatedByStaff) {
+      setApiError('Please click Validate first. Export is only enabled after staff validation.')
+      return
+    }
+
     setIsExporting(true)
     setApiError(null)
     setApiStatus(null)
@@ -502,6 +528,7 @@ export default function Home() {
           ...parsedData,
           unknown_items: unknownItems,
           missing_catalog_items: missingCatalogItems,
+          validated: isValidatedByStaff ? 'yes' : 'no',
         }),
       })
 
@@ -532,6 +559,11 @@ export default function Home() {
       return
     }
 
+    if (!isValidatedByStaff) {
+      setApiError('Please click Validate first. Load to DB is only enabled after staff validation.')
+      return
+    }
+
     setIsSaving(true)
     setApiError(null)
     setApiStatus(null)
@@ -542,6 +574,7 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           data: parsedData,
+          validated: isValidatedByStaff ? 'yes' : 'no',
           unknown_items: unknownItems,
           missing_catalog_items: missingCatalogItems,
           uid_generate: latestGenerateUid,
@@ -635,7 +668,63 @@ export default function Home() {
   })
   const hasUploadedPhoto = Boolean(photoFile)
   const hasParsedPhoto = Boolean(parsedData)
-  const hasValidated = hasParsedPhoto && (reviewRequiredCount === 0 || hasLoadedToDb)
+  const hasValidated = hasParsedPhoto && isValidatedByStaff
+
+  const validateReviewedData = () => {
+    if (!parsedData) {
+      setApiError('No parsed data to validate yet.')
+      return
+    }
+
+    // Business rule: blank known quantities are treated as zero at validation time.
+    const normalizedParsedItems = parsedData.items.map((item) => {
+      if (item.quantity === null && !item.quantity_conflict_flag) {
+        return {
+          ...item,
+          quantity: 0,
+          quantity_raw: '0',
+        }
+      }
+
+      return item
+    })
+
+    const normalizedMissingItems = missingCatalogItems.map((item) => {
+      const hasConflict = Boolean(item.quantity_conflict_flag)
+      const hasBlankQuantity = item.quantity === null || item.quantity === undefined
+
+      if (hasBlankQuantity && !hasConflict) {
+        return {
+          ...item,
+          quantity: 0,
+          quantity_raw: '0',
+        }
+      }
+
+      return item
+    })
+
+    const conflictCount = normalizedParsedItems.filter((item) => item.quantity_conflict_flag).length
+      + normalizedMissingItems.filter((item) => Boolean(item.quantity_conflict_flag)).length
+
+    setParsedData((current) => {
+      if (!current) return current
+      return {
+        ...current,
+        items: normalizedParsedItems,
+      }
+    })
+
+    setMissingCatalogItems(normalizedMissingItems)
+
+    setApiError(null)
+    if (conflictCount > 0) {
+      setApiStatus(`Validated by staff. Blank known quantities were normalized to 0. ${conflictCount} known item(s) are still marked as conflict, but Export CSV and Load to DB are enabled.`)
+    } else {
+      setApiStatus('Validated by staff. Blank known quantities were normalized to 0. Export CSV and Load to DB are now enabled.')
+    }
+    setIsValidatedByStaff(true)
+  }
 
   const workflowSteps = [
     { id: 'upload', label: 'Upload Photo', shortLabel: 'Upload', done: hasUploadedPhoto },
@@ -681,14 +770,18 @@ export default function Home() {
           </div>
 
           <nav className="space-y-2">
-            <button className="flex w-full items-center gap-3 rounded-lg bg-brand-50 px-3 py-2 text-left text-sm font-semibold text-brand-700">
+            <button
+              type="button"
+              onClick={() => setActiveSection('data-entry')}
+              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm ${
+                activeSection === 'data-entry'
+                  ? 'bg-brand-50 font-semibold text-brand-700'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
               <FileImage className="h-4 w-4" />
               Data Entry
             </button>
-            <a href="/catalog" className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-slate-600 hover:bg-slate-100">
-              <Database className="h-4 w-4" />
-              Catalog
-            </a>
             <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-slate-600 hover:bg-slate-100">
               <Search className="h-4 w-4" />
               Check Stock
@@ -697,6 +790,24 @@ export default function Home() {
               <BarChart3 className="h-4 w-4" />
               Dashboard
             </button>
+
+            <div className="pt-3">
+              <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Management
+              </p>
+              <button
+                type="button"
+                onClick={() => setActiveSection('catalog')}
+                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm ${
+                  activeSection === 'catalog'
+                    ? 'bg-brand-50 font-semibold text-brand-700'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <Database className="h-4 w-4" />
+                Catalog
+              </button>
+            </div>
           </nav>
 
           <div className="mt-5 rounded-xl border border-slate-200 bg-white p-3">
@@ -774,8 +885,12 @@ export default function Home() {
           </div>
         </aside>
 
-        <div className="flex-1 space-y-4">
-          <section className="card-surface rounded-2xl p-6 md:p-8">
+        <div className="flex-1">
+          {activeSection === 'catalog' ? (
+            <CatalogManagementView embedded />
+          ) : (
+            <div className="space-y-4">
+              <section className="card-surface rounded-2xl p-6 md:p-8">
             <div className="mb-4">
               <h1 className="text-2xl font-bold text-slate-900 md:text-3xl">Data Entry</h1>
             </div>
@@ -869,49 +984,6 @@ export default function Home() {
                   {photoFile ? `Photo: ${photoFile.name}` : 'No photo selected'}
                 </p>
 
-                <div className="mt-3 flex flex-col gap-2 border-t border-slate-200 pt-3">
-                  <div className="rounded-lg border border-slate-200 bg-white p-3 text-left">
-                    <p className="text-xs font-medium text-slate-500">Catalog</p>
-                    <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                      {catalogItemCount ?? 0} items loaded
-                      {catalogSource === 'uploaded' && <span className="ml-2 text-emerald-600">✓ from database</span>}
-                      {catalogSource === 'master' && <span className="ml-2 text-slate-500">(default)</span>}
-                    </div>
-                  </div>
-                  <input
-                    id="catalog-upload"
-                    type="file"
-                    className="hidden"
-                    accept=".csv"
-                    onChange={(event) => {
-                      const file = event.target.files?.[0]
-                      if (!file) return
-                      void uploadCatalogToDatabase(file)
-                    }}
-                  />
-                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-center">
-                    <label
-                      htmlFor="catalog-upload"
-                      className="inline-flex w-full cursor-pointer items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 md:w-auto"
-                    >
-                      <Database className="mr-2 h-4 w-4" />
-                      {isCatalogUploading ? 'Uploading CSV...' : 'Upload CSV'}
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => setIsCatalogOpen(true)}
-                      className="inline-flex w-full cursor-pointer items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 md:w-auto"
-                    >
-                      <Settings className="mr-2 h-4 w-4" />
-                      Catalog
-                    </button>
-                  </div>
-                  <p className="mt-2 text-xs text-slate-500">
-                    Source: {catalogSource === 'master' ? 'Default Catalog' : catalogSource === 'uploaded' ? 'Uploaded CSV' : 'Edited Catalog'} 
-                    {catalogItemCount !== null ? ` (${catalogItemCount} items)` : ''}
-                  </p>
-                </div>
-
                 <button
                   type="button"
                   onClick={parsePhoto}
@@ -926,7 +998,7 @@ export default function Home() {
             </div>
           </section>
 
-          <section className="card-surface rounded-2xl p-6 md:p-8">
+              <section className="card-surface rounded-2xl p-6 md:p-8">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-xl font-semibold text-slate-900">Editable Stocklist Layout</h2>
               <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-600">
@@ -1413,8 +1485,16 @@ export default function Home() {
             <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
               <button
                 type="button"
+                onClick={validateReviewedData}
+                disabled={!parsedData || isSaving || isExporting}
+                className="w-full rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-100 disabled:text-slate-400 sm:w-auto"
+              >
+                {isValidatedByStaff ? 'Validated' : 'Validate'}
+              </button>
+              <button
+                type="button"
                 onClick={exportCsv}
-                disabled={!parsedData || isExporting || isSaving}
+                disabled={!parsedData || !isValidatedByStaff || isExporting || isSaving}
                 className="w-full rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400 sm:w-auto"
               >
                 {isExporting ? 'Exporting...' : 'Export CSV'}
@@ -1422,13 +1502,15 @@ export default function Home() {
               <button
                 type="button"
                 onClick={saveToSnowflake}
-                disabled={!parsedData || isSaving || isExporting}
+                disabled={!parsedData || !isValidatedByStaff || isSaving || isExporting}
                 className="w-full rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-brand-300 sm:w-auto"
               >
-                {isSaving ? 'Saving to Snowflake...' : 'Validate & Save to Snowflake'}
+                {isSaving ? 'Loading to DB...' : 'Load to DB'}
               </button>
             </div>
-          </section>
+              </section>
+            </div>
+          )}
         </div>
       </div>
 

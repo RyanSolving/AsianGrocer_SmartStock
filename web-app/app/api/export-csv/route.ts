@@ -7,6 +7,7 @@ import { parsedStockSchema } from '../../../lib/stock-schema'
 const exportCsvBodySchema = parsedStockSchema.extend({
   unknown_items: z.array(z.record(z.unknown())).default([]),
   missing_catalog_items: z.array(z.record(z.unknown())).default([]),
+  validated: z.enum(['yes', 'no']).default('no'),
 })
 
 function escapeCsv(value: string) {
@@ -19,7 +20,8 @@ function escapeCsv(value: string) {
 function toCsv(
   data: ParsedStock,
   unknownItems: Record<string, unknown>[] = [],
-  missingItems: Record<string, unknown>[] = []
+  missingItems: Record<string, unknown>[] = [],
+  validated: 'yes' | 'no' = 'no'
 ) {
   const header = [
     'Item Code',
@@ -36,6 +38,7 @@ function toCsv(
     'Confidence',
     'Note',
     'Source',
+    'Validated',
   ].join(',')
 
   const knownRows = data.items.map((item: StockItem) =>
@@ -54,6 +57,7 @@ function toCsv(
       item.confidence,
       item.notes ?? '',
       'known',
+      validated,
     ]
       .map((value) => escapeCsv(String(value)))
       .join(',')
@@ -75,6 +79,7 @@ function toCsv(
       (item.confidence as string) ?? 'low',
       (item.notes as string) ?? 'Unmatched item',
       'unknown',
+      validated,
     ]
       .map((value) => escapeCsv(String(value)))
       .join(',')
@@ -96,6 +101,7 @@ function toCsv(
       'high',
       'Missing from stocklist',
       'missing_catalog',
+      validated,
     ]
       .map((value) => escapeCsv(String(value)))
       .join(',')
@@ -126,7 +132,7 @@ export async function POST(request: Request) {
     )
   }
 
-  const csv = toCsv(parsed.data, parsed.data.unknown_items, parsed.data.missing_catalog_items)
+  const csv = toCsv(parsed.data, parsed.data.unknown_items, parsed.data.missing_catalog_items, parsed.data.validated)
 
   return new NextResponse(csv, {
     status: 200,

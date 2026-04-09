@@ -1,6 +1,13 @@
 import { NextResponse } from 'next/server'
 
+import { catalogItemSchema } from '../../../../lib/stock-schema'
 import { getAuthContext } from '../../../../lib/supabase/route-auth'
+
+function isMissingRelationError(error: { code?: string | null; message?: string | null } | null | undefined) {
+  if (!error) return false
+  if (error.code === '42P01') return true
+  return /relation .* does not exist/i.test(error.message ?? '')
+}
 
 // PUT: Update or insert a single catalog item
 export async function PUT(request: Request) {
@@ -16,44 +23,53 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: 'Request body must be valid JSON.' }, { status: 400 })
   }
 
-  const item = payload as Record<string, unknown>
-  const code = item?.code as string | undefined
-
-  if (!code || typeof code !== 'string' || !code.trim()) {
-    return NextResponse.json({ error: 'Item code is required.' }, { status: 400 })
+  const parsed = catalogItemSchema.safeParse(payload)
+  if (!parsed.success) {
+    return NextResponse.json(
+      {
+        error: 'Invalid catalog item payload.',
+        details: parsed.error.flatten(),
+      },
+      { status: 400 }
+    )
   }
 
-  if (!item?.official_name || typeof item.official_name !== 'string' || !item.official_name.trim()) {
-    return NextResponse.json({ error: 'Official name is required.' }, { status: 400 })
-  }
-
-  if (!item?.stocklist_name || typeof item.stocklist_name !== 'string' || !item.stocklist_name.trim()) {
-    return NextResponse.json({ error: 'Name on stocklist is required.' }, { status: 400 })
-  }
+  const item = parsed.data
 
   const result = await auth.supabase
     .from('catalog_items')
     .upsert({
-      code: code.trim(),
-      location: (item.location as string) ?? 'Inside Coolroom',
-      sub_location: (item.sub_location as string) ?? 'Apples',
-      category: (item.category as string) ?? 'Other',
-      product: (item.product as string) ?? '',
-      attribute: (item.attribute as string) ?? '',
-      official_name: (item.official_name as string).trim(),
-      stocklist_name: (item.stocklist_name as string).trim(),
-      navigation_guide: (item.navigation_guide as string) ?? '',
-      row_position: (item.row_position as 'left' | 'right' | 'single') ?? 'single',
+      code: item.code,
+      location: item.location,
+      sub_location: item.sub_location,
+      category: item.category,
+      product: item.product,
+      attribute: item.attribute,
+      official_name: item.official_name,
+      stocklist_name: item.stocklist_name,
+      navigation_guide: item.navigation_guide,
+      row_position: item.row_position,
     }, { onConflict: 'code' })
 
   if (result.error) {
+    if (isMissingRelationError(result.error)) {
+      return NextResponse.json(
+        {
+          error: 'Catalog write requires the new single-table schema.',
+          details: result.error.message,
+          hint: 'Run migration 20260409_catalog_items_single_table.sql to create public.catalog_items.',
+        },
+        { status: 409 }
+      )
+    }
+
     return NextResponse.json(
       { error: 'Failed to save item.', details: result.error.message },
       { status: 500 }
     )
   }
 
-  return NextResponse.json({ message: 'Item saved successfully.', code }, { status: 200 })
+  return NextResponse.json({ message: 'Item saved successfully.', code: item.code }, { status: 200 })
 }
 
 // DELETE: Remove a catalog item by code
@@ -76,6 +92,17 @@ export async function DELETE(request: Request) {
     .eq('code', code.trim())
 
   if (result.error) {
+    if (isMissingRelationError(result.error)) {
+      return NextResponse.json(
+        {
+          error: 'Catalog delete requires the new single-table schema.',
+          details: result.error.message,
+          hint: 'Run migration 20260409_catalog_items_single_table.sql to create public.catalog_items.',
+        },
+        { status: 409 }
+      )
+    }
+
     return NextResponse.json(
       { error: 'Failed to delete item.', details: result.error.message },
       { status: 500 }
