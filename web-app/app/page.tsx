@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useCallback } from 'react'
 import {
   BarChart3,
   CheckCircle2,
@@ -8,13 +8,13 @@ import {
   AlertTriangle,
   FileImage,
   Loader2,
-  ListChecks,
   Search,
-  Upload,
   Settings,
   X,
   Plus
 } from 'lucide-react'
+
+import { TranscriptionHistoryDialog } from './components/TranscriptionHistoryDialog'
 
 type StockItem = {
   catalog_id: number | null
@@ -94,6 +94,15 @@ type SessionPayload = {
     email: string | null
   }
   roles: string[]
+}
+
+type HistoryEntry = {
+  uid_generate: string
+  timestamp: string
+  filename: string
+  transcriptionData: unknown
+  stockMode: string
+  isPushed: boolean
 }
 
 type IndexedItem = {
@@ -179,6 +188,14 @@ export default function Home() {
   const [latestGenerateUid, setLatestGenerateUid] = useState<string | null>(null)
   const [apiError, setApiError] = useState<string | null>(null)
   const [apiStatus, setApiStatus] = useState<string | null>(null)
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false)
+  const [historyData, setHistoryData] = useState<HistoryEntry[]>([])
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false)
+  const [isRepushing, setIsRepushing] = useState(false)
+  const [selectedHistoryUid, setSelectedHistoryUid] = useState<string | null>(null)
+  const [historySearchTerm, setHistorySearchTerm] = useState('')
+  const [historyStatusFilter, setHistoryStatusFilter] = useState<'all' | 'pending' | 'pushed'>('all')
+  const [hasLoadedToDb, setHasLoadedToDb] = useState(false)
 
   async function loadCatalogFromApi(versionId?: string) {
     const query = versionId ? `?version_id=${encodeURIComponent(versionId)}` : ''
@@ -199,6 +216,27 @@ export default function Home() {
     setCatalogSource(data?.source === 'database' ? 'uploaded' : 'master')
   }
 
+  const loadTranscriptionHistory = useCallback(async () => {
+    setIsHistoryLoading(true)
+    setApiError(null)
+
+    try {
+      const response = await fetch('/api/transcription-history')
+
+      const payload = await response.json()
+
+      if (!response.ok) {
+        throw new Error(payload?.error ?? 'Failed to load transcription history.')
+      }
+
+      setHistoryData(Array.isArray(payload.history) ? payload.history : [])
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : 'Failed to load history.')
+    } finally {
+      setIsHistoryLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     fetch('/api/auth/session')
       .then(async (res) => {
@@ -212,6 +250,7 @@ export default function Home() {
 
         try {
           await loadCatalogFromApi()
+          await loadTranscriptionHistory()
         } catch (catalogError) {
           console.error('Failed to load catalog', catalogError)
           setApiError(catalogError instanceof Error ? catalogError.message : 'Failed to load catalog.')
@@ -219,7 +258,7 @@ export default function Home() {
       })
       .catch(() => setSession(null))
       .finally(() => setIsAuthLoading(false))
-  }, [])
+  }, [loadTranscriptionHistory])
 
   async function uploadCatalogToDatabase(file: File) {
     setIsCatalogUploading(true)
@@ -334,6 +373,7 @@ export default function Home() {
     }
 
     setIsParsing(true)
+    setHasLoadedToDb(false)
     setApiError(null)
     setApiStatus(null)
 
@@ -382,6 +422,9 @@ export default function Home() {
         setCatalogSource(json.catalog_source ?? null)
       }
       setCatalogItemCount(typeof json.catalog_item_count === 'number' ? json.catalog_item_count : null)
+
+      // Keep sidebar history in sync without requiring a page reload.
+      await loadTranscriptionHistory()
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
         setApiError('Parsing timed out after 5 minutes. The AI is taking longer than expected to process all items.')
@@ -541,6 +584,7 @@ export default function Home() {
       setApiStatus(
         `${payload?.message ?? 'Saved to Snowflake staging.'} ${payload?.query_id ? `Query ID: ${payload.query_id}.` : ''}`.trim()
       )
+      setHasLoadedToDb(true)
     } catch (error) {
       setApiError(error instanceof Error ? error.message : 'Unexpected Snowflake save error.')
     } finally {
@@ -548,8 +592,77 @@ export default function Home() {
     }
   }
 
+  async function reopushToSnowflake(uid: string) {
+    setIsRepushing(true)
+    setApiError(null)
+    setApiStatus(null)
+
+    try {
+      const response = await fetch('/api/save-to-snowflake', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uid_generate: uid,
+          reprocess: true,
+        }),
+      })
+
+      const payload = await response.json()
+
+      if (response.status === 401) {
+        throw new Error('Unauthorized. Please sign in at /login before pushing to Snowflake.')
+      }
+
+      if (!response.ok) {
+        throw new Error(payload?.error ?? 'Failed to repush to Snowflake.')
+      }
+
+      setApiStatus(`Entry repushed to Snowflake successfully.`)
+      // Reload history to refresh push status
+      await loadTranscriptionHistory()
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : 'Unexpected repush error.')
+    } finally {
+      setIsRepushing(false)
+    }
+  }
+
+  const openHistory = async (uid?: string) => {
+    setSelectedHistoryUid(uid ?? null)
+    setIsHistoryOpen(true)
+
+    if (historyData.length === 0) {
+      await loadTranscriptionHistory()
+    }
+  }
+
+  const sidebarHistory = historyData.filter((entry) => {
+    const statusMatches =
+      historyStatusFilter === 'all' ||
+      (historyStatusFilter === 'pushed' && entry.isPushed) ||
+      (historyStatusFilter === 'pending' && !entry.isPushed)
+
+    const term = historySearchTerm.trim().toLowerCase()
+    const searchMatches =
+      term.length === 0 ||
+      entry.filename.toLowerCase().includes(term) ||
+      new Date(entry.timestamp).toLocaleDateString('en-US').toLowerCase().includes(term)
+
+    return statusMatches && searchMatches
+  })
+  const hasUploadedPhoto = Boolean(photoFile)
+  const hasParsedPhoto = Boolean(parsedData)
+  const hasValidated = hasParsedPhoto && (reviewRequiredCount === 0 || hasLoadedToDb)
+
+  const workflowSteps = [
+    { id: 'upload', label: 'Upload Photo', shortLabel: 'Upload', done: hasUploadedPhoto },
+    { id: 'ocr', label: 'OCR Parse', shortLabel: 'OCR', done: hasParsedPhoto },
+    { id: 'validate', label: 'Validate', shortLabel: 'Validate', done: hasValidated },
+    { id: 'load', label: 'Load to DB', shortLabel: 'Load', done: hasLoadedToDb },
+  ]
+
   return (
-    <main className="min-h-screen px-4 py-4 md:px-8 md:py-7">
+    <main className="min-h-screen px-3 py-3 md:px-8 md:py-7">
       <div className="mx-auto mb-3 flex w-full max-w-7xl items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-600">
         <p>
           {isAuthLoading
@@ -599,43 +712,130 @@ export default function Home() {
             </button>
           </nav>
 
-          <div className="mt-8 rounded-xl bg-slate-900 p-4 text-slate-100">
-            <p className="text-xs uppercase tracking-wide text-slate-300">Today</p>
-            <p className="mt-2 text-2xl font-semibold">7 uploads</p>
-            <p className="mt-1 text-xs text-slate-300">2 need manual review</p>
+          <div className="mt-5 rounded-xl border border-slate-200 bg-white p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Data Entry History
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  void openHistory()
+                }}
+                className="text-xs font-semibold text-brand-600 hover:text-brand-700"
+              >
+                View all
+              </button>
+            </div>
+
+            <div className="mb-2 space-y-2">
+              <input
+                type="text"
+                value={historySearchTerm}
+                onChange={(event) => setHistorySearchTerm(event.target.value)}
+                placeholder="Filter by file/date"
+                className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-700 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none"
+              />
+              <select
+                value={historyStatusFilter}
+                onChange={(event) => setHistoryStatusFilter(event.target.value as 'all' | 'pending' | 'pushed')}
+                className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-700 focus:border-brand-500 focus:outline-none"
+              >
+                <option value="all">All status</option>
+                <option value="pending">Pending</option>
+                <option value="pushed">Pushed</option>
+              </select>
+            </div>
+
+            {isHistoryLoading ? (
+              <p className="text-xs text-slate-500">Loading history...</p>
+            ) : sidebarHistory.length === 0 ? (
+              <p className="text-xs text-slate-500">No records yet.</p>
+            ) : (
+              <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                {sidebarHistory.map((entry) => (
+                  <button
+                    key={entry.uid_generate}
+                    type="button"
+                    onClick={() => {
+                      void openHistory(entry.uid_generate)
+                    }}
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-left transition hover:bg-slate-100"
+                  >
+                    <p className="truncate text-xs font-semibold text-slate-700">{entry.filename}</p>
+                    <div className="mt-1 flex items-center justify-between gap-2">
+                      <p className="truncate text-[11px] text-slate-500">
+                        {new Date(entry.timestamp).toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                        })}
+                      </p>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                          entry.isPushed
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : 'bg-amber-100 text-amber-700'
+                        }`}
+                      >
+                        {entry.isPushed ? 'Pushed' : 'Pending'}
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </aside>
 
         <div className="flex-1 space-y-4">
           <section className="card-surface rounded-2xl p-6 md:p-8">
-            <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-600">
-                  Data Entry Pipeline
-                </p>
-                <h1 className="mt-2 text-3xl font-bold text-slate-900 md:text-4xl">
-                  Upload, Parse, Validate, Save
-                </h1>
-                <p className="mt-2 max-w-2xl text-sm text-slate-600 md:text-base">
-                  Turn stocklist photos into structured data with AI OCR, then review and load into
-                  Snowflake staging in one flow.
-                </p>
-              </div>
-              <div className="rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-sm text-brand-700">
-                Confidence checks enabled
-              </div>
+            <div className="mb-4">
+              <h1 className="text-2xl font-bold text-slate-900 md:text-3xl">Data Entry</h1>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-[1.3fr_1fr]">
-              <div className="rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 p-6 text-center transition hover:border-brand-500">
-                <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-brand-100">
-                  <Upload className="h-6 w-6 text-brand-600" />
-                </div>
-                <h2 className="text-lg font-semibold text-slate-900">Drop stocklist photo</h2>
-                <p className="mt-1 text-sm text-slate-500">JPEG / PNG up to 5MB + optional catalog JSON</p>
+            <div className="grid gap-4">
+              <div className="rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 p-3 text-center transition hover:border-brand-500 md:p-5">
+                <p className="text-sm text-slate-500">JPEG / PNG, max 5MB</p>
 
                 <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3 text-left">
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Mode</p>
+                  <p className="text-xs font-medium text-slate-500">Timeline</p>
+                  <div className="mt-3 grid grid-cols-4 gap-2">
+                      {workflowSteps.map((step, index) => {
+                        const isLast = index === workflowSteps.length - 1
+                        return (
+                          <div key={step.id} className="relative flex flex-col items-start pr-1 md:pr-4">
+                            {!isLast && (
+                              <span
+                                className={`absolute left-7 top-[10px] h-px w-[calc(100%-1.6rem)] md:left-8 md:w-[calc(100%-2rem)] ${
+                                  step.done ? 'bg-emerald-400' : 'bg-slate-300'
+                                }`}
+                              />
+                            )}
+                            <div className="relative z-10 flex w-6 shrink-0 justify-center bg-white">
+                              <span
+                                className={`inline-flex h-5 w-5 items-center justify-center rounded-full border text-[11px] font-bold ${
+                                  step.done
+                                    ? 'border-emerald-600 bg-emerald-600 text-white'
+                                    : 'border-slate-300 bg-white text-slate-500'
+                                }`}
+                              >
+                                {step.done ? '✓' : index + 1}
+                              </span>
+                            </div>
+                            <div className="pb-1 pt-2">
+                              <p className={`text-[11px] font-semibold leading-4 md:text-sm ${step.done ? 'text-emerald-700' : 'text-slate-700'}`}>
+                                <span className="md:hidden">{step.shortLabel}</span>
+                                <span className="hidden md:inline">{step.label}</span>
+                              </p>
+                            </div>
+                          </div>
+                        )
+                      })}
+                  </div>
+                </div>
+
+                <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 text-left">
+                  <p className="text-xs font-medium text-slate-500">Mode</p>
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     {([
                       ['stock-in', 'Stock-in'],
@@ -658,11 +858,6 @@ export default function Home() {
                       )
                     })}
                   </div>
-                  <p className="mt-2 text-xs text-slate-500">
-                    {stockMode === 'stock-in'
-                      ? 'Use this for incoming stock counts.'
-                      : 'Use this for end-of-day closing stock counts.'}
-                  </p>
                 </div>
 
                 <input
@@ -678,7 +873,7 @@ export default function Home() {
 
                 <label
                   htmlFor="photo-upload"
-                  className="mt-4 inline-flex cursor-pointer items-center rounded-lg bg-brand-500 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-brand-600"
+                  className="mt-3 inline-flex w-full cursor-pointer items-center justify-center rounded-lg bg-brand-500 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-brand-600 md:w-auto"
                 >
                   Choose File
                 </label>
@@ -687,9 +882,9 @@ export default function Home() {
                   {photoFile ? `Photo: ${photoFile.name}` : 'No photo selected'}
                 </p>
 
-                <div className="mt-4 border-t border-slate-200 pt-4 flex flex-col gap-2">
+                <div className="mt-3 flex flex-col gap-2 border-t border-slate-200 pt-3">
                   <div className="rounded-lg border border-slate-200 bg-white p-3 text-left">
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Catalog Version</p>
+                    <p className="text-xs font-medium text-slate-500">Catalog</p>
                     <select
                       className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
                       value={selectedCatalogVersionId ?? ''}
@@ -714,9 +909,6 @@ export default function Home() {
                         ))
                       )}
                     </select>
-                    <p className="mt-2 text-xs text-slate-500">
-                      Upload a CSV once, then choose any version stored in Supabase.
-                    </p>
                   </div>
                   <input
                     id="catalog-upload"
@@ -729,21 +921,21 @@ export default function Home() {
                       void uploadCatalogToDatabase(file)
                     }}
                   />
-                  <div className="flex items-center justify-center gap-2">
+                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-center">
                     <label
                       htmlFor="catalog-upload"
-                      className="inline-flex cursor-pointer items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                      className="inline-flex w-full cursor-pointer items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 md:w-auto"
                     >
                       <Database className="mr-2 h-4 w-4" />
-                      {isCatalogUploading ? 'Uploading Catalog...' : 'Upload CSV Catalog to DB'}
+                      {isCatalogUploading ? 'Uploading CSV...' : 'Upload CSV'}
                     </label>
                     <button
                       type="button"
                       onClick={() => setIsCatalogOpen(true)}
-                      className="inline-flex cursor-pointer items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                      className="inline-flex w-full cursor-pointer items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 md:w-auto"
                     >
                       <Settings className="mr-2 h-4 w-4" />
-                      View Catalog UI
+                      Catalog
                     </button>
                   </div>
                   <p className="mt-2 text-xs text-slate-500">
@@ -756,33 +948,12 @@ export default function Home() {
                   type="button"
                   onClick={parsePhoto}
                   disabled={isParsing || !photoFile}
-                  className="mt-4 inline-flex min-w-[170px] items-center justify-center gap-2 rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+                  className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400 md:w-auto md:min-w-[170px]"
                 >
-                  {isParsing ? <Loader2 className="h-4 w-4 animate-spin" /> : <ListChecks className="h-4 w-4" />}
-                  {isParsing ? 'Parsing...' : 'Parse Stocklist'}
+                  {isParsing && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {isParsing ? 'Parsing...' : 'Parse'}
                 </button>
-              </div>
 
-              <div className="rounded-xl border border-slate-200 bg-white p-4">
-                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Pipeline</h3>
-                <ul className="mt-3 space-y-3 text-sm">
-                  <li className="flex items-center gap-2 text-slate-700">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                    Upload photo
-                  </li>
-                  <li className="flex items-center gap-2 text-slate-700">
-                    <ListChecks className="h-4 w-4 text-brand-600" />
-                    OCR parse to JSON
-                  </li>
-                  <li className="flex items-center gap-2 text-slate-700">
-                    <ListChecks className="h-4 w-4 text-brand-600" />
-                    Review confidence flags
-                  </li>
-                  <li className="flex items-center gap-2 text-slate-700">
-                    <Database className="h-4 w-4 text-brand-600" />
-                    Save to Snowflake
-                  </li>
-                </ul>
               </div>
             </div>
           </section>
@@ -1271,12 +1442,12 @@ export default function Home() {
               />
             )}
 
-            <div className="mt-5 flex flex-wrap gap-2">
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
               <button
                 type="button"
                 onClick={exportCsv}
                 disabled={!parsedData || isExporting || isSaving}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+                className="w-full rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400 sm:w-auto"
               >
                 {isExporting ? 'Exporting...' : 'Export CSV'}
               </button>
@@ -1284,7 +1455,7 @@ export default function Home() {
                 type="button"
                 onClick={saveToSnowflake}
                 disabled={!parsedData || isSaving || isExporting}
-                className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-brand-300"
+                className="w-full rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-brand-300 sm:w-auto"
               >
                 {isSaving ? 'Saving to Snowflake...' : 'Validate & Save to Snowflake'}
               </button>
@@ -1374,6 +1545,16 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      <TranscriptionHistoryDialog
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+        history={historyData}
+        isLoading={isHistoryLoading}
+        onRepush={reopushToSnowflake}
+        isRepushing={isRepushing}
+        selectedUid={selectedHistoryUid}
+      />
     </main>
   )
 }

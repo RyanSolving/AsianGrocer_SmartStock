@@ -189,66 +189,51 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Request body must be valid JSON.' }, { status: 400 })
   }
 
-  const envelope =
-    payload && typeof payload === 'object' && 'data' in payload
-      ? {
-          data: parsedStockSchema.safeParse((payload as { data?: unknown }).data),
-          unknownItems: (payload as { unknown_items?: unknown }).unknown_items,
-          missingCatalogItems: (payload as { missing_catalog_items?: unknown }).missing_catalog_items,
-          uidGenerate: (payload as { uid_generate?: unknown }).uid_generate,
-        }
-      : null
-
+  // Check if this is a re-push request with uid_generate
+  const isRepush = payload && typeof payload === 'object' && 'uid_generate' in payload && !('data' in payload)
+  let uidGenerate: string | null = null
   let parsedData
   let unknownItems: unknown[] = []
   let missingCatalogItems: unknown[] = []
-  let uidGenerate: string | null = null
 
-  if (envelope) {
-    const unknownResult = unknownItemSchema.array().default([]).safeParse(envelope.unknownItems)
-    const missingResult = missingCatalogItemsSchema.safeParse(envelope.missingCatalogItems)
-
-    if (!envelope.data.success) {
+  if (isRepush) {
+    // Re-push case: fetch data from database
+    uidGenerate = typeof (payload as any).uid_generate === 'string' ? (payload as any).uid_generate : null
+    if (typeof uidGenerate !== 'string' || !uidGenerate) {
       return NextResponse.json(
         {
-          error: 'Payload validation failed.',
-          details: envelope.data.error.flatten(),
+          error: 'Invalid or missing uid_generate for re-push.',
         },
         { status: 400 }
       )
     }
 
-    if (!unknownResult.success) {
+    // Fetch the original event_generate record
+    const { data: eventData, error: eventError } = await auth.supabase
+      .from('event_generate')
+      .select('final_output')
+      .eq('uid_generate', uidGenerate)
+      .eq('user_id', auth.user.id)
+      .single()
+
+    if (eventError || !eventData) {
       return NextResponse.json(
         {
-          error: 'Unknown item payload validation failed.',
-          details: unknownResult.error.flatten(),
+          error: 'Failed to fetch original transcription data for re-push.',
+          details: eventError?.message,
         },
-        { status: 400 }
+        { status: 404 }
       )
     }
 
-    if (!missingResult.success) {
-      return NextResponse.json(
-        {
-          error: 'Missing catalog payload validation failed.',
-          details: missingResult.error.flatten(),
-        },
-        { status: 400 }
-      )
-    }
-
-    parsedData = envelope.data.data
-    unknownItems = unknownResult.data
-    missingCatalogItems = missingResult.data
-    uidGenerate = typeof envelope.uidGenerate === 'string' && envelope.uidGenerate.length > 0 ? envelope.uidGenerate : null
-  } else {
-    const parsed = parsedStockSchema.safeParse(payload)
+    // Parse the final_output as parsed data
+    const finalOutput = eventData.final_output
+    const parsed = parsedStockSchema.safeParse(finalOutput)
 
     if (!parsed.success) {
       return NextResponse.json(
         {
-          error: 'Payload validation failed.',
+          error: 'Original transcription data validation failed.',
           details: parsed.error.flatten(),
         },
         { status: 400 }
@@ -256,6 +241,71 @@ export async function POST(request: Request) {
     }
 
     parsedData = parsed.data
+  } else {
+    // Normal push case: use provided data
+    const envelope =
+      payload && typeof payload === 'object' && 'data' in payload
+        ? {
+            data: parsedStockSchema.safeParse((payload as { data?: unknown }).data),
+            unknownItems: (payload as { unknown_items?: unknown }).unknown_items,
+            missingCatalogItems: (payload as { missing_catalog_items?: unknown }).missing_catalog_items,
+            uidGenerate: (payload as { uid_generate?: unknown }).uid_generate,
+          }
+        : null
+
+    if (envelope) {
+      const unknownResult = unknownItemSchema.array().default([]).safeParse(envelope.unknownItems)
+      const missingResult = missingCatalogItemsSchema.safeParse(envelope.missingCatalogItems)
+
+      if (!envelope.data.success) {
+        return NextResponse.json(
+          {
+            error: 'Payload validation failed.',
+            details: envelope.data.error.flatten(),
+          },
+          { status: 400 }
+        )
+      }
+
+      if (!unknownResult.success) {
+        return NextResponse.json(
+          {
+            error: 'Unknown item payload validation failed.',
+            details: unknownResult.error.flatten(),
+          },
+          { status: 400 }
+        )
+      }
+
+      if (!missingResult.success) {
+        return NextResponse.json(
+          {
+            error: 'Missing catalog payload validation failed.',
+            details: missingResult.error.flatten(),
+          },
+          { status: 400 }
+        )
+      }
+
+      parsedData = envelope.data.data
+      unknownItems = unknownResult.data
+      missingCatalogItems = missingResult.data
+      uidGenerate = typeof envelope.uidGenerate === 'string' && envelope.uidGenerate.length > 0 ? envelope.uidGenerate : null
+    } else {
+      const parsed = parsedStockSchema.safeParse(payload)
+
+      if (!parsed.success) {
+        return NextResponse.json(
+          {
+            error: 'Payload validation failed.',
+            details: parsed.error.flatten(),
+          },
+          { status: 400 }
+        )
+      }
+
+      parsedData = parsed.data
+    }
   }
 
   const missingEnvKeys = getMissingSnowflakeEnvKeys()
