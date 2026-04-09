@@ -498,7 +498,11 @@ export default function Home() {
       const response = await fetch('/api/export-csv', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(parsedData),
+        body: JSON.stringify({
+          ...parsedData,
+          unknown_items: unknownItems,
+          missing_catalog_items: missingCatalogItems,
+        }),
       })
 
       if (!response.ok) {
