@@ -183,3 +183,43 @@ body {
 		padding: 8px;
 	}
 }
+
+@media (max-width: 640px) {
+	.stock-paper-wrap {
+		padding: 6px;
+		border-radius: 10px;
+	}
+
+	.stock-date-row {
+		font-size: 11px;
+		padding: 6px 8px 4px;
+	}
+
+	.stock-date-hand {
+		font-size: 14px;
+	}
+
+	.stock-sec-hdr {
+		font-size: 11px;
+		letter-spacing: 0.14em;
+		padding: 5px;
+	}
+
+	.stock-sub-hdr {
+		font-size: 10px;
+		padding: 3px 5px;
+	}
+
+	.stock-pt {
+		font-size: 10px;
+	}
+
+	.stock-pt td {
+		padding: 2px 3px;
+	}
+
+	.stock-input,
+	.stock-qty-input {
+		font-size: 10px;
+	}
+}

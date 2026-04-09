@@ -792,16 +792,16 @@ export default function Home() {
   ]
 
   return (
-    <main className="min-h-screen px-3 py-3 md:px-8 md:py-7">
-      <div className="mx-auto mb-3 flex w-full max-w-7xl items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-600">
-        <p>
+    <main className="min-h-screen px-2 py-2 sm:px-3 sm:py-3 md:px-8 md:py-7">
+      <div className="mx-auto mb-3 flex w-full max-w-7xl flex-col gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between sm:px-4">
+        <p className="w-full truncate sm:w-auto">
           {isAuthLoading
             ? 'Checking sign-in session...'
             : session
             ? `Signed in as ${session.user.email ?? session.user.id} (${session.roles.join(', ') || 'no role'})`
             : 'Not signed in'}
         </p>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full items-center gap-2 sm:w-auto sm:justify-end">
           {!session ? (
             <a href="/login" className="rounded-md border border-slate-300 px-3 py-1.5 text-slate-700 hover:bg-slate-50">
               Sign in
@@ -820,9 +820,9 @@ export default function Home() {
           )}
         </div>
       </div>
-      <div className="mx-auto flex max-w-7xl flex-col gap-4 md:flex-row">
-        <aside className="card-surface rounded-2xl p-4 md:min-h-[85vh] md:w-72 md:p-6">
-          <div className="mb-8">
+      <div className="mx-auto flex max-w-7xl flex-col gap-3 md:flex-row md:gap-4">
+        <aside className="card-surface rounded-2xl p-3 sm:p-4 md:min-h-[85vh] md:w-72 md:p-6">
+          <div className="mb-5 md:mb-8">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-600">Smart Stock</p>
             <h2 className="mt-2 text-xl font-bold text-slate-900">Operations Hub</h2>
           </div>
@@ -831,7 +831,7 @@ export default function Home() {
             <button
               type="button"
               onClick={() => setActiveSection('data-entry')}
-              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm ${
+              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm ${
                 activeSection === 'data-entry'
                   ? 'bg-brand-50 font-semibold text-brand-700'
                   : 'text-slate-600 hover:bg-slate-100'
@@ -843,7 +843,7 @@ export default function Home() {
             <button
               type="button"
               onClick={() => setActiveSection('stock-check')}
-              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm ${
+              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm ${
                 activeSection === 'stock-check'
                   ? 'bg-brand-50 font-semibold text-brand-700'
                   : 'text-slate-600 hover:bg-slate-100'
@@ -852,7 +852,7 @@ export default function Home() {
               <Search className="h-4 w-4" />
               Check Stock
             </button>
-            <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-slate-600 hover:bg-slate-100">
+            <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-slate-600 hover:bg-slate-100">
               <BarChart3 className="h-4 w-4" />
               Dashboard
             </button>
@@ -864,7 +864,7 @@ export default function Home() {
               <button
                 type="button"
                 onClick={() => setActiveSection('catalog')}
-                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm ${
+                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm ${
                   activeSection === 'catalog'
                     ? 'bg-brand-50 font-semibold text-brand-700'
                     : 'text-slate-600 hover:bg-slate-100'
@@ -876,7 +876,7 @@ export default function Home() {
             </div>
           </nav>
 
-          <div className="mt-5 rounded-xl border border-slate-200 bg-white p-3">
+          <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3 md:mt-5">
             <div className="mb-2 flex items-center justify-between">
               <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
                 {isStockCheckTab ? 'Stock Check Record' : 'Data Entry History'}
@@ -939,7 +939,7 @@ export default function Home() {
             ) : isStockCheckTab ? sidebarStockCheckHistory.length === 0 : sidebarDataEntryHistory.length === 0 ? (
               <p className="text-xs text-slate-500">No records yet.</p>
             ) : (
-              <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+              <div className="max-h-48 space-y-2 overflow-y-auto pr-1 md:max-h-72">
                 {isStockCheckTab ? (
                   sidebarStockCheckHistory.map((entry) => (
                     <div

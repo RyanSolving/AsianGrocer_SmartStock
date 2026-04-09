@@ -564,7 +564,7 @@ export function EmbeddedStockCheckPanel({
 
   if (!catalogItems || catalogItems.length === 0) {
     return (
-      <section className="card-surface rounded-2xl p-6 md:p-8">
+      <section className="card-surface rounded-2xl p-4 sm:p-6 md:p-8">
         <h1 className="text-2xl font-bold text-slate-900 md:text-3xl">Stock Check</h1>
         <p className="mt-2 text-sm text-slate-600">Catalog is empty. Upload or manage catalog first, then return to stock check.</p>
       </section>
@@ -573,9 +573,9 @@ export function EmbeddedStockCheckPanel({
 
   return (
     <div className="space-y-4">
-      <section className="card-surface rounded-2xl p-6 md:p-8">
+      <section className="card-surface rounded-2xl p-4 sm:p-6 md:p-8">
         <div className="mb-4">
-          <h1 className="text-2xl font-bold text-slate-900 md:text-3xl">Stock Check</h1>
+          <h1 className="text-xl font-bold text-slate-900 sm:text-2xl md:text-3xl">Stock Check</h1>
           <p className="mt-1 text-sm text-slate-600">Paper layout with fixed catalog rows, inline quantity checks, and red reorder markers.</p>
         </div>
 
@@ -625,7 +625,7 @@ export function EmbeddedStockCheckPanel({
           </button>
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center gap-2">
+        <div className="mt-4 grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-center">
           <button
             type="button"
             onClick={() => {
@@ -633,7 +633,7 @@ export function EmbeddedStockCheckPanel({
               setStatus('Validated by staff. Export and Load to DB are enabled.')
               setError(null)
             }}
-            className="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100"
+            className="w-full rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 sm:w-auto"
           >
             {isValidated ? 'Validated' : 'Validate'}
           </button>
@@ -642,7 +642,7 @@ export function EmbeddedStockCheckPanel({
             type="button"
             onClick={exportCsv}
             disabled={!isValidated || isExporting || isSaving}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
           >
             <Download className="h-4 w-4" />
             CSV
@@ -652,7 +652,7 @@ export function EmbeddedStockCheckPanel({
             type="button"
             onClick={exportPdf}
             disabled={!isValidated || isExporting || isSaving}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
           >
             <FileText className="h-4 w-4" />
             PDF
@@ -662,7 +662,7 @@ export function EmbeddedStockCheckPanel({
             type="button"
             onClick={exportPhoto}
             disabled={isExporting || isSaving}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
           >
             <FileImage className="h-4 w-4" />
             Photo
@@ -672,7 +672,7 @@ export function EmbeddedStockCheckPanel({
             type="button"
             onClick={saveToDb}
             disabled={!isValidated || isExporting || isSaving}
-            className="inline-flex items-center gap-2 rounded-lg border border-brand-300 bg-brand-50 px-4 py-2 text-sm font-medium text-brand-700 hover:bg-brand-100 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-brand-300 bg-brand-50 px-4 py-2 text-sm font-medium text-brand-700 hover:bg-brand-100 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
           >
             {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
             Load to DB
@@ -682,7 +682,7 @@ export function EmbeddedStockCheckPanel({
             type="button"
             onClick={openCreateUnknownModal}
             disabled={!rows.some((x) => x.source === 'unknown') || isCreatingUnknownItems}
-            className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
           >
             {isCreatingUnknownItems ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             Create Unknown Items
@@ -693,7 +693,7 @@ export function EmbeddedStockCheckPanel({
         {status && <p className="mt-3 text-sm text-emerald-700">{status}</p>}
 
         <div className="mt-5 stock-paper-wrap overflow-x-auto">
-          <div ref={stockPaperRef} className="stock-paper min-w-[820px]">
+          <div ref={stockPaperRef} className="stock-paper min-w-[700px] sm:min-w-[760px] md:min-w-[820px]">
             <div className="stock-date-row">
               <span>DATE:</span>
               <span className="stock-date-hand">{formatSheetDate(stockDate)}</span>
