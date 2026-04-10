@@ -69,6 +69,55 @@ By capturing a photo of a handwritten closing stock sheet, this application leve
 
 6. **Uploading Data:** Choose a DB catalog version, upload a high-quality photo of your closing stocklist, and hit parse!
 
+## Unified Save Payload Schema
+
+Both Data Entry stock-closing and Stock Check now use the same save envelope shape when sending to Snowflake-backed save routes.
+
+Canonical request body:
+
+   {
+      "data": {
+         "photo_id": "string",
+         "mode": "stock-in | stock-closing",
+         "upload_date": "ISO datetime",
+         "stock_date": "YYYY-MM-DD",
+         "photo_url": "string | null",
+         "total_items": 0,
+         "confidence_overall": "high | medium | low",
+         "items": [
+            {
+               "catalog_code": "string | null",
+               "product_raw": "string",
+               "location": "string",
+               "sub_location": "string",
+               "category": "string",
+               "product": "string",
+               "attribute": "string",
+               "official_name": "string",
+               "stocklist_name": "string",
+               "navigation_guide": "string",
+               "row_position": "left | right | single",
+               "quantity_raw": "string | null",
+               "quantity": "number | null",
+               "quantity_conflict_flag": "boolean",
+               "confidence": "high | medium | low",
+               "catalog_match_status": "exact | fuzzy | unknown",
+               "notes": "string | null"
+            }
+         ]
+      },
+      "validated": "yes | no",
+      "unknown_items": ["same item schema as data.items"],
+      "missing_catalog_items": ["catalog entry schema"],
+      "uid_generate": "optional trace id"
+   }
+
+Behavior notes:
+- Endpoint /api/save-to-snowflake validates this canonical envelope for normal submissions.
+- Endpoint /api/stock-check/save-to-db validates the same canonical envelope.
+- For Stock Check, Snowflake validated is intentionally forced to yes by route logic.
+- Re-push via uid_generate in /api/save-to-snowflake remains supported.
+
 ## 🔮 Next Phases / Roadmap
 
 * **Persistent Catalog Editing:** Currently, the Catalog Viewer UI allows temporary inline schema modification. The next phase involves setting up an endpoint to automatically write permanent edits back to `catalog_v2.csv` on the server disk.

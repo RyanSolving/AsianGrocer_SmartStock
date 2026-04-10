@@ -100,9 +100,72 @@ export const snowflakeStagingRecordSchema = z.object({
   item_data: z.array(itemSchema),
 })
 
+export const unknownItemSchema = itemSchema
+export const missingCatalogItemsSchema = catalogEntrySchema.array().default([])
+
+export const saveToSnowflakeEnvelopeSchema = z.object({
+  data: parsedStockSchema,
+  validated: z.enum(['yes', 'no']).optional(),
+  unknown_items: unknownItemSchema.array().default([]),
+  missing_catalog_items: missingCatalogItemsSchema,
+  uid_generate: z.string().trim().optional(),
+})
+
+function catalogEntryToStagedItem(entry: CatalogEntry): StockItem {
+  return {
+    catalog_code: entry.code,
+    product_raw: entry.stocklist_name || entry.official_name,
+    location: entry.location,
+    sub_location: entry.sub_location,
+    category: entry.category,
+    product: entry.product,
+    attribute: entry.attribute,
+    official_name: entry.official_name,
+    stocklist_name: entry.stocklist_name || null,
+    navigation_guide: entry.navigation_guide || null,
+    row_position: entry.row_position ?? 'single',
+    quantity_raw: null,
+    quantity: null,
+    quantity_conflict_flag: false,
+    confidence: 'high',
+    catalog_match_status: 'unknown',
+    notes: null,
+  }
+}
+
+export function buildSnowflakeStagingRecord(input: {
+  parsedData: ParsedStock
+  validated?: 'yes' | 'no'
+  unknownItems?: unknown[]
+  missingCatalogItems?: unknown[]
+  forcedValidated?: 'yes' | 'no'
+}): SnowflakeStagingRecord {
+  const unknownItems = unknownItemSchema.array().default([]).parse(input.unknownItems)
+  const missingCatalogItems = missingCatalogItemsSchema.parse(input.missingCatalogItems)
+
+  const itemData = [
+    ...input.parsedData.items,
+    ...missingCatalogItems.map(catalogEntryToStagedItem),
+    ...unknownItems,
+  ]
+
+  return snowflakeStagingRecordSchema.parse({
+    photo_id: input.parsedData.photo_id,
+    mode: input.parsedData.mode,
+    validated: input.forcedValidated ?? input.validated ?? 'no',
+    upload_date: input.parsedData.upload_date,
+    stock_date: input.parsedData.stock_date,
+    photo_url: input.parsedData.photo_url,
+    total_items: itemData.length,
+    confidence_overall: input.parsedData.confidence_overall,
+    item_data: itemData,
+  })
+}
+
 export type CatalogEntry = z.infer<typeof catalogEntrySchema>
 export type ParsedStock = z.infer<typeof parsedStockSchema>
 export type StockItem = z.infer<typeof itemSchema>
 export type SnowflakeStagingRecord = z.infer<typeof snowflakeStagingRecordSchema>
 export type StockMode = z.infer<typeof stockModeSchema>
 export type CatalogItem = z.infer<typeof catalogItemSchema>
+export type SaveToSnowflakeEnvelope = z.infer<typeof saveToSnowflakeEnvelopeSchema>
