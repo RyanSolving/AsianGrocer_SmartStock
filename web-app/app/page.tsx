@@ -329,7 +329,30 @@ export default function Home() {
   }
 
   const indexedItems = useMemo(() => {
-    if (!parsedData) return []
+    if (!parsedData) {
+      if (!activeCatalog) return []
+
+      return activeCatalog.map((c_item, index) => ({
+        item: {
+          catalog_code: c_item.code,
+          product_raw: c_item.stocklist_name || c_item.official_name,
+          category: c_item.category,
+          location: c_item.location as StockItem['location'],
+          sub_location: c_item.sub_location,
+          product: c_item.product,
+          attribute: c_item.attribute,
+          official_name: c_item.official_name,
+          quantity_raw: c_item.quantity_raw ?? null,
+          quantity: typeof c_item.quantity === 'number' ? c_item.quantity : null,
+          quantity_conflict_flag: Boolean(c_item.quantity_conflict_flag),
+          row_position: c_item.row_position || 'single',
+          confidence: 'high' as const,
+          notes: null,
+        },
+        index,
+        source: 'parsed' as const,
+      }))
+    }
 
     // Extracted items (matched)
     const allItems = parsedData.items.map((item, index) => ({ item, index, source: 'parsed' as const }))
@@ -366,7 +389,7 @@ export default function Home() {
     }))
 
     return [...allItems, ...missingItems, ...unknownMapped]
-  }, [parsedData, missingCatalogItems, unknownItems])
+  }, [parsedData, missingCatalogItems, unknownItems, activeCatalog])
 
   const paperSections = useMemo(() => {
     const apples = indexedItems.filter((row) => row.item.location === 'Inside Coolroom' && row.item.sub_location === 'Apples')
@@ -1128,16 +1151,15 @@ export default function Home() {
             </div>
 
             {!parsedData && (
-              <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-600">
-                Parse a photo to render an editable stocklist layout grouped by location and left/right columns.
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700 mb-4">
+                Showing the stocklist template from the active catalog before parsing.
               </div>
             )}
 
-            {parsedData && (
-              <div className="space-y-6">
-                <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm md:grid-cols-3">
+            <div className="space-y-6">
+              <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm md:grid-cols-3">
                   <p>
-                    <span className="font-semibold text-slate-700">Known items:</span> {parsedData.total_items}
+                    <span className="font-semibold text-slate-700">Known items:</span> {parsedData?.total_items ?? indexedItems.length}
                   </p>
                   <p>
                     <span className="font-semibold text-slate-700">Unknown items:</span> {unknownItems.length}
@@ -1147,7 +1169,7 @@ export default function Home() {
                   </p>
                   <p>
                     <span className="font-semibold text-slate-700">Mode:</span>{' '}
-                    {parsedData.mode === 'stock-closing' ? 'Stock-closing' : 'Stock-in'}
+                    {parsedData ? (parsedData.mode === 'stock-closing' ? 'Stock-closing' : 'Stock-in') : 'Catalog preview'}
                   </p>
                   <p className="md:col-span-3">
                     <span className="font-semibold text-slate-700">Catalog source:</span>{' '}
@@ -1163,7 +1185,7 @@ export default function Home() {
                   <div className="stock-paper min-w-[820px]">
                     <div className="stock-date-row">
                       <span>DATE:</span>
-                      <span className="stock-date-hand">{formatSheetDate(parsedData.stock_date)}</span>
+                      <span className="stock-date-hand">{formatSheetDate(parsedData?.stock_date)}</span>
                     </div>
 
                     <div className="stock-sec-hdr">INSIDE COOLROOM</div>
@@ -1583,7 +1605,6 @@ export default function Home() {
                   </div>
                 </div>
               </div>
-            )}
 
             {apiError && (
               <FeedbackBanner

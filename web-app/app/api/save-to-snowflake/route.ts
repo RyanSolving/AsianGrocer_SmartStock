@@ -4,17 +4,13 @@ import snowflake from 'snowflake-sdk'
 import { logPushToSnowflakeEvent } from '../../../lib/supabase/events'
 import { getAuthContext } from '../../../lib/supabase/route-auth'
 import {
-  catalogEntrySchema,
-  itemSchema,
+  buildSnowflakeStagingRecord,
   parsedStockSchema,
-  snowflakeStagingRecordSchema,
+  saveToSnowflakeEnvelopeSchema,
   stockModeSchema,
 } from '../../../lib/stock-schema'
 
 export const runtime = 'nodejs'
-
-const unknownItemSchema = itemSchema
-const missingCatalogItemsSchema = catalogEntrySchema.array().default([])
 
 function getMissingSnowflakeEnvKeys() {
   const missing: string[] = []
@@ -121,64 +117,6 @@ function closeSnowflakeConnection(connection: ReturnType<typeof snowflake.create
   })
 }
 
-function normalizeUnknownItem(item: unknown) {
-  const parsed = unknownItemSchema.safeParse(item)
-  if (!parsed.success) {
-    throw new Error('One of the unknown items could not be normalized for Snowflake.')
-  }
-
-  return parsed.data
-}
-
-function catalogEntryToStagedItem(entry: unknown) {
-  const parsed = catalogEntrySchema.parse(entry)
-
-  return {
-    catalog_code: parsed.code,
-    product_raw: parsed.stocklist_name || parsed.official_name,
-    location: parsed.location,
-    sub_location: parsed.sub_location,
-    category: parsed.category,
-    product: parsed.product,
-    attribute: parsed.attribute,
-    official_name: parsed.official_name,
-    stocklist_name: parsed.stocklist_name || null,
-    navigation_guide: parsed.navigation_guide || null,
-    row_position: parsed.row_position ?? 'single',
-    quantity_raw: null,
-    quantity: null,
-    quantity_conflict_flag: false,
-    confidence: 'high' as const,
-    catalog_match_status: 'unknown' as const,
-    notes: null,
-  }
-}
-
-function buildSnowflakeStagingRecord(input: {
-  parsedData: ReturnType<typeof parsedStockSchema.parse>
-  validated: 'yes' | 'no'
-  unknownItems: unknown[]
-  missingCatalogItems: unknown[]
-}) {
-  const itemData = [
-    ...input.parsedData.items,
-    ...input.missingCatalogItems.map(catalogEntryToStagedItem),
-    ...input.unknownItems.map(normalizeUnknownItem),
-  ]
-
-  return snowflakeStagingRecordSchema.parse({
-    photo_id: input.parsedData.photo_id,
-    mode: input.parsedData.mode,
-    validated: input.validated,
-    upload_date: input.parsedData.upload_date,
-    stock_date: input.parsedData.stock_date,
-    photo_url: input.parsedData.photo_url,
-    total_items: itemData.length,
-    confidence_overall: input.parsedData.confidence_overall,
-    item_data: itemData,
-  })
-}
-
 export async function POST(request: Request) {
   const auth = await getAuthContext()
   if (auth instanceof NextResponse) {
@@ -196,7 +134,7 @@ export async function POST(request: Request) {
   // Check if this is a re-push request with uid_generate
   const isRepush = payload && typeof payload === 'object' && 'uid_generate' in payload && !('data' in payload)
   let uidGenerate: string | null = null
-  let parsedData
+  let parsedData: ReturnType<typeof parsedStockSchema.parse>
   let validated: 'yes' | 'no' = 'no'
   let unknownItems: unknown[] = []
   let missingCatalogItems: unknown[] = []
@@ -247,81 +185,24 @@ export async function POST(request: Request) {
 
     parsedData = parsed.data
   } else {
-    // Normal push case: use provided data
-    const envelope =
-      payload && typeof payload === 'object' && 'data' in payload
-        ? {
-            data: parsedStockSchema.safeParse((payload as { data?: unknown }).data),
-            validated: (payload as { validated?: unknown }).validated,
-            unknownItems: (payload as { unknown_items?: unknown }).unknown_items,
-            missingCatalogItems: (payload as { missing_catalog_items?: unknown }).missing_catalog_items,
-            uidGenerate: (payload as { uid_generate?: unknown }).uid_generate,
-          }
-        : null
-
-    if (envelope) {
-      const unknownResult = unknownItemSchema.array().default([]).safeParse(envelope.unknownItems)
-      const missingResult = missingCatalogItemsSchema.safeParse(envelope.missingCatalogItems)
-
-      if (!envelope.data.success) {
-        return NextResponse.json(
-          {
-            error: 'Payload validation failed.',
-            details: envelope.data.error.flatten(),
-          },
-          { status: 400 }
-        )
-      }
-
-      if (!unknownResult.success) {
-        return NextResponse.json(
-          {
-            error: 'Unknown item payload validation failed.',
-            details: unknownResult.error.flatten(),
-          },
-          { status: 400 }
-        )
-      }
-
-      if (!missingResult.success) {
-        return NextResponse.json(
-          {
-            error: 'Missing catalog payload validation failed.',
-            details: missingResult.error.flatten(),
-          },
-          { status: 400 }
-        )
-      }
-
-      if (envelope.validated !== undefined && envelope.validated !== 'yes' && envelope.validated !== 'no') {
-        return NextResponse.json(
-          {
-            error: 'Validated payload must be either "yes" or "no".',
-          },
-          { status: 400 }
-        )
-      }
-
-      parsedData = envelope.data.data
-      validated = envelope.validated === 'yes' ? 'yes' : 'no'
-      unknownItems = unknownResult.data
-      missingCatalogItems = missingResult.data
-      uidGenerate = typeof envelope.uidGenerate === 'string' && envelope.uidGenerate.length > 0 ? envelope.uidGenerate : null
-    } else {
-      const parsed = parsedStockSchema.safeParse(payload)
-
-      if (!parsed.success) {
-        return NextResponse.json(
-          {
-            error: 'Payload validation failed.',
-            details: parsed.error.flatten(),
-          },
-          { status: 400 }
-        )
-      }
-
-      parsedData = parsed.data
+    const envelope = saveToSnowflakeEnvelopeSchema.safeParse(payload)
+    if (!envelope.success) {
+      return NextResponse.json(
+        {
+          error: 'Payload validation failed.',
+          details: envelope.error.flatten(),
+        },
+        { status: 400 }
+      )
     }
+
+    parsedData = envelope.data.data
+    validated = envelope.data.validated === 'yes' ? 'yes' : 'no'
+    unknownItems = envelope.data.unknown_items
+    missingCatalogItems = envelope.data.missing_catalog_items
+    uidGenerate = typeof envelope.data.uid_generate === 'string' && envelope.data.uid_generate.length > 0
+      ? envelope.data.uid_generate
+      : null
   }
 
   const missingEnvKeys = getMissingSnowflakeEnvKeys()
@@ -341,6 +222,17 @@ export async function POST(request: Request) {
     validated,
     unknownItems,
     missingCatalogItems,
+  })
+
+  const persistedFinalOutput = parsedStockSchema.parse({
+    photo_id: stagedRecord.photo_id,
+    mode: stagedRecord.mode,
+    upload_date: stagedRecord.upload_date,
+    stock_date: stagedRecord.stock_date,
+    photo_url: stagedRecord.photo_url,
+    total_items: stagedRecord.item_data.length,
+    confidence_overall: stagedRecord.confidence_overall,
+    items: stagedRecord.item_data,
   })
 
   const tableName = getQualifiedTableName()
@@ -396,6 +288,23 @@ export async function POST(request: Request) {
       ]
     )
 
+    let historySyncWarning: string | null = null
+
+    if (uidGenerate) {
+      const { error: updateGenerateError } = await auth.supabase
+        .from('event_generate')
+        .update({
+          final_output: persistedFinalOutput,
+          edited: true,
+        })
+        .eq('uid_generate', uidGenerate)
+        .eq('user_id', auth.user.id)
+
+      if (updateGenerateError) {
+        historySyncWarning = updateGenerateError.message
+      }
+    }
+
     const pushEvent = await logPushToSnowflakeEvent(auth.supabase, {
       user: {
         userId: auth.user.id,
@@ -419,6 +328,12 @@ export async function POST(request: Request) {
         message: 'Snowflake staging row inserted successfully.',
         table: tableName,
         query_id: result.queryId,
+        ...(historySyncWarning
+          ? {
+            warning: 'Saved to Snowflake, but failed to sync edited data to transcription history.',
+            history_sync_error: historySyncWarning,
+          }
+          : {}),
         inserted: {
           photo_id: stagedRecord.photo_id,
           mode: stagedRecord.mode,

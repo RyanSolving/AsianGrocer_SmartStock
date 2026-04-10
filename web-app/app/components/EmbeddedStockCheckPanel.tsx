@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Download, FileImage, FileText, Loader2, Plus, Save, X } from 'lucide-react'
 import { toPng } from 'html-to-image'
 import {
@@ -66,6 +66,35 @@ type UnknownCreateForm = {
   stocklist_name: string
   navigation_guide: string
   row_position: 'left' | 'right' | 'single'
+}
+
+type StockCheckRecordData = {
+  items: Array<{
+    code: string
+    product: string
+    category: string
+    location: string
+    sub_location: string
+    official_name: string
+    stocklist_name: string
+    quantity: number | null
+    red_marked: boolean
+    notes: string
+  }>
+  unknown_items: Array<{
+    user_input: string
+    quantity: number | null
+    red_marked: boolean
+    notes: string
+  }>
+  validated: boolean
+}
+
+type SelectedStockCheckHistoryRecord = {
+  uid_stock_check: string
+  stock_date: string
+  validated: boolean
+  record_data?: StockCheckRecordData
 }
 
 function formatSheetDate(value: string) {
@@ -136,10 +165,23 @@ function isKnownRow(row: StockCheckRow) {
   return row.source === 'catalog' && Boolean(row.code)
 }
 
+function clampZoom(value: number) {
+  return Math.min(2, Math.max(0.5, value))
+}
+
+function getTouchDistance(
+  touchA: { clientX: number, clientY: number },
+  touchB: { clientX: number, clientY: number },
+) {
+  return Math.hypot(touchA.clientX - touchB.clientX, touchA.clientY - touchB.clientY)
+}
+
 export function EmbeddedStockCheckPanel({
   catalogItems,
+  selectedHistoryRecord,
 }: {
   catalogItems: CatalogItem[] | null
+  selectedHistoryRecord?: SelectedStockCheckHistoryRecord | null
 }) {
   const today = useMemo(() => new Date().toISOString().slice(0, 10), [])
   const stockPaperRef = useRef<HTMLDivElement | null>(null)
@@ -154,6 +196,79 @@ export function EmbeddedStockCheckPanel({
   const [isCreatingUnknownItems, setIsCreatingUnknownItems] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [paperZoom, setPaperZoom] = useState(1)
+  const [isMobileViewport, setIsMobileViewport] = useState(false)
+  const pinchStartDistanceRef = useRef<number | null>(null)
+  const pinchStartZoomRef = useRef(1)
+  const currentZoomRef = useRef(1)
+  const loadedHistoryUid = selectedHistoryRecord?.uid_stock_check ?? null
+
+  useEffect(() => {
+    currentZoomRef.current = paperZoom
+  }, [paperZoom])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const mediaQuery = window.matchMedia('(max-width: 767px)')
+    const updateMobileState = () => setIsMobileViewport(mediaQuery.matches)
+
+    updateMobileState()
+
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', updateMobileState)
+      return () => mediaQuery.removeEventListener('change', updateMobileState)
+    }
+
+    mediaQuery.addListener(updateMobileState)
+    return () => mediaQuery.removeListener(updateMobileState)
+  }, [])
+
+  useEffect(() => {
+    if (!isMobileViewport) {
+      setPaperZoom(1)
+    }
+  }, [isMobileViewport])
+
+  const setZoomValue = useCallback((nextValue: number) => {
+    setPaperZoom(clampZoom(nextValue))
+  }, [])
+
+  const zoomIn = useCallback(() => {
+    setPaperZoom((prev) => clampZoom(prev + 0.1))
+  }, [])
+
+  const zoomOut = useCallback(() => {
+    setPaperZoom((prev) => clampZoom(prev - 0.1))
+  }, [])
+
+  const resetZoom = useCallback(() => {
+    setPaperZoom(1)
+  }, [])
+
+  const handlePaperTouchStart = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
+    if (!isMobileViewport || event.touches.length !== 2) {
+      pinchStartDistanceRef.current = null
+      return
+    }
+
+    pinchStartDistanceRef.current = getTouchDistance(event.touches[0], event.touches[1])
+    pinchStartZoomRef.current = currentZoomRef.current
+  }, [isMobileViewport])
+
+  const handlePaperTouchMove = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
+    if (!isMobileViewport || event.touches.length !== 2 || !pinchStartDistanceRef.current) return
+
+    event.preventDefault()
+
+    const currentDistance = getTouchDistance(event.touches[0], event.touches[1])
+    const distanceRatio = currentDistance / pinchStartDistanceRef.current
+    setZoomValue(pinchStartZoomRef.current * distanceRatio)
+  }, [isMobileViewport, setZoomValue])
+
+  const clearPinchState = useCallback(() => {
+    pinchStartDistanceRef.current = null
+  }, [])
 
   useEffect(() => {
     if (!catalogItems || catalogItems.length === 0) return
@@ -163,6 +278,82 @@ export function EmbeddedStockCheckPanel({
       return catalogItems.map(makeCatalogRow)
     })
   }, [catalogItems])
+
+  useEffect(() => {
+    if (!selectedHistoryRecord || !catalogItems || catalogItems.length === 0) return
+
+    const recordData = selectedHistoryRecord.record_data
+    if (!recordData) return
+
+    const nextRows = catalogItems.map(makeCatalogRow)
+    const codeToIndex = new Map(nextRows.map((row, index) => [row.code.trim().toUpperCase(), index]))
+
+    for (const item of recordData.items) {
+      const codeKey = item.code.trim().toUpperCase()
+      const existingIndex = codeToIndex.get(codeKey)
+
+      if (existingIndex !== undefined) {
+        const current = nextRows[existingIndex]
+        nextRows[existingIndex] = {
+          ...current,
+          location: item.location || current.location,
+          sub_location: item.sub_location || current.sub_location,
+          category: item.category || current.category,
+          product: item.product || current.product,
+          official_name: item.official_name || current.official_name,
+          stocklist_name: item.stocklist_name || current.stocklist_name,
+          quantity: item.quantity,
+          red_marked: item.red_marked,
+          notes: item.notes || '',
+        }
+        continue
+      }
+
+      nextRows.push({
+        id: `history-known-${selectedHistoryRecord.uid_stock_check}-${item.code}`,
+        code: item.code,
+        location: item.location || 'Unknown',
+        sub_location: item.sub_location || 'Unknown',
+        category: item.category || 'Unknown',
+        product: item.product || item.official_name,
+        attribute: '',
+        official_name: item.official_name || item.product,
+        stocklist_name: item.stocklist_name || item.official_name || item.product,
+        navigation_guide: '',
+        row_position: 'single',
+        quantity: item.quantity,
+        red_marked: item.red_marked,
+        notes: item.notes || '',
+        source: 'unknown',
+      })
+    }
+
+    for (const item of recordData.unknown_items) {
+      nextRows.push({
+        id: `history-unknown-${selectedHistoryRecord.uid_stock_check}-${item.user_input}`,
+        code: null,
+        location: 'Unknown',
+        sub_location: 'Unknown',
+        category: 'Unknown',
+        product: item.user_input,
+        attribute: '',
+        official_name: item.user_input,
+        stocklist_name: item.user_input,
+        navigation_guide: '',
+        row_position: 'single',
+        quantity: item.quantity,
+        red_marked: item.red_marked,
+        notes: item.notes || '',
+        source: 'unknown',
+      })
+    }
+
+    setRows(nextRows)
+    setStockDate(selectedHistoryRecord.stock_date || today)
+    setIsValidated(recordData.validated || selectedHistoryRecord.validated)
+    setStatus(`Loaded stock check record ${selectedHistoryRecord.uid_stock_check}.`)
+    setError(null)
+  }, [catalogItems, selectedHistoryRecord, today])
 
   const suggestions = useMemo(() => {
     if (!newItemName.trim() || !catalogItems) return []
@@ -409,6 +600,67 @@ export function EmbeddedStockCheckPanel({
     }
   }
 
+  function buildSnowflakeEnvelopePayload() {
+    const known = rows.filter((x) => isKnownRow(x))
+    const unknown = rows.filter((x) => x.source === 'unknown')
+
+    const knownItems = known.map((x) => ({
+      catalog_code: x.code as string,
+      product_raw: x.stocklist_name || x.official_name || x.product,
+      location: x.location,
+      sub_location: x.sub_location,
+      category: x.category,
+      product: x.product,
+      attribute: x.attribute,
+      official_name: x.official_name,
+      stocklist_name: x.stocklist_name,
+      navigation_guide: x.navigation_guide,
+      row_position: x.row_position,
+      quantity_raw: x.quantity === null ? null : String(x.quantity),
+      quantity: x.quantity,
+      quantity_conflict_flag: false,
+      confidence: 'high' as const,
+      catalog_match_status: 'exact' as const,
+      notes: x.red_marked ? [x.notes, 'red_marked=true'].filter(Boolean).join(' | ') : x.notes,
+    }))
+
+    const unknownItems = unknown.map((x) => ({
+      catalog_code: null,
+      product_raw: x.official_name || x.product,
+      location: 'Unknown',
+      sub_location: 'Unknown',
+      category: 'Unknown',
+      product: x.product || x.official_name,
+      attribute: '',
+      official_name: x.official_name,
+      stocklist_name: x.stocklist_name || x.official_name,
+      navigation_guide: '',
+      row_position: 'single' as const,
+      quantity_raw: x.quantity === null ? null : String(x.quantity),
+      quantity: x.quantity,
+      quantity_conflict_flag: false,
+      confidence: 'high' as const,
+      catalog_match_status: 'unknown' as const,
+      notes: x.red_marked ? [x.notes, 'red_marked=true'].filter(Boolean).join(' | ') : x.notes,
+    }))
+
+    return {
+      data: {
+        photo_id: `stock-check-${crypto.randomUUID()}`,
+        mode: 'stock-closing' as const,
+        upload_date: new Date().toISOString(),
+        stock_date: stockDate,
+        photo_url: null,
+        total_items: knownItems.length,
+        confidence_overall: 'high' as const,
+        items: knownItems,
+      },
+      validated: isValidated ? 'yes' as const : 'no' as const,
+      unknown_items: unknownItems,
+      missing_catalog_items: [],
+    }
+  }
+
   async function exportCsv() {
     setIsExporting(true)
     setStatus(null)
@@ -490,7 +742,17 @@ export function EmbeddedStockCheckPanel({
     setStatus(null)
     setError(null)
 
+    const zoomBeforeExport = currentZoomRef.current
+    const needsZoomReset = isMobileViewport && zoomBeforeExport !== 1
+
     try {
+      if (needsZoomReset) {
+        setPaperZoom(1)
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => resolve())
+        })
+      }
+
       const dataUrl = await toPng(stockPaperRef.current, {
         cacheBust: true,
         pixelRatio: 2,
@@ -508,6 +770,9 @@ export function EmbeddedStockCheckPanel({
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Photo export failed.')
     } finally {
+      if (needsZoomReset) {
+        setPaperZoom(zoomBeforeExport)
+      }
       setIsExporting(false)
     }
   }
@@ -521,7 +786,7 @@ export function EmbeddedStockCheckPanel({
       const response = await fetch('/api/stock-check/save-to-db', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildPayload()),
+        body: JSON.stringify(buildSnowflakeEnvelopePayload()),
       })
 
       const payload = await response.json()
@@ -577,6 +842,12 @@ export function EmbeddedStockCheckPanel({
         <div className="mb-4">
           <h1 className="text-xl font-bold text-slate-900 sm:text-2xl md:text-3xl">Stock Check</h1>
           <p className="mt-1 text-sm text-slate-600">Paper layout with fixed catalog rows, inline quantity checks, and red reorder markers.</p>
+          {loadedHistoryUid && (
+            <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-brand-200 bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
+              <span>Loaded from history</span>
+              <span className="font-mono text-[11px]">{loadedHistoryUid}</span>
+            </div>
+          )}
         </div>
 
         <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
@@ -692,8 +963,51 @@ export function EmbeddedStockCheckPanel({
         {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
         {status && <p className="mt-3 text-sm text-emerald-700">{status}</p>}
 
-        <div className="mt-5 stock-paper-wrap overflow-x-auto">
-          <div ref={stockPaperRef} className="stock-paper min-w-[700px] sm:min-w-[760px] md:min-w-[820px]">
+        {isMobileViewport && (
+          <div className="mt-4 flex justify-end">
+            <div className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-2">
+              <button
+                type="button"
+                onClick={zoomOut}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 bg-white text-base font-semibold text-slate-700 hover:bg-slate-50"
+                aria-label="Zoom out paper view"
+              >
+                -
+              </button>
+              <span className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-center text-xs font-semibold text-slate-600">
+                Zoom {Math.round(paperZoom * 100)}%
+              </span>
+              <button
+                type="button"
+                onClick={zoomIn}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 bg-white text-base font-semibold text-slate-700 hover:bg-slate-50"
+                aria-label="Zoom in paper view"
+              >
+                +
+              </button>
+              <button
+                type="button"
+                onClick={resetZoom}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+              >
+                100%
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div
+          className="mt-5 stock-paper-wrap overflow-x-auto"
+          onTouchStart={handlePaperTouchStart}
+          onTouchMove={handlePaperTouchMove}
+          onTouchEnd={clearPinchState}
+          onTouchCancel={clearPinchState}
+        >
+          <div
+            ref={stockPaperRef}
+            className="stock-paper min-w-[700px] sm:min-w-[760px] md:min-w-[820px]"
+            style={isMobileViewport ? { zoom: paperZoom } : undefined}
+          >
             <div className="stock-date-row">
               <span>DATE:</span>
               <span className="stock-date-hand">{formatSheetDate(stockDate)}</span>
