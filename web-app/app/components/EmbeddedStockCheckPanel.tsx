@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Download, FileImage, FileText, Loader2, Plus, Save, X } from 'lucide-react'
+import { Download, FileImage, FileText, Loader2, Plus, Save, Search, X } from 'lucide-react'
 import { toPng } from 'html-to-image'
 import {
   catalogCategoryOptions,
@@ -90,11 +90,27 @@ type StockCheckRecordData = {
   validated: boolean
 }
 
-type SelectedStockCheckHistoryRecord = {
+export type SelectedStockCheckHistoryRecord = {
   uid_stock_check: string
   stock_date: string
   validated: boolean
   record_data?: StockCheckRecordData
+}
+
+type StockCheckHistoryRecord = {
+  uid_stock_check: string
+  timestamp: string
+  validated: boolean
+  record_data?: StockCheckRecordData
+}
+
+type RecheckWarning = {
+  key: string
+  label: string
+  section: string
+  previousQuantity: number
+  currentQuantity: number | null
+  reason: 'now_zero' | 'now_blank'
 }
 
 function formatSheetDate(value: string) {
@@ -120,11 +136,34 @@ function normalizeSubLocation(value: string) {
   return value
 }
 
+function normalizeCompareKey(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+function parseNumericQuantity(value: number | null | undefined) {
+  if (value === null || value === undefined) return null
+  if (!Number.isFinite(value)) return null
+  return value
+}
+
 function generateItemCode(category: string, product: string, attribute: string) {
   const cat3 = (category || 'OTH').toUpperCase().slice(0, 3)
   const prod3 = (product || 'NEW').toUpperCase().slice(0, 3)
   const attr3 = attribute ? attribute.toUpperCase().slice(0, 3) : 'STD'
   return `${cat3}-${prod3}-${attr3}`
+}
+
+export function normalizeBlankStockCheckQuantities(rows: StockCheckRow[]) {
+  return rows.map((row) => {
+    if (row.quantity !== null) {
+      return row
+    }
+
+    return {
+      ...row,
+      quantity: 0,
+    }
+  })
 }
 
 function getSubLocationOptions(location: 'Inside Coolroom' | 'Outside Coolroom') {
@@ -179,12 +218,15 @@ function getTouchDistance(
 export function EmbeddedStockCheckPanel({
   catalogItems,
   selectedHistoryRecord,
+  historyRecords,
 }: {
   catalogItems: CatalogItem[] | null
   selectedHistoryRecord?: SelectedStockCheckHistoryRecord | null
+  historyRecords?: StockCheckHistoryRecord[]
 }) {
   const today = useMemo(() => new Date().toISOString().slice(0, 10), [])
   const stockPaperRef = useRef<HTMLDivElement | null>(null)
+  const stockFindContainerRef = useRef<HTMLDivElement | null>(null)
   const [rows, setRows] = useState<StockCheckRow[]>([])
   const [stockDate, setStockDate] = useState(today)
   const [isValidated, setIsValidated] = useState(false)
@@ -196,11 +238,18 @@ export function EmbeddedStockCheckPanel({
   const [isCreatingUnknownItems, setIsCreatingUnknownItems] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [recheckWarnings, setRecheckWarnings] = useState<RecheckWarning[]>([])
+  const [showRecheckWarningModal, setShowRecheckWarningModal] = useState(false)
+  const [hasPassedRecheck, setHasPassedRecheck] = useState(false)
+  const [findTerm, setFindTerm] = useState('')
+  const [highlightedRowIndex, setHighlightedRowIndex] = useState<number | null>(null)
   const [paperZoom, setPaperZoom] = useState(1)
   const [isMobileViewport, setIsMobileViewport] = useState(false)
   const pinchStartDistanceRef = useRef<number | null>(null)
   const pinchStartZoomRef = useRef(1)
   const currentZoomRef = useRef(1)
+  const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const skipNextRecheckResetRef = useRef(false)
   const loadedHistoryUid = selectedHistoryRecord?.uid_stock_check ?? null
 
   useEffect(() => {
@@ -351,9 +400,21 @@ export function EmbeddedStockCheckPanel({
     setRows(nextRows)
     setStockDate(selectedHistoryRecord.stock_date || today)
     setIsValidated(recordData.validated || selectedHistoryRecord.validated)
+    setHasPassedRecheck(false)
+    setRecheckWarnings([])
+    setShowRecheckWarningModal(false)
     setStatus(`Loaded stock check record ${selectedHistoryRecord.uid_stock_check}.`)
     setError(null)
   }, [catalogItems, selectedHistoryRecord, today])
+
+  useEffect(() => {
+    if (skipNextRecheckResetRef.current) {
+      skipNextRecheckResetRef.current = false
+      return
+    }
+
+    setHasPassedRecheck(false)
+  }, [rows, stockDate])
 
   const suggestions = useMemo(() => {
     if (!newItemName.trim() || !catalogItems) return []
@@ -370,6 +431,72 @@ export function EmbeddedStockCheckPanel({
   }, [newItemName, catalogItems])
 
   const indexedRows = useMemo(() => rows.map((row, index) => ({ row, index })), [rows])
+
+  const findSuggestions = useMemo(() => {
+    const term = findTerm.trim().toLowerCase()
+    if (!term) return []
+
+    return indexedRows
+      .filter(({ row }) => {
+        const official = row.official_name.toLowerCase()
+        const stocklist = row.stocklist_name.toLowerCase()
+        return official.includes(term) || stocklist.includes(term)
+      })
+      .slice(0, 8)
+  }, [findTerm, indexedRows])
+
+  const getHighlightClass = useCallback((index: number | undefined) => {
+    if (index === undefined || index !== highlightedRowIndex) {
+      return ''
+    }
+    return 'bg-emerald-100 transition-colors duration-700'
+  }, [highlightedRowIndex])
+
+  const focusAndHighlightRow = useCallback((index: number) => {
+    const target = stockPaperRef.current?.querySelector(`[data-stock-row-index="${index}"]`) as HTMLElement | null
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+
+    setHighlightedRowIndex(index)
+
+    if (highlightTimeoutRef.current) {
+      clearTimeout(highlightTimeoutRef.current)
+    }
+
+    highlightTimeoutRef.current = setTimeout(() => {
+      setHighlightedRowIndex(null)
+      highlightTimeoutRef.current = null
+    }, 3000)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (highlightTimeoutRef.current) {
+        clearTimeout(highlightTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    const handleOutsideFindClick = (event: MouseEvent | TouchEvent) => {
+      if (!findTerm.trim()) return
+
+      const targetNode = event.target as Node | null
+      if (!targetNode) return
+
+      if (stockFindContainerRef.current?.contains(targetNode)) return
+      setFindTerm('')
+    }
+
+    document.addEventListener('mousedown', handleOutsideFindClick)
+    document.addEventListener('touchstart', handleOutsideFindClick)
+
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideFindClick)
+      document.removeEventListener('touchstart', handleOutsideFindClick)
+    }
+  }, [findTerm])
 
   const paperSections = useMemo(() => {
     const apples = bySection(indexedRows, 'Inside Coolroom', 'Apples')
@@ -400,6 +527,33 @@ export function EmbeddedStockCheckPanel({
       unknownRows: splitRows(unknownRows),
     }
   }, [indexedRows])
+
+  const outsideDisplayColumns = useMemo(() => {
+    const combinedOutside = [
+      ...paperSections.outsideRows.left,
+      ...paperSections.outsideRows.right,
+      ...paperSections.outsideRows.single,
+    ]
+
+    return {
+      left: combinedOutside.slice(0, 6),
+      middle: combinedOutside.slice(6, 12),
+      right: combinedOutside.slice(12),
+    }
+  }, [paperSections.outsideRows.left, paperSections.outsideRows.right, paperSections.outsideRows.single])
+
+  const latestPreviousValidatedRecord = useMemo(() => {
+    if (!historyRecords || historyRecords.length === 0) return null
+
+    return historyRecords
+      .filter((entry) => entry.validated && Boolean(entry.record_data))
+      .filter((entry) => entry.uid_stock_check !== loadedHistoryUid)
+      .sort((a, b) => {
+        const left = new Date(a.timestamp).getTime()
+        const right = new Date(b.timestamp).getTime()
+        return right - left
+      })[0] ?? null
+  }, [historyRecords, loadedHistoryUid])
 
   function updateRow(index: number, patch: Partial<StockCheckRow>) {
     setRows((prev) => {
@@ -455,6 +609,96 @@ export function EmbeddedStockCheckPanel({
     ])
     setNewItemName('')
     setStatus(`Added new item: ${trimmed}`)
+    setError(null)
+  }
+
+  function compareWithPreviousValidatedStockCheck() {
+    if (!latestPreviousValidatedRecord?.record_data) {
+      setRecheckWarnings([])
+      setHasPassedRecheck(true)
+      setShowRecheckWarningModal(false)
+      setStatus('No previous validated stock-check found. Recheck passed. You can validate now.')
+      setError(null)
+      return
+    }
+
+    const currentKnownByCode = new Map<string, StockCheckRow>()
+    const currentUnknownByName = new Map<string, StockCheckRow>()
+
+    for (const row of rows) {
+      if (row.code) {
+        currentKnownByCode.set(row.code.trim().toUpperCase(), row)
+      } else {
+        const fallbackName = row.official_name || row.stocklist_name || row.product
+        currentUnknownByName.set(normalizeCompareKey(fallbackName), row)
+      }
+    }
+
+    const warnings: RecheckWarning[] = []
+
+    for (const previousRow of latestPreviousValidatedRecord.record_data.items) {
+      const previousQuantity = parseNumericQuantity(previousRow.quantity)
+      if (previousQuantity === null || previousQuantity <= 0) continue
+
+      const key = previousRow.code.trim().toUpperCase()
+      const currentRow = currentKnownByCode.get(key)
+      const currentQuantity = parseNumericQuantity(currentRow?.quantity)
+
+      if (currentQuantity === null || currentQuantity <= 0) {
+        warnings.push({
+          key: `known-${key}`,
+          label: previousRow.official_name || previousRow.stocklist_name || previousRow.product || previousRow.code,
+          section: `${previousRow.location} / ${previousRow.sub_location}`,
+          previousQuantity,
+          currentQuantity,
+          reason: currentQuantity === null ? 'now_blank' : 'now_zero',
+        })
+      }
+    }
+
+    for (const previousRow of latestPreviousValidatedRecord.record_data.unknown_items) {
+      const previousQuantity = parseNumericQuantity(previousRow.quantity)
+      if (previousQuantity === null || previousQuantity <= 0) continue
+
+      const compareKey = normalizeCompareKey(previousRow.user_input)
+      const currentRow = currentUnknownByName.get(compareKey)
+      const currentQuantity = parseNumericQuantity(currentRow?.quantity)
+
+      if (currentQuantity === null || currentQuantity <= 0) {
+        warnings.push({
+          key: `unknown-${compareKey}`,
+          label: previousRow.user_input,
+          section: 'Unknown Items',
+          previousQuantity,
+          currentQuantity,
+          reason: currentQuantity === null ? 'now_blank' : 'now_zero',
+        })
+      }
+    }
+
+    if (warnings.length === 0) {
+      setRecheckWarnings([])
+      setHasPassedRecheck(true)
+      setShowRecheckWarningModal(false)
+      setStatus('Recheck complete. No potential missed items found. You can validate now.')
+      setError(null)
+      return
+    }
+
+    setRecheckWarnings(warnings)
+    setHasPassedRecheck(false)
+    setShowRecheckWarningModal(true)
+    setStatus(`Recheck found ${warnings.length} potential missed item(s). Review warnings before validate.`)
+    setError(null)
+  }
+
+  function finalizeValidation() {
+    skipNextRecheckResetRef.current = true
+    setRows((prev) => normalizeBlankStockCheckQuantities(prev))
+    setIsValidated(true)
+    setHasPassedRecheck(true)
+    setShowRecheckWarningModal(false)
+    setStatus('Validated by staff. Blank quantities were set to 0. Export and Load to DB are enabled.')
     setError(null)
   }
 
@@ -819,6 +1063,7 @@ export function EmbeddedStockCheckPanel({
           title="Click to mark as selling fast"
         />
         <input
+          data-stock-row-index={item.index}
           className={`${className} ${item.row.red_marked ? 'text-red-600 font-semibold' : ''}`}
           value={item.row.official_name}
           onChange={(event) => updateRow(item.index, { official_name: event.target.value })}
@@ -896,72 +1141,87 @@ export function EmbeddedStockCheckPanel({
           </button>
         </div>
 
-        <div className="mt-4 grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-center">
-          <button
-            type="button"
-            onClick={() => {
-              setIsValidated(true)
-              setStatus('Validated by staff. Export and Load to DB are enabled.')
-              setError(null)
-            }}
-            className="w-full rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 sm:w-auto"
-          >
-            {isValidated ? 'Validated' : 'Validate'}
-          </button>
+        <div className="mt-4 space-y-2">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
+            <button
+              type="button"
+              onClick={compareWithPreviousValidatedStockCheck}
+              disabled={isExporting || isSaving}
+              className="w-full rounded-lg border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+            >
+              Recheck
+            </button>
 
-          <button
-            type="button"
-            onClick={exportCsv}
-            disabled={!isValidated || isExporting || isSaving}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
-          >
-            <Download className="h-4 w-4" />
-            CSV
-          </button>
+            <button
+              type="button"
+              onClick={finalizeValidation}
+              disabled={!hasPassedRecheck || isExporting || isSaving}
+              className="w-full rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+            >
+              {isValidated ? 'Validated' : 'Validate'}
+            </button>
+          </div>
 
-          <button
-            type="button"
-            onClick={exportPdf}
-            disabled={!isValidated || isExporting || isSaving}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
-          >
-            <FileText className="h-4 w-4" />
-            PDF
-          </button>
+          <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:items-center">
+            <button
+              type="button"
+              onClick={exportCsv}
+              disabled={!isValidated || isExporting || isSaving}
+              className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:gap-2 sm:px-4"
+            >
+              <Download className="h-4 w-4" />
+              CSV
+            </button>
 
-          <button
-            type="button"
-            onClick={exportPhoto}
-            disabled={isExporting || isSaving}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
-          >
-            <FileImage className="h-4 w-4" />
-            Photo
-          </button>
+            <button
+              type="button"
+              onClick={exportPdf}
+              disabled={!isValidated || isExporting || isSaving}
+              className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:gap-2 sm:px-4"
+            >
+              <FileText className="h-4 w-4" />
+              PDF
+            </button>
 
-          <button
-            type="button"
-            onClick={saveToDb}
-            disabled={!isValidated || isExporting || isSaving}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-brand-300 bg-brand-50 px-4 py-2 text-sm font-medium text-brand-700 hover:bg-brand-100 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
-          >
-            {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-            Load to DB
-          </button>
+            <button
+              type="button"
+              onClick={exportPhoto}
+              disabled={isExporting || isSaving}
+              className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:gap-2 sm:px-4"
+            >
+              <FileImage className="h-4 w-4" />
+              Photo
+            </button>
+          </div>
 
-          <button
-            type="button"
-            onClick={openCreateUnknownModal}
-            disabled={!rows.some((x) => x.source === 'unknown') || isCreatingUnknownItems}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
-          >
-            {isCreatingUnknownItems ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            Create Unknown Items
-          </button>
+          <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-center">
+            <button
+              type="button"
+              onClick={saveToDb}
+              disabled={!isValidated || isExporting || isSaving}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-brand-300 bg-brand-50 px-4 py-2 text-sm font-medium text-brand-700 hover:bg-brand-100 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+            >
+              {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              Load to DB
+            </button>
+
+            <button
+              type="button"
+              onClick={openCreateUnknownModal}
+              disabled={!rows.some((x) => x.source === 'unknown') || isCreatingUnknownItems}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+            >
+              {isCreatingUnknownItems ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              Create Unknown Items
+            </button>
+          </div>
         </div>
 
         {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
         {status && <p className="mt-3 text-sm text-emerald-700">{status}</p>}
+        {!hasPassedRecheck && !isValidated && (
+          <p className="mt-1 text-xs font-medium text-amber-700">Run Recheck before Validate.</p>
+        )}
 
         {isMobileViewport && (
           <div className="mt-4 flex justify-end">
@@ -1003,6 +1263,43 @@ export function EmbeddedStockCheckPanel({
           onTouchEnd={clearPinchState}
           onTouchCancel={clearPinchState}
         >
+          <div className="mb-3 rounded-lg border border-slate-200 bg-white p-3">
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Find In Stocklist</label>
+            <div ref={stockFindContainerRef} className="relative">
+              <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+              <input
+                type="text"
+                value={findTerm}
+                onChange={(event) => setFindTerm(event.target.value)}
+                placeholder="Search official or stocklist name"
+                className="w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
+              />
+
+              {findTerm.trim().length > 0 && (
+                <div className="absolute z-20 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg">
+                  {findSuggestions.length === 0 ? (
+                    <p className="px-3 py-2 text-sm text-slate-500">No matching items.</p>
+                  ) : (
+                    findSuggestions.map(({ row, index }) => (
+                      <button
+                        key={`find-${row.id}-${index}`}
+                        type="button"
+                        onClick={() => {
+                          focusAndHighlightRow(index)
+                          setFindTerm('')
+                        }}
+                        className="block w-full border-b border-slate-100 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 last:border-b-0"
+                      >
+                        <p className="truncate font-medium">{row.official_name}</p>
+                        <p className="truncate text-xs text-slate-500">{row.stocklist_name}</p>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
           <div
             ref={stockPaperRef}
             className="stock-paper min-w-[700px] sm:min-w-[760px] md:min-w-[820px]"
@@ -1034,22 +1331,24 @@ export function EmbeddedStockCheckPanel({
                             const right = section.rows.right[i]
                             return (
                               <tr key={`${section.title}-pair-${i}`}>
-                                <td className="stock-lbl">{renderLabelCell(left, 'stock-input')}</td>
-                                <td className="stock-qty">
+                                <td className={`stock-lbl ${getHighlightClass(left?.index)}`}>{renderLabelCell(left, 'stock-input')}</td>
+                                <td className={`stock-qty ${getHighlightClass(left?.index)}`}>
                                   {left ? (
                                     <input
                                       type="number"
+                                      data-stock-row-index={left.index}
                                       className={`stock-qty-input ${left.row.red_marked ? 'text-red-600' : ''}`}
                                       value={left.row.quantity ?? ''}
                                       onChange={(event) => setQuantity(left.index, event.target.value)}
                                     />
                                   ) : null}
                                 </td>
-                                <td className="stock-lbl">{renderLabelCell(right, 'stock-input')}</td>
-                                <td className="stock-qty">
+                                <td className={`stock-lbl ${getHighlightClass(right?.index)}`}>{renderLabelCell(right, 'stock-input')}</td>
+                                <td className={`stock-qty ${getHighlightClass(right?.index)}`}>
                                   {right ? (
                                     <input
                                       type="number"
+                                      data-stock-row-index={right.index}
                                       className={`stock-qty-input ${right.row.red_marked ? 'text-red-600' : ''}`}
                                       value={right.row.quantity ?? ''}
                                       onChange={(event) => setQuantity(right.index, event.target.value)}
@@ -1062,10 +1361,11 @@ export function EmbeddedStockCheckPanel({
 
                           {section.rows.single.map((single, i) => (
                             <tr key={`${section.title}-single-${i}`} className="stock-hw-row">
-                              <td className="stock-lbl" colSpan={3}>{renderLabelCell(single, 'stock-input stock-input-hw')}</td>
-                              <td className="stock-qty">
+                              <td className={`stock-lbl ${getHighlightClass(single.index)}`} colSpan={3}>{renderLabelCell(single, 'stock-input stock-input-hw')}</td>
+                              <td className={`stock-qty ${getHighlightClass(single.index)}`}>
                                 <input
                                   type="number"
+                                  data-stock-row-index={single.index}
                                   className={`stock-qty-input ${single.row.red_marked ? 'text-red-600' : ''}`}
                                   value={single.row.quantity ?? ''}
                                   onChange={(event) => setQuantity(single.index, event.target.value)}
@@ -1099,22 +1399,24 @@ export function EmbeddedStockCheckPanel({
                             const right = section.rows.right[i]
                             return (
                               <tr key={`${section.title}-pair-${i}`}>
-                                <td className="stock-lbl">{renderLabelCell(left, 'stock-input')}</td>
-                                <td className="stock-qty">
+                                <td className={`stock-lbl ${getHighlightClass(left?.index)}`}>{renderLabelCell(left, 'stock-input')}</td>
+                                <td className={`stock-qty ${getHighlightClass(left?.index)}`}>
                                   {left ? (
                                     <input
                                       type="number"
+                                      data-stock-row-index={left.index}
                                       className={`stock-qty-input ${left.row.red_marked ? 'text-red-600' : ''}`}
                                       value={left.row.quantity ?? ''}
                                       onChange={(event) => setQuantity(left.index, event.target.value)}
                                     />
                                   ) : null}
                                 </td>
-                                <td className="stock-lbl">{renderLabelCell(right, 'stock-input')}</td>
-                                <td className="stock-qty">
+                                <td className={`stock-lbl ${getHighlightClass(right?.index)}`}>{renderLabelCell(right, 'stock-input')}</td>
+                                <td className={`stock-qty ${getHighlightClass(right?.index)}`}>
                                   {right ? (
                                     <input
                                       type="number"
+                                      data-stock-row-index={right.index}
                                       className={`stock-qty-input ${right.row.red_marked ? 'text-red-600' : ''}`}
                                       value={right.row.quantity ?? ''}
                                       onChange={(event) => setQuantity(right.index, event.target.value)}
@@ -1127,10 +1429,11 @@ export function EmbeddedStockCheckPanel({
 
                           {section.rows.single.map((single, i) => (
                             <tr key={`${section.title}-single-${i}`} className="stock-hw-row">
-                              <td className="stock-lbl" colSpan={3}>{renderLabelCell(single, 'stock-input stock-input-hw')}</td>
-                              <td className="stock-qty">
+                              <td className={`stock-lbl ${getHighlightClass(single.index)}`} colSpan={3}>{renderLabelCell(single, 'stock-input stock-input-hw')}</td>
+                              <td className={`stock-qty ${getHighlightClass(single.index)}`}>
                                 <input
                                   type="number"
+                                  data-stock-row-index={single.index}
                                   className={`stock-qty-input ${single.row.red_marked ? 'text-red-600' : ''}`}
                                   value={single.row.quantity ?? ''}
                                   onChange={(event) => setQuantity(single.index, event.target.value)}
@@ -1155,12 +1458,13 @@ export function EmbeddedStockCheckPanel({
                     <col style={{ width: '16%' }} />
                   </colgroup>
                   <tbody>
-                    {paperSections.outsideRows.left.map((item, i) => (
+                    {outsideDisplayColumns.left.map((item, i) => (
                       <tr key={`outside-left-${i}`}>
-                        <td className="stock-lbl">{renderLabelCell(item, 'stock-input')}</td>
-                        <td className="stock-qty">
+                        <td className={`stock-lbl ${getHighlightClass(item.index)}`}>{renderLabelCell(item, 'stock-input')}</td>
+                        <td className={`stock-qty ${getHighlightClass(item.index)}`}>
                           <input
                             type="number"
+                            data-stock-row-index={item.index}
                             className={`stock-qty-input ${item.row.red_marked ? 'text-red-600' : ''}`}
                             value={item.row.quantity ?? ''}
                             onChange={(event) => setQuantity(item.index, event.target.value)}
@@ -1179,12 +1483,13 @@ export function EmbeddedStockCheckPanel({
                     <col style={{ width: '16%' }} />
                   </colgroup>
                   <tbody>
-                    {paperSections.outsideRows.right.map((item, i) => (
+                    {outsideDisplayColumns.middle.map((item, i) => (
                       <tr key={`outside-right-${i}`}>
-                        <td className="stock-lbl">{renderLabelCell(item, 'stock-input')}</td>
-                        <td className="stock-qty">
+                        <td className={`stock-lbl ${getHighlightClass(item.index)}`}>{renderLabelCell(item, 'stock-input')}</td>
+                        <td className={`stock-qty ${getHighlightClass(item.index)}`}>
                           <input
                             type="number"
+                            data-stock-row-index={item.index}
                             className={`stock-qty-input ${item.row.red_marked ? 'text-red-600' : ''}`}
                             value={item.row.quantity ?? ''}
                             onChange={(event) => setQuantity(item.index, event.target.value)}
@@ -1203,12 +1508,13 @@ export function EmbeddedStockCheckPanel({
                     <col style={{ width: '16%' }} />
                   </colgroup>
                   <tbody>
-                    {paperSections.outsideRows.single.map((item, i) => (
+                    {outsideDisplayColumns.right.map((item, i) => (
                       <tr key={`outside-single-${i}`}>
-                        <td className="stock-lbl">{renderLabelCell(item, 'stock-input')}</td>
-                        <td className="stock-qty">
+                        <td className={`stock-lbl ${getHighlightClass(item.index)}`}>{renderLabelCell(item, 'stock-input')}</td>
+                        <td className={`stock-qty ${getHighlightClass(item.index)}`}>
                           <input
                             type="number"
+                            data-stock-row-index={item.index}
                             className={`stock-qty-input ${item.row.red_marked ? 'text-red-600' : ''}`}
                             value={item.row.quantity ?? ''}
                             onChange={(event) => setQuantity(item.index, event.target.value)}
@@ -1234,10 +1540,11 @@ export function EmbeddedStockCheckPanel({
                       <tbody>
                         {paperSections.unknownRows.left.map((item, i) => (
                           <tr key={`unknown-left-${i}`}>
-                            <td className="stock-lbl">{renderLabelCell(item, 'stock-input')}</td>
-                            <td className="stock-qty">
+                            <td className={`stock-lbl ${getHighlightClass(item.index)}`}>{renderLabelCell(item, 'stock-input')}</td>
+                            <td className={`stock-qty ${getHighlightClass(item.index)}`}>
                               <input
                                 type="number"
+                                data-stock-row-index={item.index}
                                 className={`stock-qty-input ${item.row.red_marked ? 'text-red-600' : ''}`}
                                 value={item.row.quantity ?? ''}
                                 onChange={(event) => setQuantity(item.index, event.target.value)}
@@ -1258,10 +1565,11 @@ export function EmbeddedStockCheckPanel({
                       <tbody>
                         {paperSections.unknownRows.right.map((item, i) => (
                           <tr key={`unknown-right-${i}`}>
-                            <td className="stock-lbl">{renderLabelCell(item, 'stock-input')}</td>
-                            <td className="stock-qty">
+                            <td className={`stock-lbl ${getHighlightClass(item.index)}`}>{renderLabelCell(item, 'stock-input')}</td>
+                            <td className={`stock-qty ${getHighlightClass(item.index)}`}>
                               <input
                                 type="number"
+                                data-stock-row-index={item.index}
                                 className={`stock-qty-input ${item.row.red_marked ? 'text-red-600' : ''}`}
                                 value={item.row.quantity ?? ''}
                                 onChange={(event) => setQuantity(item.index, event.target.value)}
@@ -1282,10 +1590,11 @@ export function EmbeddedStockCheckPanel({
                       <tbody>
                         {paperSections.unknownRows.single.map((item, i) => (
                           <tr key={`unknown-single-${i}`}>
-                            <td className="stock-lbl">{renderLabelCell(item, 'stock-input')}</td>
-                            <td className="stock-qty">
+                            <td className={`stock-lbl ${getHighlightClass(item.index)}`}>{renderLabelCell(item, 'stock-input')}</td>
+                            <td className={`stock-qty ${getHighlightClass(item.index)}`}>
                               <input
                                 type="number"
+                                data-stock-row-index={item.index}
                                 className={`stock-qty-input ${item.row.red_marked ? 'text-red-600' : ''}`}
                                 value={item.row.quantity ?? ''}
                                 onChange={(event) => setQuantity(item.index, event.target.value)}
@@ -1454,6 +1763,62 @@ export function EmbeddedStockCheckPanel({
               >
                 {isCreatingUnknownItems ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 Save To Catalog
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showRecheckWarningModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[88vh] w-full max-w-3xl overflow-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">Recheck Warnings</h3>
+                <p className="text-sm text-slate-600">
+                  These items were in stock previously but are now 0 or blank. Confirm after rechecking physically.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRecheckWarningModal(false)}
+                className="rounded-md p-2 text-slate-500 hover:bg-slate-100"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="max-h-72 space-y-2 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-3">
+              {recheckWarnings.map((warning) => (
+                <div key={warning.key} className="rounded-md border border-amber-200 bg-white p-3">
+                  <p className="text-sm font-semibold text-slate-900">{warning.label}</p>
+                  <p className="mt-0.5 text-xs text-slate-600">{warning.section}</p>
+                  <p className="mt-1 text-xs text-amber-800">
+                    Previous: {warning.previousQuantity} | Current: {warning.currentQuantity === null ? 'blank' : warning.currentQuantity}
+                    {' '}({warning.reason === 'now_blank' ? 'now blank' : 'now 0'})
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowRecheckWarningModal(false)
+                  setHasPassedRecheck(false)
+                  setStatus('Recheck requires edits. Please update quantities and run Recheck again.')
+                }}
+                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:w-auto"
+              >
+                Back to Edit
+              </button>
+              <button
+                type="button"
+                onClick={finalizeValidation}
+                className="w-full rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 sm:w-auto"
+              >
+                Confirm Recheck & Validate
               </button>
             </div>
           </div>

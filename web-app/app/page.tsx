@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useEffect, useCallback } from 'react'
+import { useMemo, useState, useEffect, useCallback, useRef } from 'react'
 import {
   BarChart3,
   CheckCircle2,
@@ -16,6 +16,7 @@ import {
 
 import { CatalogManagementView } from './catalog/CatalogManagementView'
 import { EmbeddedStockCheckPanel } from './components/EmbeddedStockCheckPanel'
+import type { SelectedStockCheckHistoryRecord } from './components/EmbeddedStockCheckPanel'
 import { TranscriptionHistoryDialog } from './components/TranscriptionHistoryDialog'
 
 type StockItem = {
@@ -110,6 +111,7 @@ type StockCheckHistoryEntry = {
   validated: boolean
   item_count: number
   unknown_count: number
+  record_data?: SelectedStockCheckHistoryRecord['record_data']
 }
 
 type IndexedItem = {
@@ -203,12 +205,18 @@ export default function Home() {
   const [selectedHistoryUid, setSelectedHistoryUid] = useState<string | null>(null)
   const [dataEntrySearchTerm, setDataEntrySearchTerm] = useState('')
   const [dataEntryStatusFilter, setDataEntryStatusFilter] = useState<'all' | 'pending' | 'pushed'>('all')
+  const [dataEntryFindTerm, setDataEntryFindTerm] = useState('')
+  const [highlightedDataEntryIndex, setHighlightedDataEntryIndex] = useState<number | null>(null)
   const [stockCheckHistory, setStockCheckHistory] = useState<StockCheckHistoryEntry[]>([])
   const [isStockCheckHistoryLoading, setIsStockCheckHistoryLoading] = useState(false)
   const [stockCheckSearchTerm, setStockCheckSearchTerm] = useState('')
   const [stockCheckStatusFilter, setStockCheckStatusFilter] = useState<'all' | 'validated' | 'unvalidated'>('all')
+  const [selectedStockCheckHistoryRecord, setSelectedStockCheckHistoryRecord] = useState<SelectedStockCheckHistoryRecord | null>(null)
   const [hasLoadedToDb, setHasLoadedToDb] = useState(false)
   const [isValidatedByStaff, setIsValidatedByStaff] = useState(false)
+  const dataEntryPaperRef = useRef<HTMLDivElement | null>(null)
+  const dataEntryFindContainerRef = useRef<HTMLDivElement | null>(null)
+  const dataEntryHighlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   async function loadCatalogFromApi() {
     const response = await fetch('/api/catalog')
@@ -294,6 +302,36 @@ export default function Home() {
       void loadStockCheckHistory()
     }
   }, [activeSection, loadStockCheckHistory])
+
+  useEffect(() => {
+    setDataEntryFindTerm('')
+    setHighlightedDataEntryIndex(null)
+
+    if (dataEntryHighlightTimeoutRef.current) {
+      clearTimeout(dataEntryHighlightTimeoutRef.current)
+      dataEntryHighlightTimeoutRef.current = null
+    }
+  }, [activeSection])
+
+  useEffect(() => {
+    const handleOutsideFindClick = (event: MouseEvent | TouchEvent) => {
+      if (!dataEntryFindTerm.trim()) return
+
+      const targetNode = event.target as Node | null
+      if (!targetNode) return
+
+      if (dataEntryFindContainerRef.current?.contains(targetNode)) return
+      setDataEntryFindTerm('')
+    }
+
+    document.addEventListener('mousedown', handleOutsideFindClick)
+    document.addEventListener('touchstart', handleOutsideFindClick)
+
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideFindClick)
+      document.removeEventListener('touchstart', handleOutsideFindClick)
+    }
+  }, [dataEntryFindTerm])
 
   async function uploadCatalogToDatabase(file: File) {
     setIsCatalogUploading(true)
@@ -421,6 +459,64 @@ export default function Home() {
       unknownRows: splitRows(unknown),
     }
   }, [indexedItems])
+
+  const outsideDisplayColumns = useMemo(() => {
+    const combinedOutside = [
+      ...paperSections.outsideRows.left,
+      ...paperSections.outsideRows.right,
+      ...paperSections.outsideRows.single,
+    ]
+
+    return {
+      left: combinedOutside.slice(0, 6),
+      middle: combinedOutside.slice(6, 12),
+      right: combinedOutside.slice(12),
+    }
+  }, [paperSections.outsideRows.left, paperSections.outsideRows.right, paperSections.outsideRows.single])
+
+  const dataEntryFindSuggestions = useMemo(() => {
+    const term = dataEntryFindTerm.trim().toLowerCase()
+    if (!term) return []
+
+    return indexedItems
+      .filter(({ item }) => {
+        const official = item.official_name.toLowerCase()
+        const stocklist =
+          'stocklist_name' in item && typeof item.stocklist_name === 'string'
+            ? item.stocklist_name.toLowerCase()
+            : ''
+        return official.includes(term) || stocklist.includes(term)
+      })
+      .slice(0, 8)
+  }, [dataEntryFindTerm, indexedItems])
+
+  const focusAndHighlightDataEntry = useCallback((index: number) => {
+    setActiveSection('data-entry')
+
+    window.setTimeout(() => {
+      const target = dataEntryPaperRef.current?.querySelector(`[data-entry-row-index="${index}"]`) as HTMLElement | null
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+
+      setHighlightedDataEntryIndex(index)
+      if (dataEntryHighlightTimeoutRef.current) {
+        clearTimeout(dataEntryHighlightTimeoutRef.current)
+      }
+      dataEntryHighlightTimeoutRef.current = setTimeout(() => {
+        setHighlightedDataEntryIndex(null)
+        dataEntryHighlightTimeoutRef.current = null
+      }, 3000)
+    }, 0)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (dataEntryHighlightTimeoutRef.current) {
+        clearTimeout(dataEntryHighlightTimeoutRef.current)
+      }
+    }
+  }, [])
 
   async function parsePhoto() {
     if (!photoFile) {
@@ -565,6 +661,7 @@ export default function Home() {
 
   function getClasses(row: IndexedItem | undefined, baseCls: string) {
     if (!row) return baseCls
+    if (row.index === highlightedDataEntryIndex) return `${baseCls} !bg-emerald-100 transition-colors duration-700`
     if (row.source === 'missing') return `${baseCls} !text-amber-600`
     if (row.source === 'unknown') return `${baseCls} !text-red-600 font-semibold`
     return baseCls
@@ -957,71 +1054,89 @@ export default function Home() {
               </select>
             </div>
 
-            {isStockCheckTab ? isStockCheckHistoryLoading : isHistoryLoading ? (
+            {isStockCheckTab ? (
+              isStockCheckHistoryLoading ? (
+                <p className="text-xs text-slate-500">Loading history...</p>
+              ) : sidebarStockCheckHistory.length === 0 ? (
+                <p className="text-xs text-slate-500">No records yet.</p>
+              ) : (
+                <div className="max-h-48 space-y-2 overflow-y-auto pr-1 md:max-h-72">
+                  {sidebarStockCheckHistory.map((entry) => {
+                    const isSelected = selectedStockCheckHistoryRecord?.uid_stock_check === entry.uid_stock_check
+
+                    return (
+                      <button
+                        key={entry.uid_stock_check}
+                        type="button"
+                        onClick={() => {
+                          setSelectedStockCheckHistoryRecord(entry)
+                        }}
+                        className={`w-full rounded-lg border px-2.5 py-2 text-left transition ${
+                          isSelected
+                            ? 'border-brand-500 bg-brand-50'
+                            : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
+                        }`}
+                      >
+                        <p className="truncate text-xs font-semibold text-slate-700">
+                          {entry.stock_date} ({entry.item_count} items)
+                        </p>
+                        <div className="mt-1 flex items-center justify-between gap-2">
+                          <p className="truncate text-[11px] text-slate-500">
+                            {new Date(entry.timestamp).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                            })}
+                          </p>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                              entry.validated
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : 'bg-amber-100 text-amber-700'
+                            }`}
+                          >
+                            {entry.validated ? 'Validated' : 'Unvalidated'}
+                          </span>
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              )
+            ) : isHistoryLoading ? (
               <p className="text-xs text-slate-500">Loading history...</p>
-            ) : isStockCheckTab ? sidebarStockCheckHistory.length === 0 : sidebarDataEntryHistory.length === 0 ? (
+            ) : sidebarDataEntryHistory.length === 0 ? (
               <p className="text-xs text-slate-500">No records yet.</p>
             ) : (
               <div className="max-h-48 space-y-2 overflow-y-auto pr-1 md:max-h-72">
-                {isStockCheckTab ? (
-                  sidebarStockCheckHistory.map((entry) => (
-                    <div
-                      key={entry.uid_stock_check}
-                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-left"
-                    >
-                      <p className="truncate text-xs font-semibold text-slate-700">
-                        {entry.stock_date} ({entry.item_count} items)
+                {sidebarDataEntryHistory.map((entry) => (
+                  <button
+                    key={entry.uid_generate}
+                    type="button"
+                    onClick={() => {
+                      void openHistory(entry.uid_generate)
+                    }}
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-left transition hover:bg-slate-100"
+                  >
+                    <p className="truncate text-xs font-semibold text-slate-700">{entry.filename}</p>
+                    <div className="mt-1 flex items-center justify-between gap-2">
+                      <p className="truncate text-[11px] text-slate-500">
+                        {new Date(entry.timestamp).toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                        })}
                       </p>
-                      <div className="mt-1 flex items-center justify-between gap-2">
-                        <p className="truncate text-[11px] text-slate-500">
-                          {new Date(entry.timestamp).toLocaleDateString('en-US', {
-                            month: 'short',
-                            day: 'numeric',
-                          })}
-                        </p>
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                            entry.validated
-                              ? 'bg-emerald-100 text-emerald-700'
-                              : 'bg-amber-100 text-amber-700'
-                          }`}
-                        >
-                          {entry.validated ? 'Validated' : 'Unvalidated'}
-                        </span>
-                      </div>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                          entry.isPushed
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : 'bg-amber-100 text-amber-700'
+                        }`}
+                      >
+                        {entry.isPushed ? 'Pushed' : 'Pending'}
+                      </span>
                     </div>
-                  ))
-                ) : (
-                  sidebarDataEntryHistory.map((entry) => (
-                    <button
-                      key={entry.uid_generate}
-                      type="button"
-                      onClick={() => {
-                        void openHistory(entry.uid_generate)
-                      }}
-                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-left transition hover:bg-slate-100"
-                    >
-                      <p className="truncate text-xs font-semibold text-slate-700">{entry.filename}</p>
-                      <div className="mt-1 flex items-center justify-between gap-2">
-                        <p className="truncate text-[11px] text-slate-500">
-                          {new Date(entry.timestamp).toLocaleDateString('en-US', {
-                            month: 'short',
-                            day: 'numeric',
-                          })}
-                        </p>
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                            entry.isPushed
-                              ? 'bg-emerald-100 text-emerald-700'
-                              : 'bg-amber-100 text-amber-700'
-                          }`}
-                        >
-                          {entry.isPushed ? 'Pushed' : 'Pending'}
-                        </span>
-                      </div>
-                    </button>
-                  ))
-                )}
+                  </button>
+                ))}
               </div>
             )}
           </div>
@@ -1031,7 +1146,11 @@ export default function Home() {
           {activeSection === 'catalog' ? (
             <CatalogManagementView embedded />
           ) : activeSection === 'stock-check' ? (
-            <EmbeddedStockCheckPanel catalogItems={activeCatalog} />
+            <EmbeddedStockCheckPanel
+              catalogItems={activeCatalog}
+              selectedHistoryRecord={selectedStockCheckHistoryRecord}
+              historyRecords={stockCheckHistory}
+            />
           ) : (
             <div className="space-y-4">
               <section className="card-surface rounded-2xl p-6 md:p-8">
@@ -1181,7 +1300,48 @@ export default function Home() {
                   </p>
                 </div>
 
-                <div className="stock-paper-wrap overflow-x-auto">
+                <div className="stock-paper-wrap overflow-x-auto" ref={dataEntryPaperRef}>
+                  <div className="mb-3 rounded-lg border border-slate-200 bg-white p-3">
+                    <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Find In Stocklist</label>
+                    <div ref={dataEntryFindContainerRef} className="relative">
+                      <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                      <input
+                        type="text"
+                        value={dataEntryFindTerm}
+                        onChange={(event) => setDataEntryFindTerm(event.target.value)}
+                        placeholder="Search official or stocklist name"
+                        className="w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
+                      />
+
+                      {dataEntryFindTerm.trim().length > 0 && (
+                        <div className="absolute z-20 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg">
+                          {dataEntryFindSuggestions.length === 0 ? (
+                            <p className="px-3 py-2 text-sm text-slate-500">No matching items.</p>
+                          ) : (
+                            dataEntryFindSuggestions.map((entry) => (
+                              <button
+                                key={`entry-find-${entry.index}`}
+                                type="button"
+                                onClick={() => {
+                                  focusAndHighlightDataEntry(entry.index)
+                                  setDataEntryFindTerm('')
+                                }}
+                                className="block w-full border-b border-slate-100 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 last:border-b-0"
+                              >
+                                <p className="truncate font-medium">{entry.item.official_name}</p>
+                                <p className="truncate text-xs text-slate-500">
+                                  {'stocklist_name' in entry.item && entry.item.stocklist_name
+                                    ? entry.item.stocklist_name
+                                    : entry.item.product_raw}
+                                </p>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
                   <div className="stock-paper min-w-[820px]">
                     <div className="stock-date-row">
                       <span>DATE:</span>
@@ -1212,6 +1372,7 @@ export default function Home() {
                                         <td className="stock-lbl">
                                           {left ? (
                                             <input
+                                              data-entry-row-index={left.index}
                                               className={getClasses(left, "stock-input")}
                                               value={left.item.official_name ?? left.item.product_raw}
                                               onChange={(event) =>
@@ -1224,6 +1385,7 @@ export default function Home() {
                                           {left ? (
                                             <input
                                               type="number"
+                                              data-entry-row-index={left.index}
                                               className={getClasses(left, "stock-qty-input")}
                                               value={left.item.quantity ?? ''}
                                               onChange={(event) =>
@@ -1235,6 +1397,7 @@ export default function Home() {
                                         <td className="stock-lbl">
                                           {right ? (
                                             <input
+                                              data-entry-row-index={right.index}
                                               className={getClasses(right, "stock-input")}
                                               value={right.item.official_name ?? right.item.product_raw}
                                               onChange={(event) =>
@@ -1247,6 +1410,7 @@ export default function Home() {
                                           {right ? (
                                             <input
                                               type="number"
+                                              data-entry-row-index={right.index}
                                               className={getClasses(right, "stock-qty-input")}
                                               value={right.item.quantity ?? ''}
                                               onChange={(event) =>
@@ -1263,6 +1427,7 @@ export default function Home() {
                                     <tr key={`${section.title}-single-${i}`} className="stock-hw-row">
                                       <td className="stock-lbl" colSpan={3}>
                                         <input
+                                          data-entry-row-index={single.index}
                                           className={getClasses(single, "stock-input stock-input-hw")}
                                           value={single.item.official_name ?? single.item.product_raw}
                                           onChange={(event) =>
@@ -1273,6 +1438,7 @@ export default function Home() {
                                       <td className="stock-qty">
                                         <input
                                           type="number"
+                                          data-entry-row-index={single.index}
                                           className={getClasses(single, "stock-qty-input")}
                                           value={single.item.quantity ?? ''}
                                           onChange={(event) =>
@@ -1311,6 +1477,7 @@ export default function Home() {
                                         <td className="stock-lbl">
                                           {left ? (
                                             <input
+                                              data-entry-row-index={left.index}
                                               className={getClasses(left, "stock-input")}
                                               value={left.item.official_name ?? left.item.product_raw}
                                               onChange={(event) =>
@@ -1323,6 +1490,7 @@ export default function Home() {
                                           {left ? (
                                             <input
                                               type="number"
+                                              data-entry-row-index={left.index}
                                               className={getClasses(left, "stock-qty-input")}
                                               value={left.item.quantity ?? ''}
                                               onChange={(event) =>
@@ -1334,6 +1502,7 @@ export default function Home() {
                                         <td className="stock-lbl">
                                           {right ? (
                                             <input
+                                              data-entry-row-index={right.index}
                                               className={getClasses(right, "stock-input")}
                                               value={right.item.official_name ?? right.item.product_raw}
                                               onChange={(event) =>
@@ -1346,6 +1515,7 @@ export default function Home() {
                                           {right ? (
                                             <input
                                               type="number"
+                                              data-entry-row-index={right.index}
                                               className={getClasses(right, "stock-qty-input")}
                                               value={right.item.quantity ?? ''}
                                               onChange={(event) =>
@@ -1362,6 +1532,7 @@ export default function Home() {
                                     <tr key={`${section.title}-single-${i}`} className="stock-hw-row">
                                       <td className="stock-lbl" colSpan={3}>
                                         <input
+                                          data-entry-row-index={single.index}
                                           className={getClasses(single, "stock-input stock-input-hw")}
                                           value={single.item.official_name ?? single.item.product_raw}
                                           onChange={(event) =>
@@ -1372,6 +1543,7 @@ export default function Home() {
                                       <td className="stock-qty">
                                         <input
                                           type="number"
+                                          data-entry-row-index={single.index}
                                           className={getClasses(single, "stock-qty-input")}
                                           value={single.item.quantity ?? ''}
                                           onChange={(event) =>
@@ -1398,10 +1570,11 @@ export default function Home() {
                             <col style={{ width: '16%' }} />
                           </colgroup>
                           <tbody>
-                            {paperSections.outsideRows.left.map((row) => (
+                            {outsideDisplayColumns.left.map((row) => (
                               <tr key={`outside-left-${row.index}`}>
                                 <td className="stock-lbl">
                                   <input
+                                    data-entry-row-index={row.index}
                                     className={getClasses(row, "stock-input")}
                                     value={row.item.official_name ?? row.item.product_raw}
                                     onChange={(event) =>
@@ -1412,6 +1585,7 @@ export default function Home() {
                                 <td className="stock-qty">
                                   <input
                                     type="number"
+                                    data-entry-row-index={row.index}
                                     className={getClasses(row, "stock-qty-input")}
                                     value={row.item.quantity ?? ''}
                                     onChange={(event) =>
@@ -1432,10 +1606,11 @@ export default function Home() {
                             <col style={{ width: '16%' }} />
                           </colgroup>
                           <tbody>
-                            {paperSections.outsideRows.right.map((row) => (
+                            {outsideDisplayColumns.middle.map((row) => (
                               <tr key={`outside-right-${row.index}`}>
                                 <td className="stock-lbl">
                                   <input
+                                    data-entry-row-index={row.index}
                                     className={getClasses(row, "stock-input")}
                                     value={row.item.official_name ?? row.item.product_raw}
                                     onChange={(event) =>
@@ -1446,6 +1621,7 @@ export default function Home() {
                                 <td className="stock-qty">
                                   <input
                                     type="number"
+                                    data-entry-row-index={row.index}
                                     className={getClasses(row, "stock-qty-input")}
                                     value={row.item.quantity ?? ''}
                                     onChange={(event) =>
@@ -1466,10 +1642,11 @@ export default function Home() {
                             <col style={{ width: '16%' }} />
                           </colgroup>
                           <tbody>
-                            {paperSections.outsideRows.single.map((row) => (
+                            {outsideDisplayColumns.right.map((row) => (
                               <tr key={`outside-single-${row.index}`}>
                                 <td className="stock-lbl">
                                   <input
+                                    data-entry-row-index={row.index}
                                     className={getClasses(row, "stock-input")}
                                     value={row.item.official_name ?? row.item.product_raw}
                                     onChange={(event) =>
@@ -1480,6 +1657,7 @@ export default function Home() {
                                 <td className="stock-qty">
                                   <input
                                     type="number"
+                                    data-entry-row-index={row.index}
                                     className={getClasses(row, "stock-qty-input")}
                                     value={row.item.quantity ?? ''}
                                     onChange={(event) =>
@@ -1509,6 +1687,7 @@ export default function Home() {
                                   <tr key={`unknown-left-${row.index}`}>
                                     <td className="stock-lbl">
                                       <input
+                                        data-entry-row-index={row.index}
                                         className={getClasses(row, "stock-input")}
                                         value={row.item.official_name ?? row.item.product_raw}
                                         onChange={(event) =>
@@ -1519,6 +1698,7 @@ export default function Home() {
                                     <td className="stock-qty">
                                       <input
                                         type="number"
+                                        data-entry-row-index={row.index}
                                         className={getClasses(row, "stock-qty-input")}
                                         value={row.item.quantity ?? ''}
                                         onChange={(event) =>
@@ -1543,6 +1723,7 @@ export default function Home() {
                                   <tr key={`unknown-right-${row.index}`}>
                                     <td className="stock-lbl">
                                       <input
+                                        data-entry-row-index={row.index}
                                         className={getClasses(row, "stock-input")}
                                         value={row.item.official_name ?? row.item.product_raw}
                                         onChange={(event) =>
@@ -1553,6 +1734,7 @@ export default function Home() {
                                     <td className="stock-qty">
                                       <input
                                         type="number"
+                                        data-entry-row-index={row.index}
                                         className={getClasses(row, "stock-qty-input")}
                                         value={row.item.quantity ?? ''}
                                         onChange={(event) =>
@@ -1577,6 +1759,7 @@ export default function Home() {
                                   <tr key={`unknown-single-${row.index}`}>
                                     <td className="stock-lbl">
                                       <input
+                                        data-entry-row-index={row.index}
                                         className={getClasses(row, "stock-input")}
                                         value={row.item.official_name ?? row.item.product_raw}
                                         onChange={(event) =>
@@ -1587,6 +1770,7 @@ export default function Home() {
                                     <td className="stock-qty">
                                       <input
                                         type="number"
+                                        data-entry-row-index={row.index}
                                         className={getClasses(row, "stock-qty-input")}
                                         value={row.item.quantity ?? ''}
                                         onChange={(event) =>
