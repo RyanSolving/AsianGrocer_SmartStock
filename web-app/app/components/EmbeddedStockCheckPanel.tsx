@@ -617,7 +617,7 @@ export function EmbeddedStockCheckPanel({
       setRecheckWarnings([])
       setHasPassedRecheck(true)
       setShowRecheckWarningModal(false)
-      setStatus('No previous validated stock-check found. Recheck passed. You can validate now.')
+      setStatus('No previous validated stock-check found. Recheck passed. You can save now.')
       setError(null)
       return
     }
@@ -680,7 +680,7 @@ export function EmbeddedStockCheckPanel({
       setRecheckWarnings([])
       setHasPassedRecheck(true)
       setShowRecheckWarningModal(false)
-      setStatus('Recheck complete. No potential missed items found. You can validate now.')
+      setStatus('Recheck complete. No potential missed items found. You can save now.')
       setError(null)
       return
     }
@@ -688,18 +688,16 @@ export function EmbeddedStockCheckPanel({
     setRecheckWarnings(warnings)
     setHasPassedRecheck(false)
     setShowRecheckWarningModal(true)
-    setStatus(`Recheck found ${warnings.length} potential missed item(s). Review warnings before validate.`)
+    setStatus(`Recheck found ${warnings.length} potential missed item(s). Review warnings before save.`)
     setError(null)
   }
 
-  function finalizeValidation() {
+  function applyValidatedState(normalizedRows: StockCheckRow[]) {
     skipNextRecheckResetRef.current = true
-    setRows((prev) => normalizeBlankStockCheckQuantities(prev))
+    setRows(normalizedRows)
     setIsValidated(true)
     setHasPassedRecheck(true)
     setShowRecheckWarningModal(false)
-    setStatus('Validated by staff. Blank quantities were set to 0. Export and Load to DB are enabled.')
-    setError(null)
   }
 
   function openCreateUnknownModal() {
@@ -844,9 +842,9 @@ export function EmbeddedStockCheckPanel({
     }
   }
 
-  function buildSnowflakeEnvelopePayload() {
-    const known = rows.filter((x) => isKnownRow(x))
-    const unknown = rows.filter((x) => x.source === 'unknown')
+  function buildSnowflakeEnvelopePayload(inputRows: StockCheckRow[], validated: boolean) {
+    const known = inputRows.filter((x) => isKnownRow(x))
+    const unknown = inputRows.filter((x) => x.source === 'unknown')
 
     const knownItems = known.map((x) => ({
       catalog_code: x.code as string,
@@ -899,9 +897,38 @@ export function EmbeddedStockCheckPanel({
         confidence_overall: 'high' as const,
         items: knownItems,
       },
-      validated: isValidated ? 'yes' as const : 'no' as const,
+      validated: validated ? 'yes' as const : 'no' as const,
       unknown_items: unknownItems,
       missing_catalog_items: [],
+    }
+  }
+
+  async function saveStockCheck() {
+    const normalizedRows = normalizeBlankStockCheckQuantities(rows)
+
+    applyValidatedState(normalizedRows)
+    setIsSaving(true)
+    setStatus('Saving stock check...')
+    setError(null)
+
+    try {
+      const response = await fetch('/api/stock-check/save-to-supabase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildSnowflakeEnvelopePayload(normalizedRows, true)),
+      })
+
+      const payload = await response.json()
+      if (!response.ok) {
+        throw new Error(payload?.error ?? 'Save failed.')
+      }
+
+      setStatus(`Saved (UID: ${payload?.uid_stock_check ?? '-'}) and validated. Blank quantities were set to 0. Export and Load to Snowflake are enabled.`)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Save failed.')
+      setStatus('Validated by staff. Blank quantities were set to 0. Save to Supabase failed, please retry Save.')
+    } finally {
+      setIsSaving(false)
     }
   }
 
@@ -1030,21 +1057,21 @@ export function EmbeddedStockCheckPanel({
       const response = await fetch('/api/stock-check/save-to-db', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildSnowflakeEnvelopePayload()),
+        body: JSON.stringify(buildSnowflakeEnvelopePayload(rows, isValidated)),
       })
 
       const payload = await response.json()
       if (!response.ok) {
-        throw new Error(payload?.error ?? 'Load to DB failed.')
+        throw new Error(payload?.error ?? 'Load to Snowflake failed.')
       }
 
-      setStatus(`Saved to DB (UID: ${payload?.uid_stock_check ?? '-'})`)
+      setStatus(`Loaded to Snowflake (UID: ${payload?.uid_stock_check ?? '-'})`)
 
       if (rows.some((x) => x.source === 'unknown')) {
         openCreateUnknownModal()
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Load to DB failed.')
+      setError(e instanceof Error ? e.message : 'Load to Snowflake failed.')
     } finally {
       setIsSaving(false)
     }
@@ -1154,11 +1181,11 @@ export function EmbeddedStockCheckPanel({
 
             <button
               type="button"
-              onClick={finalizeValidation}
+              onClick={saveStockCheck}
               disabled={!hasPassedRecheck || isExporting || isSaving}
               className="w-full rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
             >
-              {isValidated ? 'Validated' : 'Validate'}
+              {isSaving ? 'Saving...' : isValidated ? 'Saved' : 'Save'}
             </button>
           </div>
 
@@ -1202,7 +1229,7 @@ export function EmbeddedStockCheckPanel({
               className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-brand-300 bg-brand-50 px-4 py-2 text-sm font-medium text-brand-700 hover:bg-brand-100 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
             >
               {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-              Load to DB
+              Load to Snowflake
             </button>
 
             <button
@@ -1220,7 +1247,7 @@ export function EmbeddedStockCheckPanel({
         {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
         {status && <p className="mt-3 text-sm text-emerald-700">{status}</p>}
         {!hasPassedRecheck && !isValidated && (
-          <p className="mt-1 text-xs font-medium text-amber-700">Run Recheck before Validate.</p>
+          <p className="mt-1 text-xs font-medium text-amber-700">Run Recheck before Save.</p>
         )}
 
         {isMobileViewport && (
@@ -1815,10 +1842,10 @@ export function EmbeddedStockCheckPanel({
               </button>
               <button
                 type="button"
-                onClick={finalizeValidation}
+                onClick={saveStockCheck}
                 className="w-full rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 sm:w-auto"
               >
-                Confirm Recheck & Validate
+                Confirm Recheck & Save
               </button>
             </div>
           </div>
