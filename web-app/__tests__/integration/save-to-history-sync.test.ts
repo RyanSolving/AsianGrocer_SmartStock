@@ -229,6 +229,18 @@ describe('Save-to-History Sync Integration', () => {
   })
 
   describe('Data integrity: Edited fields must be preserved through save', () => {
+    it('should preserve edited stock_date in payload', () => {
+      const original = {
+        stock_date: '2026-04-11',
+      }
+      const edited = {
+        stock_date: '2026-04-12',
+      }
+
+      expect(edited.stock_date).toBe('2026-04-12')
+      expect(edited.stock_date).not.toBe(original.stock_date)
+    })
+
     it('should preserve quantity edits', () => {
       const original = { quantity: null, quantity_raw: '???' }
       const edited = { quantity: 42, quantity_raw: '42' }

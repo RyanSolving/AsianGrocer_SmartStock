@@ -5,7 +5,7 @@ export const stockModeSchema = z.enum(['stock-in', 'stock-closing'])
 export const catalogLocationOptions = ['Inside Coolroom', 'Outside Coolroom'] as const
 export const catalogSubLocationInsideOptions = ['Apples', 'Citrus', 'Asian', 'Melon', 'All Year', 'Seasonal', 'Stonefruit'] as const
 export const catalogSubLocationOutsideOptions = ['Outside Coolroom'] as const
-export const catalogCategoryOptions = ['Apples', 'Citrus', 'Asian', 'Melon', 'All Year', 'Seasonal', 'Stonefruit', 'Banana', 'Papaya', 'Mango', 'Watermelon', 'Pineapple', 'Tropical', 'Coconut', 'Pears', 'Grape', 'Nut', 'Berries', 'Kiwi', 'Avocado', 'Persimmon', 'Other'] as const
+export const catalogCategoryOptions = ['Apples', 'Citrus', 'Asian', 'Melon', 'All Year', 'Seasonal', 'Stonefruit', 'Plum', 'Banana', 'Papaya', 'Mango', 'Watermelon', 'Pineapple', 'Tropical', 'Coconut', 'Pears', 'Grape', 'Nut', 'Berries', 'Kiwi', 'Avocado', 'Persimmon', 'Other'] as const
 export const catalogRowPositionOptions = ['left', 'right', 'single'] as const
 
 const catalogTextSchema = z.string().trim()
