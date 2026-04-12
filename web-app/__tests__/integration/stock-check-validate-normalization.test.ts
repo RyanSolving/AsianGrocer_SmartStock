@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals'
 
-import { normalizeBlankStockCheckQuantities } from '../../../app/components/EmbeddedStockCheckPanel'
+import { normalizeBlankStockCheckQuantities } from '../../lib/stock-check-utils'
 
 describe('Stock check validate normalization', () => {
   it('replaces blank quantity cells with zero on validate', () => {

@@ -10,6 +10,7 @@ import {
   catalogSubLocationInsideOptions,
   catalogSubLocationOutsideOptions,
 } from '../../lib/stock-schema'
+import { normalizeBlankStockCheckQuantities } from '../../lib/stock-check-utils'
 
 type CatalogItem = {
   id?: number
@@ -124,16 +125,60 @@ function formatSheetDate(value: string) {
 }
 
 function splitRows(items: IndexedRow[]): RowColumns {
+  const singles = items.filter((x) => x.row.row_position === 'single')
+  const paired = items.filter((x) => x.row.row_position !== 'single')
+  const left: IndexedRow[] = []
+  const right: IndexedRow[] = []
+
+  // Keep visual reading order alphabetical by alternating sorted rows across columns.
+  paired.forEach((row, index) => {
+    if (index % 2 === 0) {
+      left.push(row)
+    } else {
+      right.push(row)
+    }
+  })
+
   return {
-    left: items.filter((x) => x.row.row_position === 'left'),
-    right: items.filter((x) => x.row.row_position === 'right'),
-    single: items.filter((x) => x.row.row_position === 'single'),
+    left,
+    right,
+    single: singles,
   }
+}
+
+function getRowDisplayNameForSort(row: StockCheckRow) {
+  return (row.official_name || row.stocklist_name || row.product || '').trim()
+}
+
+function sortIndexedRowsByName(rows: IndexedRow[]) {
+  return [...rows].sort((a, b) => {
+    const nameCompare = getRowDisplayNameForSort(a.row).localeCompare(getRowDisplayNameForSort(b.row), undefined, {
+      sensitivity: 'base',
+      numeric: true,
+    })
+
+    if (nameCompare !== 0) return nameCompare
+
+    const codeCompare = (a.row.code || '').localeCompare(b.row.code || '', undefined, {
+      sensitivity: 'base',
+      numeric: true,
+    })
+
+    if (codeCompare !== 0) return codeCompare
+
+    return a.index - b.index
+  })
 }
 
 function normalizeSubLocation(value: string) {
   if (value.toLowerCase() === 'all year') return 'All Year'
   return value
+}
+
+function normalizeInsideSectionLabel(category: string, subLocation: string) {
+  const raw = (category || subLocation || 'Unknown').trim()
+  if (!raw) return 'Unknown'
+  return normalizeSubLocation(raw)
 }
 
 function normalizeCompareKey(value: string) {
@@ -153,31 +198,12 @@ function generateItemCode(category: string, product: string, attribute: string) 
   return `${cat3}-${prod3}-${attr3}`
 }
 
-export function normalizeBlankStockCheckQuantities(rows: StockCheckRow[]) {
-  return rows.map((row) => {
-    if (row.quantity !== null) {
-      return row
-    }
-
-    return {
-      ...row,
-      quantity: 0,
-    }
-  })
-}
+export { normalizeBlankStockCheckQuantities }
 
 function getSubLocationOptions(location: 'Inside Coolroom' | 'Outside Coolroom') {
   return location === 'Outside Coolroom'
     ? [...catalogSubLocationOutsideOptions]
     : [...catalogSubLocationInsideOptions]
-}
-
-function bySection(rows: IndexedRow[], location: string, subLocation: string) {
-  return rows.filter(
-    (x) =>
-      x.row.location === location
-      && normalizeSubLocation(x.row.sub_location) === normalizeSubLocation(subLocation)
-  )
 }
 
 function makeCatalogRow(item: CatalogItem): StockCheckRow {
@@ -499,30 +525,40 @@ export function EmbeddedStockCheckPanel({
   }, [findTerm])
 
   const paperSections = useMemo(() => {
-    const apples = bySection(indexedRows, 'Inside Coolroom', 'Apples')
-    const citrus = bySection(indexedRows, 'Inside Coolroom', 'Citrus')
-    const asian = bySection(indexedRows, 'Inside Coolroom', 'Asian')
+    const insideRows = indexedRows.filter(
+      (x) => x.row.location === 'Inside Coolroom' && x.row.source !== 'unknown'
+    )
 
-    const melon = bySection(indexedRows, 'Inside Coolroom', 'Melon')
-    const allYear = bySection(indexedRows, 'Inside Coolroom', 'All Year')
-    const seasonal = bySection(indexedRows, 'Inside Coolroom', 'Seasonal')
-    const stonefruit = bySection(indexedRows, 'Inside Coolroom', 'Stonefruit')
+    const insideRowsByCategory = new Map<string, IndexedRow[]>()
 
-    const outsideRows = indexedRows.filter((x) => x.row.location === 'Outside Coolroom')
-    const unknownRows = indexedRows.filter((x) => x.row.source === 'unknown')
+    insideRows.forEach((entry) => {
+      const sectionLabel = normalizeInsideSectionLabel(entry.row.category, entry.row.sub_location)
+      const existing = insideRowsByCategory.get(sectionLabel)
+      if (existing) {
+        existing.push(entry)
+        return
+      }
+      insideRowsByCategory.set(sectionLabel, [entry])
+    })
+
+    const insideSections = Array.from(insideRowsByCategory.entries())
+      .sort(([leftLabel], [rightLabel]) => leftLabel.localeCompare(rightLabel, undefined, {
+        sensitivity: 'base',
+        numeric: true,
+      }))
+      .map(([label, sectionRows]) => ({
+        title: label.toUpperCase(),
+        rows: splitRows(sortIndexedRowsByName(sectionRows)),
+      }))
+
+    const midpoint = Math.ceil(insideSections.length / 2)
+
+    const outsideRows = sortIndexedRowsByName(indexedRows.filter((x) => x.row.location === 'Outside Coolroom'))
+    const unknownRows = sortIndexedRowsByName(indexedRows.filter((x) => x.row.source === 'unknown'))
 
     return {
-      leftColumn: [
-        { title: 'APPLES', rows: splitRows(apples) },
-        { title: 'CITRUS', rows: splitRows(citrus) },
-        { title: 'ASIAN', rows: splitRows(asian) },
-      ],
-      rightColumn: [
-        { title: 'MELON', rows: splitRows(melon) },
-        { title: 'ALL YEAR', rows: splitRows(allYear) },
-        { title: 'SEASONAL', rows: splitRows(seasonal) },
-        { title: 'STONEFRUIT', rows: splitRows(stonefruit) },
-      ],
+      leftColumn: insideSections.slice(0, midpoint),
+      rightColumn: insideSections.slice(midpoint),
       outsideRows: splitRows(outsideRows),
       unknownRows: splitRows(unknownRows),
     }

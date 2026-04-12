@@ -123,11 +123,60 @@ type IndexedItem = {
 type HubSection = 'data-entry' | 'stock-check' | 'catalog'
 
 function splitRows(items: IndexedItem[]) {
+  const singles = items.filter((row) => row.item.row_position === 'single')
+  const paired = items.filter((row) => row.item.row_position !== 'single')
+  const left: IndexedItem[] = []
+  const right: IndexedItem[] = []
+
+  // Keep visual reading order alphabetical by alternating sorted rows across columns.
+  paired.forEach((row, index) => {
+    if (index % 2 === 0) {
+      left.push(row)
+    } else {
+      right.push(row)
+    }
+  })
+
   return {
-    left: items.filter((row) => row.item.row_position === 'left'),
-    right: items.filter((row) => row.item.row_position === 'right'),
-    single: items.filter((row) => row.item.row_position === 'single'),
+    left,
+    right,
+    single: singles,
   }
+}
+
+function getItemDisplayNameForSort(item: StockItem) {
+  return (item.official_name || item.product_raw || '').trim()
+}
+
+function sortIndexedItemsByName(items: IndexedItem[]) {
+  return [...items].sort((a, b) => {
+    const nameCompare = getItemDisplayNameForSort(a.item).localeCompare(getItemDisplayNameForSort(b.item), undefined, {
+      sensitivity: 'base',
+      numeric: true,
+    })
+
+    if (nameCompare !== 0) return nameCompare
+
+    const codeCompare = (a.item.catalog_code || '').localeCompare(b.item.catalog_code || '', undefined, {
+      sensitivity: 'base',
+      numeric: true,
+    })
+
+    if (codeCompare !== 0) return codeCompare
+
+    return a.index - b.index
+  })
+}
+
+function normalizeSubLocation(value: string) {
+  if (value.toLowerCase() === 'all year') return 'All Year'
+  return value
+}
+
+function normalizeInsideSectionLabel(category: string, subLocation: string) {
+  const raw = (category || subLocation || 'Unknown').trim()
+  if (!raw) return 'Unknown'
+  return normalizeSubLocation(raw)
 }
 
 function formatSheetDate(value?: string) {
@@ -139,6 +188,10 @@ function formatSheetDate(value?: string) {
     Number(m) - 1
   ]
   return `${d} ${month ?? m} ${y.slice(-2)}`
+}
+
+function isIsoDate(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value)
 }
 
 function FeedbackBanner({
@@ -430,31 +483,41 @@ export default function Home() {
   }, [parsedData, missingCatalogItems, unknownItems, activeCatalog])
 
   const paperSections = useMemo(() => {
-    const apples = indexedItems.filter((row) => row.item.location === 'Inside Coolroom' && row.item.sub_location === 'Apples')
-    const citrus = indexedItems.filter((row) => row.item.location === 'Inside Coolroom' && row.item.sub_location === 'Citrus')
-    const asian = indexedItems.filter((row) => row.item.location === 'Inside Coolroom' && row.item.sub_location === 'Asian')
+    const insideRows = indexedItems.filter(
+      (row) => row.item.location === 'Inside Coolroom' && row.source !== 'unknown'
+    )
 
-    const melons = indexedItems.filter((row) => row.item.location === 'Inside Coolroom' && row.item.sub_location === 'Melon')
-    const allYear = indexedItems.filter((row) => row.item.location === 'Inside Coolroom' && (row.item.sub_location === 'All year' || row.item.sub_location === 'All Year'))
-    const seasonal = indexedItems.filter((row) => row.item.location === 'Inside Coolroom' && row.item.sub_location === 'Seasonal')
-    const stonefruit = indexedItems.filter((row) => row.item.location === 'Inside Coolroom' && row.item.sub_location === 'Stonefruit')
+    const insideRowsByCategory = new Map<string, IndexedItem[]>()
+
+    insideRows.forEach((entry) => {
+      const sectionLabel = normalizeInsideSectionLabel(entry.item.category, entry.item.sub_location)
+      const existing = insideRowsByCategory.get(sectionLabel)
+      if (existing) {
+        existing.push(entry)
+        return
+      }
+      insideRowsByCategory.set(sectionLabel, [entry])
+    })
+
+    const insideSections = Array.from(insideRowsByCategory.entries())
+      .sort(([leftLabel], [rightLabel]) => leftLabel.localeCompare(rightLabel, undefined, {
+        sensitivity: 'base',
+        numeric: true,
+      }))
+      .map(([label, sectionRows]) => ({
+        title: label.toUpperCase(),
+        rows: splitRows(sortIndexedItemsByName(sectionRows)),
+      }))
+
+    const midpoint = Math.ceil(insideSections.length / 2)
     
     // Everything outside coolroom
-    const outside = indexedItems.filter((row) => row.item.location === 'Outside Coolroom')
-    const unknown = indexedItems.filter((row) => row.source === 'unknown')
+    const outside = sortIndexedItemsByName(indexedItems.filter((row) => row.item.location === 'Outside Coolroom'))
+    const unknown = sortIndexedItemsByName(indexedItems.filter((row) => row.source === 'unknown'))
 
     return {
-      leftColumn: [
-        { title: 'APPLES', rows: splitRows(apples) },
-        { title: 'CITRUS', rows: splitRows(citrus) },
-        { title: 'ASIAN', rows: splitRows(asian) },
-      ],
-      rightColumn: [
-        { title: 'MELON', rows: splitRows(melons) },
-        { title: 'ALL YEAR', rows: splitRows(allYear) },
-        { title: 'SEASONAL', rows: splitRows(seasonal) },
-        { title: 'STONEFRUIT', rows: splitRows(stonefruit) },
-      ],
+      leftColumn: insideSections.slice(0, midpoint),
+      rightColumn: insideSections.slice(midpoint),
       outsideRows: splitRows(outside),
       unknownRows: splitRows(unknown),
     }
@@ -489,6 +552,20 @@ export default function Home() {
       })
       .slice(0, 8)
   }, [dataEntryFindTerm, indexedItems])
+
+  const updateParsedStockDate = useCallback((value: string) => {
+    if (!isIsoDate(value)) return
+
+    setParsedData((current) => {
+      if (!current) return current
+      return {
+        ...current,
+        stock_date: value,
+      }
+    })
+
+    setIsValidatedByStaff(false)
+  }, [])
 
   const focusAndHighlightDataEntry = useCallback((index: number) => {
     setActiveSection('data-entry')
@@ -1262,11 +1339,19 @@ export default function Home() {
           </section>
 
               <section className="card-surface rounded-2xl p-6 md:p-8">
-            <div className="mb-4 flex items-center justify-between">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
               <h2 className="text-xl font-semibold text-slate-900">Editable Stocklist Layout</h2>
-              <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-600">
-                Date: {parsedData?.stock_date ?? '-'}
-              </span>
+              <div className="flex w-full flex-col gap-1 sm:w-auto">
+                <label htmlFor="paper-stock-date" className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Paper Date</label>
+                <input
+                  id="paper-stock-date"
+                  type="date"
+                  value={parsedData?.stock_date ?? ''}
+                  onChange={(event) => updateParsedStockDate(event.target.value)}
+                  disabled={!parsedData}
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 focus:border-brand-500 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-100 sm:w-[190px]"
+                />
+              </div>
             </div>
 
             {!parsedData && (
