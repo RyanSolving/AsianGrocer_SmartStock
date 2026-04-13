@@ -131,6 +131,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Request body must be valid JSON.' }, { status: 400 })
   }
 
+  const persistOnly = Boolean(payload && typeof payload === 'object' && (payload as { persist_only?: unknown }).persist_only)
+
   // Check if this is a re-push request with uid_generate
   const isRepush = payload && typeof payload === 'object' && 'uid_generate' in payload && !('data' in payload)
   let uidGenerate: string | null = null
@@ -203,6 +205,84 @@ export async function POST(request: Request) {
     uidGenerate = typeof envelope.data.uid_generate === 'string' && envelope.data.uid_generate.length > 0
       ? envelope.data.uid_generate
       : null
+  }
+
+  if (persistOnly) {
+    const stagedRecord = buildSnowflakeStagingRecord({
+      parsedData,
+      validated,
+      unknownItems,
+      missingCatalogItems,
+    })
+
+    const persistedFinalOutput = parsedStockSchema.parse({
+      photo_id: stagedRecord.photo_id,
+      mode: stagedRecord.mode,
+      upload_date: stagedRecord.upload_date,
+      stock_date: stagedRecord.stock_date,
+      photo_url: stagedRecord.photo_url,
+      total_items: stagedRecord.item_data.length,
+      confidence_overall: stagedRecord.confidence_overall,
+      items: stagedRecord.item_data,
+    })
+
+    let savedUidGenerate = uidGenerate
+
+    if (savedUidGenerate) {
+      const { error: updateGenerateError } = await auth.supabase
+        .from('event_generate')
+        .update({
+          final_output: persistedFinalOutput,
+          edited: true,
+        })
+        .eq('uid_generate', savedUidGenerate)
+        .eq('user_id', auth.user.id)
+
+      if (updateGenerateError) {
+        return NextResponse.json(
+          {
+            error: 'Failed to save draft to Supabase.',
+            details: updateGenerateError.message,
+          },
+          { status: 500 }
+        )
+      }
+    } else {
+      const { data: insertedGenerate, error: insertGenerateError } = await auth.supabase
+        .from('event_generate')
+        .insert({
+          user_id: auth.user.id,
+          input_file_name: 'manual-entry',
+          catalog_version: 'manual',
+          output_from_model: { source: 'manual-entry' },
+          final_output: persistedFinalOutput,
+          edited: true,
+          stock_mode: stagedRecord.mode === 'stock-closing' ? 'closing_check' : 'arrival_entry',
+        })
+        .select('uid_generate')
+        .single()
+
+      if (insertGenerateError) {
+        return NextResponse.json(
+          {
+            error: 'Failed to create manual draft in Supabase.',
+            details: insertGenerateError.message,
+          },
+          { status: 500 }
+        )
+      }
+
+      savedUidGenerate = insertedGenerate?.uid_generate ?? null
+    }
+
+    return NextResponse.json(
+      {
+        success: true,
+        uid_generate: savedUidGenerate,
+        message: 'Saved to Supabase. You can keep editing before loading to Snowflake.',
+      },
+      { status: 200 }
+    )
   }
 
   const missingEnvKeys = getMissingSnowflakeEnvKeys()

@@ -20,6 +20,7 @@ type TranscriptionHistoryDialogProps = {
   onRepush: (uid: string) => void
   isRepushing: boolean
   selectedUid?: string | null
+  visibleCatalogCodes?: Set<string>
 }
 
 export function TranscriptionHistoryDialog({
@@ -30,6 +31,7 @@ export function TranscriptionHistoryDialog({
   onRepush,
   isRepushing,
   selectedUid,
+  visibleCatalogCodes,
 }: TranscriptionHistoryDialogProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
@@ -81,12 +83,18 @@ export function TranscriptionHistoryDialog({
       if (!item || typeof item !== 'object') return
 
       const row = item as {
+        catalog_code?: string | null
         location?: string
         sub_location?: string
         official_name?: string
         product_raw?: string
         quantity?: number | null
         quantity_raw?: string | null
+      }
+
+      const catalogCode = row.catalog_code?.trim().toUpperCase() ?? ''
+      if (catalogCode && visibleCatalogCodes && !visibleCatalogCodes.has(catalogCode)) {
+        return
       }
 
       const location = row.location?.trim() || 'Unknown'

@@ -15,6 +15,7 @@ export function normalizeCatalogEntry(entry: CatalogEntry): CatalogEntry {
     attribute: normalizeLegacyTypo(entry.attribute),
     official_name: normalizeLegacyTypo(entry.official_name),
     stocklist_name: normalizeLegacyTypo(entry.stocklist_name),
+    is_visible: entry.is_visible ?? true,
   }
 }
 
@@ -58,6 +59,7 @@ export function parseCSVCatalog(csvText: string): CatalogEntry[] {
       stocklist_name: row['Name on Stocklist']?.trim() || '',
       navigation_guide: guide.trim(),
       row_position: rowPosition,
+      is_visible: true,
     }))
   }
 

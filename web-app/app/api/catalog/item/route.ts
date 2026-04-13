@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 
 import { catalogItemSchema } from '../../../../lib/stock-schema'
 import { getAuthContext } from '../../../../lib/supabase/route-auth'
+import { getCategoriesFromDB, validateCategoryValue } from '../../../../lib/category-store'
 
 function isMissingRelationError(error: { code?: string | null; message?: string | null } | null | undefined) {
   if (!error) return false
@@ -36,6 +37,19 @@ export async function PUT(request: Request) {
 
   const item = parsed.data
 
+  // Validate category against database values
+  const allowedCategories = await getCategoriesFromDB(auth.supabase)
+  if (!validateCategoryValue(item.category, allowedCategories)) {
+    return NextResponse.json(
+      {
+        error: 'Invalid category.',
+        details: `Category "${item.category}" is not in the list of allowed categories.`,
+        hint: `Allowed categories: ${allowedCategories.join(', ')}`,
+      },
+      { status: 400 }
+    )
+  }
+
   const result = await auth.supabase
     .from('catalog_items')
     .upsert({
@@ -49,6 +63,7 @@ export async function PUT(request: Request) {
       stocklist_name: item.stocklist_name,
       navigation_guide: item.navigation_guide,
       row_position: item.row_position,
+      is_visible: item.is_visible,
     }, { onConflict: 'code' })
 
   if (result.error) {

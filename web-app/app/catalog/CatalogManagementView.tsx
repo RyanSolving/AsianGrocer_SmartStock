@@ -15,7 +15,6 @@ import {
 } from 'lucide-react'
 
 import {
-  catalogCategoryOptions,
   catalogItemSchema,
   catalogLocationOptions,
   catalogRowPositionOptions,
@@ -50,17 +49,18 @@ function getSubLocationOptions(location: string) {
   return catalogSubLocationInsideOptions
 }
 
-const emptyItem = (): CatalogItem => ({
+const emptyItem = (defaultCategory: string = 'Apples'): CatalogItem => ({
   code: '',
   location: 'Inside Coolroom',
   sub_location: catalogSubLocationInsideOptions[0],
-  category: catalogCategoryOptions[0],
+  category: defaultCategory,
   product: '',
   attribute: '',
   official_name: '',
   stocklist_name: '',
   navigation_guide: '',
   row_position: 'single',
+  is_visible: true,
 })
 
 function buildFieldErrors(error: { issues: Array<{ path: (string | number)[]; message: string }> }) {
@@ -115,6 +115,7 @@ function ItemModal({
   item,
   isEdit,
   isSaving,
+  categories = [],
 }: {
   isOpen: boolean
   onClose: () => void
@@ -122,28 +123,30 @@ function ItemModal({
   item: CatalogItem | null
   isEdit: boolean
   isSaving: boolean
+  categories?: string[]
 }) {
-  const [form, setForm] = useState<CatalogItem>(emptyItem())
+  const defaultCategory = categories.length > 0 ? categories[0] : 'Apples'
+  const [form, setForm] = useState<CatalogItem>(emptyItem(defaultCategory))
   const [errors, setErrors] = useState<Record<string, string>>({})
 
   useEffect(() => {
     if (isOpen) {
-      setForm(item ?? emptyItem())
+      setForm(item ?? emptyItem(defaultCategory))
       setErrors({})
     }
-  }, [isOpen, item])
+  }, [isOpen, item, defaultCategory])
 
   if (!isOpen) return null
 
-  const updateField = (field: keyof CatalogItem, value: string) => {
+  const updateField = (field: keyof CatalogItem, value: string | boolean) => {
     setForm((prev) => {
       const next = { ...prev, [field]: value }
 
-      if (field === 'location') {
+      if (field === 'location' && typeof value === 'string') {
         next.sub_location = getSubLocationOptions(value)[0]
       }
 
-      if (['category', 'product', 'attribute'].includes(field) && !isEdit) {
+      if (['category', 'product', 'attribute'].includes(field) && !isEdit && typeof value === 'string') {
         next.code = generateItemCode(
           field === 'category' ? value : next.category,
           field === 'product' ? value : next.product,
@@ -238,9 +241,13 @@ function ItemModal({
                 value={form.category}
                 onChange={(e) => updateField('category', e.target.value)}
               >
-                {catalogCategoryOptions.map((cat) => (
-                  <option key={cat} value={cat}>{cat}</option>
-                ))}
+                {categories.length > 0 ? (
+                  categories.map((cat) => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))
+                ) : (
+                  <option disabled>Loading categories...</option>
+                )}
               </select>
             </div>
             <div>
@@ -319,6 +326,20 @@ function ItemModal({
               ))}
             </div>
           </div>
+
+          {/* Visibility */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-500">Visibility</label>
+            <label className="mt-2 inline-flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={form.is_visible !== false}
+                onChange={(e) => updateField('is_visible', e.target.checked)}
+                className="h-4 w-4 accent-brand-600"
+              />
+              Visible in stock paper
+            </label>
+          </div>
         </div>
 
         <div className="flex justify-end gap-3 border-t border-slate-200 px-6 py-4">
@@ -345,7 +366,9 @@ function ItemModal({
 
 export function CatalogManagementView({ embedded = false }: { embedded?: boolean }) {
   const [items, setItems] = useState<CatalogItem[]>([])
+  const [categories, setCategories] = useState<string[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [categoriesLoading, setCategoriesLoading] = useState(true)
   const [apiError, setApiError] = useState<string | null>(null)
   const [apiStatus, setApiStatus] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
@@ -353,6 +376,7 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<CatalogItem | null>(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [visibilitySavingByCode, setVisibilitySavingByCode] = useState<Record<string, boolean>>({})
   const [deleteConfirmCode, setDeleteConfirmCode] = useState<string | null>(null)
 
   const loadCatalog = useCallback(async () => {
@@ -376,13 +400,14 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
             code: String(entry?.code ?? ''),
             location: entry?.location ?? 'Inside Coolroom',
             sub_location: entry?.sub_location ?? catalogSubLocationInsideOptions[0],
-            category: entry?.category ?? catalogCategoryOptions[0],
+            category: entry?.category ?? 'Apples',
             product: entry?.product ?? '',
             attribute: entry?.attribute ?? '',
             official_name: entry?.official_name ?? '',
             stocklist_name: entry?.stocklist_name ?? '',
             navigation_guide: entry?.navigation_guide ?? '',
             row_position: entry?.row_position ?? 'single',
+            is_visible: entry?.is_visible ?? true,
           }))
         : []
 
@@ -397,6 +422,30 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
   useEffect(() => {
     void loadCatalog()
   }, [loadCatalog])
+
+  const loadCategories = useCallback(async () => {
+    setCategoriesLoading(true)
+    try {
+      const res = await fetch('/api/categories')
+      if (!res.ok) throw new Error('Failed to fetch categories')
+      const data = await res.json()
+      const uniqueCategories: string[] = Array.from(new Set<string>(
+        (Array.isArray(data.categories) ? data.categories : [])
+          .map((value: unknown) => (typeof value === 'string' ? value.trim() : ''))
+          .filter((value: string) => value.length > 0)
+      )).sort((a, b) => a.localeCompare(b))
+      setCategories(uniqueCategories)
+    } catch (err) {
+      console.error('Failed to load categories:', err)
+      setCategories([])
+    } finally {
+      setCategoriesLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadCategories()
+  }, [loadCategories])
 
   const filteredItems = useMemo(() => {
     const term = searchTerm.toLowerCase()
@@ -457,6 +506,40 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
       await loadCatalog()
     } catch (err) {
       setApiError(err instanceof Error ? err.message : 'Failed to delete item')
+    }
+  }
+
+  const handleVisibilityToggle = async (item: CatalogItem, nextVisible: boolean) => {
+    setApiError(null)
+    setApiStatus(null)
+
+    // Optimistic update: reflect checkbox change immediately without reloading full catalog.
+    setItems((prev) => prev.map((entry) => (
+      entry.code === item.code ? { ...entry, is_visible: nextVisible } : entry
+    )))
+    setVisibilitySavingByCode((prev) => ({ ...prev, [item.code]: true }))
+
+    try {
+      const res = await fetch('/api/catalog/item', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...item, is_visible: nextVisible }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(getApiErrorMessage(data, 'Failed to update visibility'))
+      }
+
+      setApiStatus(`Visibility for "${item.code}" updated.`)
+    } catch (err) {
+      // Rollback optimistic state when persistence fails.
+      setItems((prev) => prev.map((entry) => (
+        entry.code === item.code ? { ...entry, is_visible: item.is_visible } : entry
+      )))
+      setApiError(err instanceof Error ? err.message : 'Failed to update visibility')
+    } finally {
+      setVisibilitySavingByCode((prev) => ({ ...prev, [item.code]: false }))
     }
   }
 
@@ -587,20 +670,21 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
                   <th className="px-4 py-3 font-semibold">Category</th>
                   <th className="px-4 py-3 font-semibold">Location</th>
                   <th className="px-4 py-3 font-semibold">Row</th>
+                  <th className="px-4 py-3 font-semibold">Visibility</th>
                   <th className="px-4 py-3 font-semibold text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {isLoading ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-10 text-center text-slate-400">
+                    <td colSpan={8} className="px-4 py-10 text-center text-slate-400">
                       <RefreshCw className="mx-auto h-5 w-5 animate-spin" />
                       <p className="mt-2 text-xs">Loading catalog...</p>
                     </td>
                   </tr>
                 ) : filteredItems.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-10 text-center text-slate-400">
+                    <td colSpan={8} className="px-4 py-10 text-center text-slate-400">
                       {searchTerm || locationFilter !== 'all'
                         ? 'No items match your filters.'
                         : 'No catalog items yet. Click "Add Item" to get started.'}
@@ -621,6 +705,20 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
                         {item.location} / {item.sub_location}
                       </td>
                       <td className="px-4 py-3 text-xs capitalize text-slate-500">{item.row_position}</td>
+                      <td className="px-4 py-3">
+                        <label className="inline-flex items-center gap-2 text-xs text-slate-700">
+                          <input
+                            type="checkbox"
+                            checked={item.is_visible !== false}
+                            disabled={!!visibilitySavingByCode[item.code]}
+                            onChange={(event) => void handleVisibilityToggle(item, event.target.checked)}
+                            className="h-4 w-4 accent-brand-600 disabled:cursor-not-allowed"
+                          />
+                          <span className={item.is_visible === false ? 'text-slate-500' : 'text-emerald-700'}>
+                            {item.is_visible === false ? 'Hidden' : 'Visible'}
+                          </span>
+                        </label>
+                      </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">
                           <button
@@ -693,6 +791,7 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
         item={editingItem}
         isEdit={!!editingItem}
         isSaving={isSaving}
+        categories={categories}
       />
     </>
   )

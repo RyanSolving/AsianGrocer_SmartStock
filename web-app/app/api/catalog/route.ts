@@ -18,6 +18,7 @@ type CatalogRow = {
   stocklist_name: string
   navigation_guide: string
   row_position: 'left' | 'right' | 'single'
+  is_visible: boolean
 }
 
 function isMissingRelationError(error: SupabaseErrorLike | null | undefined) {
@@ -58,13 +59,14 @@ function mapRowsToCatalog(rows: CatalogRow[]) {
     stocklist_name: entry.stocklist_name,
     navigation_guide: entry.navigation_guide,
     row_position: entry.row_position ?? 'single',
+    is_visible: entry.is_visible ?? true,
   }))
 }
 
 async function loadCatalogFromSingleTable(supabase: any) {
   const result = await supabase
     .from('catalog_items')
-    .select('code, location, sub_location, category, product, attribute, official_name, stocklist_name, navigation_guide, row_position')
+    .select('code, location, sub_location, category, product, attribute, official_name, stocklist_name, navigation_guide, row_position, is_visible')
     .order('code', { ascending: true })
 
   if (result.error) {
@@ -86,6 +88,7 @@ async function loadCatalogFromSingleTable(supabase: any) {
     stocklist_name: entry.stocklist_name,
     navigation_guide: entry.navigation_guide,
     row_position: entry.row_position ?? 'single',
+    is_visible: entry.is_visible ?? true,
   }))
 
   return {
@@ -122,7 +125,7 @@ async function loadCatalogFromLegacyTables(supabase: any) {
 
   const entriesResult = await supabase
     .from('catalog_entries')
-    .select('id, code, location, sub_location, category, product, attribute, official_name, stocklist_name, navigation_guide, row_position')
+    .select('id, code, location, sub_location, category, product, attribute, official_name, stocklist_name, navigation_guide, row_position, is_visible')
     .eq('version_id', activeVersionId)
     .order('id', { ascending: true })
 
@@ -145,6 +148,7 @@ async function loadCatalogFromLegacyTables(supabase: any) {
     stocklist_name: entry.stocklist_name,
     navigation_guide: entry.navigation_guide,
     row_position: entry.row_position ?? 'single',
+    is_visible: entry.is_visible ?? true,
   }))
 
   return {
@@ -166,6 +170,7 @@ function mapCatalogEntriesForInsert(entries: ReturnType<typeof parseCSVCatalog>)
     stocklist_name: entry.stocklist_name,
     navigation_guide: entry.navigation_guide,
     row_position: entry.row_position ?? 'single',
+    is_visible: true,
   }))
 }
 
@@ -296,7 +301,7 @@ export async function POST(request: Request) {
   // Fetch the updated catalog
   const result = await auth.supabase
     .from('catalog_items')
-    .select('code, location, sub_location, category, product, attribute, official_name, stocklist_name, navigation_guide, row_position')
+    .select('code, location, sub_location, category, product, attribute, official_name, stocklist_name, navigation_guide, row_position, is_visible')
     .order('code', { ascending: true })
 
   const catalog = (result.data ?? []).map((entry) => normalizeCatalogEntry({
@@ -311,6 +316,7 @@ export async function POST(request: Request) {
     stocklist_name: entry.stocklist_name,
     navigation_guide: entry.navigation_guide,
     row_position: entry.row_position ?? 'single',
+    is_visible: entry.is_visible ?? true,
   }))
 
   return NextResponse.json(

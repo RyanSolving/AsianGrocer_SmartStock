@@ -5,7 +5,8 @@ export const stockModeSchema = z.enum(['stock-in', 'stock-closing'])
 export const catalogLocationOptions = ['Inside Coolroom', 'Outside Coolroom'] as const
 export const catalogSubLocationInsideOptions = ['Apples', 'Citrus', 'Asian', 'Melon', 'All Year', 'Seasonal', 'Stonefruit'] as const
 export const catalogSubLocationOutsideOptions = ['Outside Coolroom'] as const
-export const catalogCategoryOptions = ['Apples', 'Citrus', 'Asian', 'Melon', 'All Year', 'Seasonal', 'Stonefruit', 'Plum', 'Banana', 'Papaya', 'Mango', 'Watermelon', 'Pineapple', 'Tropical', 'Coconut', 'Pears', 'Grape', 'Nut', 'Berries', 'Kiwi', 'Avocado', 'Persimmon', 'Other'] as const
+// Note: catalogCategoryOptions is now fetched from the database via category-store.ts
+// The schema validation for category is deferred to API routes where we have access to the database
 export const catalogRowPositionOptions = ['left', 'right', 'single'] as const
 
 const catalogTextSchema = z.string().trim()
@@ -14,13 +15,14 @@ export const catalogItemSchema = z.object({
   code: catalogTextSchema.min(1, 'Item code is required'),
   location: z.enum(catalogLocationOptions).default('Inside Coolroom'),
   sub_location: catalogTextSchema.min(1, 'Sub-location is required').default('Apples'),
-  category: z.enum(catalogCategoryOptions).default('Apples'),
+  category: catalogTextSchema.min(1, 'Category is required').default('Apples'),
   product: catalogTextSchema.default(''),
   attribute: catalogTextSchema.default(''),
   official_name: catalogTextSchema.min(1, 'Official name is required'),
   stocklist_name: catalogTextSchema.min(1, 'Name on stocklist is required'),
   navigation_guide: catalogTextSchema.default(''),
   row_position: z.enum(catalogRowPositionOptions).default('single'),
+  is_visible: z.boolean().default(true),
 }).superRefine((value, context) => {
   const validSubLocations: string[] = value.location === 'Outside Coolroom'
     ? [...catalogSubLocationOutsideOptions]
@@ -50,6 +52,7 @@ export const catalogEntrySchema = z.object({
   navigation_guide: z.string(),
   // row_position parsed from guide
   row_position: z.enum(catalogRowPositionOptions).optional(),
+  is_visible: z.boolean().default(true),
 })
 
 export const itemSchema = z.object({
