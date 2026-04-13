@@ -4,13 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Download, FileImage, FileText, Loader2, Plus, Save, Search, X } from 'lucide-react'
 import { toPng } from 'html-to-image'
 import {
-  catalogCategoryOptions,
   catalogLocationOptions,
   catalogRowPositionOptions,
   catalogSubLocationInsideOptions,
   catalogSubLocationOutsideOptions,
 } from '../../lib/stock-schema'
 import { normalizeBlankStockCheckQuantities } from '../../lib/stock-check-utils'
+import { filterVisibleCatalogItems } from '../../lib/catalog-visibility'
 
 type CatalogItem = {
   id?: number
@@ -24,6 +24,7 @@ type CatalogItem = {
   stocklist_name: string
   navigation_guide: string
   row_position?: 'left' | 'right' | 'single'
+  is_visible?: boolean
 }
 
 type StockCheckRow = {
@@ -277,6 +278,12 @@ export function EmbeddedStockCheckPanel({
   const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const skipNextRecheckResetRef = useRef(false)
   const loadedHistoryUid = selectedHistoryRecord?.uid_stock_check ?? null
+  const visibleCatalogItems = useMemo(() => filterVisibleCatalogItems(catalogItems), [catalogItems])
+  const availableCategories = useMemo(() => {
+    if (!catalogItems || catalogItems.length === 0) return []
+    const uniqueCategories = new Set(catalogItems.map((item) => item.category).filter((cat) => cat && cat.trim().length > 0))
+    return Array.from(uniqueCategories).sort()
+  }, [catalogItems])
 
   useEffect(() => {
     currentZoomRef.current = paperZoom
@@ -346,21 +353,21 @@ export function EmbeddedStockCheckPanel({
   }, [])
 
   useEffect(() => {
-    if (!catalogItems || catalogItems.length === 0) return
+    if (visibleCatalogItems.length === 0) return
 
     setRows((prev) => {
       if (prev.length > 0) return prev
-      return catalogItems.map(makeCatalogRow)
+      return visibleCatalogItems.map(makeCatalogRow)
     })
-  }, [catalogItems])
+  }, [visibleCatalogItems])
 
   useEffect(() => {
-    if (!selectedHistoryRecord || !catalogItems || catalogItems.length === 0) return
+    if (!selectedHistoryRecord || visibleCatalogItems.length === 0) return
 
     const recordData = selectedHistoryRecord.record_data
     if (!recordData) return
 
-    const nextRows = catalogItems.map(makeCatalogRow)
+    const nextRows = visibleCatalogItems.map(makeCatalogRow)
     const codeToIndex = new Map(nextRows.map((row, index) => [row.code.trim().toUpperCase(), index]))
 
     for (const item of recordData.items) {
@@ -431,7 +438,7 @@ export function EmbeddedStockCheckPanel({
     setShowRecheckWarningModal(false)
     setStatus(`Loaded stock check record ${selectedHistoryRecord.uid_stock_check}.`)
     setError(null)
-  }, [catalogItems, selectedHistoryRecord, today])
+  }, [selectedHistoryRecord, today, visibleCatalogItems])
 
   useEffect(() => {
     if (skipNextRecheckResetRef.current) {
@@ -443,9 +450,9 @@ export function EmbeddedStockCheckPanel({
   }, [rows, stockDate])
 
   const suggestions = useMemo(() => {
-    if (!newItemName.trim() || !catalogItems) return []
+    if (!newItemName.trim() || visibleCatalogItems.length === 0) return []
     const q = newItemName.toLowerCase()
-    return catalogItems
+    return visibleCatalogItems
       .filter((item) => {
         return (
           item.official_name.toLowerCase().includes(q)
@@ -454,7 +461,7 @@ export function EmbeddedStockCheckPanel({
         )
       })
       .slice(0, 6)
-  }, [newItemName, catalogItems])
+  }, [newItemName, visibleCatalogItems])
 
   const indexedRows = useMemo(() => rows.map((row, index) => ({ row, index })), [rows])
 
@@ -1129,13 +1136,14 @@ export function EmbeddedStockCheckPanel({
           data-stock-row-index={item.index}
           className={`${className} ${item.row.red_marked ? 'text-red-600 font-semibold' : ''}`}
           value={item.row.official_name}
+          readOnly
           onChange={(event) => updateRow(item.index, { official_name: event.target.value })}
         />
       </div>
     )
   }
 
-  if (!catalogItems || catalogItems.length === 0) {
+  if (visibleCatalogItems.length === 0) {
     return (
       <section className="card-surface rounded-2xl p-4 sm:p-6 md:p-8">
         <h1 className="text-2xl font-bold text-slate-900 md:text-3xl">Stock Check</h1>
@@ -1740,9 +1748,13 @@ export function EmbeddedStockCheckPanel({
                         onChange={(event) => updateCreateForm(form.unknownId, { category: event.target.value })}
                         className="w-full rounded-md border border-slate-300 px-2.5 py-2 text-sm"
                       >
-                        {catalogCategoryOptions.map((option) => (
-                          <option key={option} value={option}>{option}</option>
-                        ))}
+                        {availableCategories.length > 0 ? (
+                          availableCategories.map((option) => (
+                            <option key={option} value={option}>{option}</option>
+                          ))
+                        ) : (
+                          <option disabled>No categories available</option>
+                        )}
                       </select>
                     </div>
 

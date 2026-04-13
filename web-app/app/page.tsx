@@ -18,6 +18,7 @@ import { CatalogManagementView } from './catalog/CatalogManagementView'
 import { EmbeddedStockCheckPanel } from './components/EmbeddedStockCheckPanel'
 import type { SelectedStockCheckHistoryRecord } from './components/EmbeddedStockCheckPanel'
 import { TranscriptionHistoryDialog } from './components/TranscriptionHistoryDialog'
+import { filterVisibleCatalogItems } from '../lib/catalog-visibility'
 
 type StockItem = {
   catalog_code: string | null
@@ -68,6 +69,7 @@ type CatalogItem = {
   stocklist_name: string
   navigation_guide: string
   row_position?: 'left' | 'right' | 'single'
+  is_visible?: boolean
   quantity_raw?: string | null
   quantity?: number | null
   quantity_conflict_flag?: boolean
@@ -121,6 +123,7 @@ type IndexedItem = {
 }
 
 type HubSection = 'data-entry' | 'stock-check' | 'catalog'
+type DataEntryMode = 'manual' | 'photo'
 
 function splitRows(items: IndexedItem[]) {
   const singles = items.filter((row) => row.item.row_position === 'single')
@@ -141,6 +144,43 @@ function splitRows(items: IndexedItem[]) {
     left,
     right,
     single: singles,
+  }
+}
+
+function buildManualParsedPayload(
+  catalogItems: CatalogItem[] | null,
+  stockMode: StockMode,
+  stockDate: string,
+): ParsedPayload {
+  const items = (catalogItems ?? []).map((item) => ({
+    catalog_code: item.code,
+    product_raw: item.stocklist_name || item.official_name,
+    location: item.location,
+    sub_location: item.sub_location,
+    category: item.category,
+    product: item.product,
+    attribute: item.attribute,
+    official_name: item.official_name,
+    stocklist_name: item.stocklist_name,
+    navigation_guide: item.navigation_guide,
+    quantity_raw: null,
+    quantity: null,
+    quantity_conflict_flag: false,
+    row_position: item.row_position ?? 'single',
+    confidence: 'high' as const,
+    catalog_match_status: 'exact' as const,
+    notes: null,
+  }))
+
+  return {
+    photo_id: `manual-${crypto.randomUUID()}`,
+    mode: stockMode,
+    upload_date: new Date().toISOString(),
+    stock_date: stockDate,
+    photo_url: null,
+    total_items: items.length,
+    confidence_overall: 'high',
+    items,
   }
 }
 
@@ -231,7 +271,9 @@ function FeedbackBanner({
 }
 
 export default function Home() {
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), [])
   const [activeSection, setActiveSection] = useState<HubSection>('data-entry')
+  const [dataEntryMode, setDataEntryMode] = useState<DataEntryMode>('manual')
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [stockMode, setStockMode] = useState<StockMode>('stock-in')
   const [activeCatalog, setActiveCatalog] = useState<CatalogItem[] | null>(null)
@@ -265,11 +307,19 @@ export default function Home() {
   const [stockCheckSearchTerm, setStockCheckSearchTerm] = useState('')
   const [stockCheckStatusFilter, setStockCheckStatusFilter] = useState<'all' | 'validated' | 'unvalidated'>('all')
   const [selectedStockCheckHistoryRecord, setSelectedStockCheckHistoryRecord] = useState<SelectedStockCheckHistoryRecord | null>(null)
+  const [hasSavedToSupabase, setHasSavedToSupabase] = useState(false)
   const [hasLoadedToDb, setHasLoadedToDb] = useState(false)
   const [isValidatedByStaff, setIsValidatedByStaff] = useState(false)
   const dataEntryPaperRef = useRef<HTMLDivElement | null>(null)
   const dataEntryFindContainerRef = useRef<HTMLDivElement | null>(null)
   const dataEntryHighlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const isManualEntryMode = dataEntryMode === 'manual'
+  const visibleCatalog = useMemo(() => filterVisibleCatalogItems(activeCatalog), [activeCatalog])
+  const visibleCatalogCodes = useMemo(
+    () => new Set(visibleCatalog.map((item) => item.code.trim().toUpperCase())),
+    [visibleCatalog]
+  )
 
   async function loadCatalogFromApi() {
     const response = await fetch('/api/catalog')
@@ -280,7 +330,10 @@ export default function Home() {
     }
 
     const catalog = Array.isArray(data?.catalog) ? data.catalog : []
-    setActiveCatalog(catalog)
+    setActiveCatalog(catalog.map((item: CatalogItem) => ({
+      ...item,
+      is_visible: item.is_visible ?? true,
+    })))
     setCatalogItemCount(catalog.length)
     setCatalogSource(data?.source === 'database' ? 'uploaded' : 'master')
   }
@@ -407,7 +460,10 @@ export default function Home() {
         throw new Error(data?.error ?? 'Failed to upload catalog.')
       }
 
-      setActiveCatalog(data.catalog ?? [])
+      setActiveCatalog((Array.isArray(data.catalog) ? data.catalog : []).map((item: CatalogItem) => ({
+        ...item,
+        is_visible: item.is_visible ?? true,
+      })))
       setCatalogItemCount(Array.isArray(data.catalog) ? data.catalog.length : 0)
       setCatalogSource('uploaded')
       setIsCatalogOpen(true)
@@ -421,9 +477,9 @@ export default function Home() {
 
   const indexedItems = useMemo(() => {
     if (!parsedData) {
-      if (!activeCatalog) return []
+      if (visibleCatalog.length === 0) return []
 
-      return activeCatalog.map((c_item, index) => ({
+      return visibleCatalog.map((c_item, index) => ({
         item: {
           catalog_code: c_item.code,
           product_raw: c_item.stocklist_name || c_item.official_name,
@@ -480,12 +536,10 @@ export default function Home() {
     }))
 
     return [...allItems, ...missingItems, ...unknownMapped]
-  }, [parsedData, missingCatalogItems, unknownItems, activeCatalog])
+  }, [parsedData, missingCatalogItems, unknownItems, visibleCatalog])
 
   const paperSections = useMemo(() => {
-    const insideRows = indexedItems.filter(
-      (row) => row.item.location === 'Inside Coolroom' && row.source !== 'unknown'
-    )
+    const insideRows = indexedItems.filter((row) => row.item.location === 'Inside Coolroom' && row.source !== 'unknown')
 
     const insideRowsByCategory = new Map<string, IndexedItem[]>()
 
@@ -564,8 +618,59 @@ export default function Home() {
       }
     })
 
+    setHasSavedToSupabase(false)
+    setHasLoadedToDb(false)
     setIsValidatedByStaff(false)
   }, [])
+
+  const startManualEntry = useCallback(() => {
+    const manualDraft = buildManualParsedPayload(visibleCatalog, stockMode, today)
+
+    setDataEntryMode('manual')
+    setPhotoFile(null)
+    setParsedData(manualDraft)
+    setUnknownItems([])
+    setMissingCatalogItems([])
+    setLatestGenerateUid(null)
+    setHasSavedToSupabase(false)
+    setHasLoadedToDb(false)
+    setIsValidatedByStaff(false)
+    setApiError(null)
+    setApiStatus('Manual entry is ready. Enter quantities directly, then save to Supabase.')
+  }, [visibleCatalog, stockMode, today])
+
+  const startPhotoEntry = useCallback(() => {
+    setDataEntryMode('photo')
+    setPhotoFile(null)
+    setParsedData(null)
+    setUnknownItems([])
+    setMissingCatalogItems([])
+    setLatestGenerateUid(null)
+    setHasSavedToSupabase(false)
+    setHasLoadedToDb(false)
+    setIsValidatedByStaff(false)
+    setApiError(null)
+    setApiStatus('Photo parsing mode selected. Upload an image to generate stock lines.')
+  }, [])
+
+  useEffect(() => {
+    if (!isManualEntryMode || visibleCatalog.length === 0) return
+
+    setParsedData((current) => {
+      if (!current) {
+        return buildManualParsedPayload(visibleCatalog, stockMode, today)
+      }
+
+      if (!current.photo_id.startsWith('manual-')) {
+        return current
+      }
+
+      return {
+        ...current,
+        mode: stockMode,
+      }
+    })
+  }, [visibleCatalog, isManualEntryMode, stockMode, today])
 
   const focusAndHighlightDataEntry = useCallback((index: number) => {
     setActiveSection('data-entry')
@@ -601,7 +706,9 @@ export default function Home() {
       return
     }
 
+    setDataEntryMode('photo')
     setIsParsing(true)
+    setHasSavedToSupabase(false)
     setHasLoadedToDb(false)
     setIsValidatedByStaff(false)
     setApiError(null)
@@ -611,8 +718,8 @@ export default function Home() {
       const formData = new FormData()
       formData.append('photo', photoFile)
       formData.append('mode', stockMode)
-      if (activeCatalog) {
-        formData.append('catalog', JSON.stringify(activeCatalog))
+      if (visibleCatalog.length > 0) {
+        formData.append('catalog', JSON.stringify(visibleCatalog))
       }
 
       const controller = new AbortController()
@@ -655,6 +762,7 @@ export default function Home() {
       setReviewRequiredCount(json.review_required_count ?? 0)
       setCatalogSource(json.catalog_source ?? null)
       setCatalogItemCount(typeof json.catalog_item_count === 'number' ? json.catalog_item_count : null)
+      setHasSavedToSupabase(false)
 
       // Keep sidebar history in sync without requiring a page reload.
       await loadTranscriptionHistory()
@@ -673,6 +781,8 @@ export default function Home() {
 
   function updateItem(index: number, patch: Partial<StockItem>) {
     setIsValidatedByStaff(false)
+    setHasSavedToSupabase(false)
+    setHasLoadedToDb(false)
 
     // Handle missing items (index: -1000, -1001, -1002, ...)
     if (index <= -1000 && index > -2000) {
@@ -760,13 +870,20 @@ export default function Home() {
     setApiStatus(null)
 
     try {
+      const filteredItems = parsedData.items.filter((item) => {
+        if (!item.catalog_code) return true
+        return visibleCatalogCodes.has(item.catalog_code.trim().toUpperCase())
+      })
+      const filteredMissingCatalogItems = missingCatalogItems.filter((item) => visibleCatalogCodes.has(item.code.trim().toUpperCase()))
+
       const response = await fetch('/api/export-csv', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...parsedData,
+          items: filteredItems,
           unknown_items: unknownItems,
-          missing_catalog_items: missingCatalogItems,
+          missing_catalog_items: filteredMissingCatalogItems,
           validated: isValidatedByStaff ? 'yes' : 'no',
         }),
       })
@@ -792,14 +909,78 @@ export default function Home() {
     }
   }
 
-  async function saveToSnowflake() {
+  async function saveToSupabase() {
     if (!parsedData) {
       setApiError('No parsed data to save yet. Parse a stock photo first.')
       return
     }
 
+    setIsSaving(true)
+    setApiError(null)
+    setApiStatus(null)
+
+    try {
+      const response = await fetch('/api/save-to-snowflake', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          data: parsedData,
+          validated: isValidatedByStaff ? 'yes' : 'no',
+          unknown_items: unknownItems,
+          missing_catalog_items: missingCatalogItems,
+          uid_generate: latestGenerateUid ?? undefined,
+          persist_only: true,
+        }),
+      })
+
+      const payload = await response.json()
+
+      if (response.status === 401) {
+        throw new Error('Unauthorized. Please sign in at /login before saving to Supabase.')
+      }
+
+      if (!response.ok) {
+        const details = payload?.details
+        const detailsText = typeof details === 'string' ? details : details ? JSON.stringify(details) : ''
+        throw new Error(
+          detailsText
+            ? `${payload?.error ?? 'Supabase save failed.'} Details: ${detailsText}`
+            : payload?.error ?? 'Supabase save failed.'
+        )
+      }
+
+      setApiStatus(
+        `${payload?.message ?? 'Saved to Supabase.'} ${payload?.uid_generate ? `UID: ${payload.uid_generate}.` : ''}`.trim()
+      )
+      if (typeof payload?.uid_generate === 'string' && payload.uid_generate.length > 0) {
+        setLatestGenerateUid(payload.uid_generate)
+      }
+      setHasSavedToSupabase(true)
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : 'Unexpected Supabase save error.')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  async function loadToSnowflake() {
+    if (!parsedData) {
+      setApiError('No parsed data to load yet. Parse a stock photo first.')
+      return
+    }
+
+    if (!latestGenerateUid) {
+      setApiError('No transcription record is available yet. Parse a stock photo first.')
+      return
+    }
+
+    if (!hasSavedToSupabase) {
+      setApiError('Please save to Supabase first, then load the latest draft to Snowflake.')
+      return
+    }
+
     if (!isValidatedByStaff) {
-      setApiError('Please click Validate first. Load to DB is only enabled after staff validation.')
+      setApiError('Please click Validate first. Load to Snowflake is only enabled after staff validation.')
       return
     }
 
@@ -974,9 +1155,9 @@ export default function Home() {
 
     setApiError(null)
     if (conflictCount > 0) {
-      setApiStatus(`Validated by staff. Blank known quantities were normalized to 0. ${conflictCount} known item(s) are still marked as conflict, but Export CSV and Load to DB are enabled.`)
+      setApiStatus(`Validated by staff. Blank known quantities were normalized to 0. ${conflictCount} known item(s) are still marked as conflict, but Export CSV and Load to Snowflake are enabled.`)
     } else {
-      setApiStatus('Validated by staff. Blank known quantities were normalized to 0. Export CSV and Load to DB are now enabled.')
+      setApiStatus('Validated by staff. Blank known quantities were normalized to 0. Export CSV and Load to Snowflake are now enabled.')
     }
     setIsValidatedByStaff(true)
   }
@@ -984,8 +1165,9 @@ export default function Home() {
   const workflowSteps = [
     { id: 'upload', label: 'Upload Photo', shortLabel: 'Upload', done: hasUploadedPhoto },
     { id: 'ocr', label: 'OCR Parse', shortLabel: 'OCR', done: hasParsedPhoto },
+    { id: 'save', label: 'Save to Supabase', shortLabel: 'Save', done: hasSavedToSupabase },
     { id: 'validate', label: 'Validate', shortLabel: 'Validate', done: hasValidated },
-    { id: 'load', label: 'Load to DB', shortLabel: 'Load', done: hasLoadedToDb },
+    { id: 'load', label: 'Load to Snowflake', shortLabel: 'Load', done: hasLoadedToDb },
   ]
 
   return (
@@ -1224,7 +1406,7 @@ export default function Home() {
             <CatalogManagementView embedded />
           ) : activeSection === 'stock-check' ? (
             <EmbeddedStockCheckPanel
-              catalogItems={activeCatalog}
+              catalogItems={visibleCatalog}
               selectedHistoryRecord={selectedStockCheckHistoryRecord}
               historyRecords={stockCheckHistory}
             />
@@ -1236,8 +1418,42 @@ export default function Home() {
             </div>
 
             <div className="grid gap-4">
+              <div className="rounded-xl border border-slate-200 bg-white p-3 text-left">
+                <p className="text-xs font-medium text-slate-500">Entry Method</p>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={startManualEntry}
+                    className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
+                      isManualEntryMode
+                        ? 'bg-brand-600 text-white shadow-sm'
+                        : 'border border-slate-300 bg-slate-50 text-slate-700 hover:bg-white'
+                    }`}
+                  >
+                    Manual
+                  </button>
+                  <button
+                    type="button"
+                    onClick={startPhotoEntry}
+                    className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
+                      !isManualEntryMode
+                        ? 'bg-brand-600 text-white shadow-sm'
+                        : 'border border-slate-300 bg-slate-50 text-slate-700 hover:bg-white'
+                    }`}
+                  >
+                    Parse from Photo
+                  </button>
+                </div>
+              </div>
+
               <div className="rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 p-3 text-center transition hover:border-brand-500 md:p-5">
-                <p className="text-sm text-slate-500">JPEG / PNG, max 5MB</p>
+                {isManualEntryMode ? (
+                  <div className="rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-left text-sm text-brand-900">
+                    Manual entry is active. Type quantities directly in the stocklist below, then save to Supabase and load to Snowflake when ready.
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-500">JPEG / PNG, max 5MB</p>
+                )}
 
                 <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3 text-left">
                   <p className="text-xs font-medium text-slate-500">Timeline</p>
@@ -1302,37 +1518,45 @@ export default function Home() {
                   </div>
                 </div>
 
-                <input
-                  id="photo-upload"
-                  type="file"
-                  className="hidden"
-                  accept="image/jpeg,image/png"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0]
-                    setPhotoFile(file ?? null)
-                  }}
-                />
+                {isManualEntryMode ? (
+                  <div className="mt-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-left text-sm text-slate-600">
+                    Manual mode skips OCR. If you want to extract from a photo instead, switch to Parse from Photo.
+                  </div>
+                ) : (
+                  <>
+                    <input
+                      id="photo-upload"
+                      type="file"
+                      className="hidden"
+                      accept="image/jpeg,image/png"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0]
+                        setPhotoFile(file ?? null)
+                      }}
+                    />
 
-                <label
-                  htmlFor="photo-upload"
-                  className="mt-3 inline-flex w-full cursor-pointer items-center justify-center rounded-lg bg-brand-500 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-brand-600 md:w-auto"
-                >
-                  Choose File
-                </label>
+                    <label
+                      htmlFor="photo-upload"
+                      className="mt-3 inline-flex w-full cursor-pointer items-center justify-center rounded-lg bg-brand-500 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-brand-600 md:w-auto"
+                    >
+                      Choose File
+                    </label>
 
-                <p className="mt-3 text-sm text-slate-600">
-                  {photoFile ? `Photo: ${photoFile.name}` : 'No photo selected'}
-                </p>
+                    <p className="mt-3 text-sm text-slate-600">
+                      {photoFile ? `Photo: ${photoFile.name}` : 'No photo selected'}
+                    </p>
 
-                <button
-                  type="button"
-                  onClick={parsePhoto}
-                  disabled={isParsing || !photoFile}
-                  className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400 md:w-auto md:min-w-[170px]"
-                >
-                  {isParsing && <Loader2 className="h-4 w-4 animate-spin" />}
-                  {isParsing ? 'Parsing...' : 'Parse'}
-                </button>
+                    <button
+                      type="button"
+                      onClick={parsePhoto}
+                      disabled={isParsing || !photoFile}
+                      className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400 md:w-auto md:min-w-[170px]"
+                    >
+                      {isParsing && <Loader2 className="h-4 w-4 animate-spin" />}
+                      {isParsing ? 'Parsing...' : 'Parse'}
+                    </button>
+                  </>
+                )}
 
               </div>
             </div>
@@ -1460,6 +1684,7 @@ export default function Home() {
                                               data-entry-row-index={left.index}
                                               className={getClasses(left, "stock-input")}
                                               value={left.item.official_name ?? left.item.product_raw}
+                                              readOnly
                                               onChange={(event) =>
                                                 updateItem(left.index, { official_name: event.target.value })
                                               }
@@ -1485,6 +1710,7 @@ export default function Home() {
                                               data-entry-row-index={right.index}
                                               className={getClasses(right, "stock-input")}
                                               value={right.item.official_name ?? right.item.product_raw}
+                                              readOnly
                                               onChange={(event) =>
                                                 updateItem(right.index, { official_name: event.target.value })
                                               }
@@ -1515,6 +1741,7 @@ export default function Home() {
                                           data-entry-row-index={single.index}
                                           className={getClasses(single, "stock-input stock-input-hw")}
                                           value={single.item.official_name ?? single.item.product_raw}
+                                          readOnly
                                           onChange={(event) =>
                                             updateItem(single.index, { official_name: event.target.value })
                                           }
@@ -1565,6 +1792,7 @@ export default function Home() {
                                               data-entry-row-index={left.index}
                                               className={getClasses(left, "stock-input")}
                                               value={left.item.official_name ?? left.item.product_raw}
+                                              readOnly
                                               onChange={(event) =>
                                                 updateItem(left.index, { official_name: event.target.value })
                                               }
@@ -1590,6 +1818,7 @@ export default function Home() {
                                               data-entry-row-index={right.index}
                                               className={getClasses(right, "stock-input")}
                                               value={right.item.official_name ?? right.item.product_raw}
+                                              readOnly
                                               onChange={(event) =>
                                                 updateItem(right.index, { official_name: event.target.value })
                                               }
@@ -1620,6 +1849,7 @@ export default function Home() {
                                           data-entry-row-index={single.index}
                                           className={getClasses(single, "stock-input stock-input-hw")}
                                           value={single.item.official_name ?? single.item.product_raw}
+                                          readOnly
                                           onChange={(event) =>
                                             updateItem(single.index, { official_name: event.target.value })
                                           }
@@ -1662,6 +1892,7 @@ export default function Home() {
                                     data-entry-row-index={row.index}
                                     className={getClasses(row, "stock-input")}
                                     value={row.item.official_name ?? row.item.product_raw}
+                                    readOnly
                                     onChange={(event) =>
                                       updateItem(row.index, { official_name: event.target.value })
                                     }
@@ -1698,6 +1929,7 @@ export default function Home() {
                                     data-entry-row-index={row.index}
                                     className={getClasses(row, "stock-input")}
                                     value={row.item.official_name ?? row.item.product_raw}
+                                    readOnly
                                     onChange={(event) =>
                                       updateItem(row.index, { official_name: event.target.value })
                                     }
@@ -1734,6 +1966,7 @@ export default function Home() {
                                     data-entry-row-index={row.index}
                                     className={getClasses(row, "stock-input")}
                                     value={row.item.official_name ?? row.item.product_raw}
+                                    readOnly
                                     onChange={(event) =>
                                       updateItem(row.index, { official_name: event.target.value })
                                     }
@@ -1775,6 +2008,7 @@ export default function Home() {
                                         data-entry-row-index={row.index}
                                         className={getClasses(row, "stock-input")}
                                         value={row.item.official_name ?? row.item.product_raw}
+                                        readOnly
                                         onChange={(event) =>
                                           updateItem(row.index, { official_name: event.target.value })
                                         }
@@ -1811,6 +2045,7 @@ export default function Home() {
                                         data-entry-row-index={row.index}
                                         className={getClasses(row, "stock-input")}
                                         value={row.item.official_name ?? row.item.product_raw}
+                                        readOnly
                                         onChange={(event) =>
                                           updateItem(row.index, { official_name: event.target.value })
                                         }
@@ -1847,6 +2082,7 @@ export default function Home() {
                                         data-entry-row-index={row.index}
                                         className={getClasses(row, "stock-input")}
                                         value={row.item.official_name ?? row.item.product_raw}
+                                        readOnly
                                         onChange={(event) =>
                                           updateItem(row.index, { official_name: event.target.value })
                                         }
@@ -1878,18 +2114,18 @@ export default function Home() {
             {apiError && (
               <FeedbackBanner
                 tone="error"
-                title="Snowflake load did not complete"
+                title="Stock update did not complete"
                 message={apiError}
-                detail="Check the staging table name, credentials, and whether the Snowflake warehouse is running, then try again."
+                detail="Check the current record, save again if needed, and then retry the Snowflake load."
               />
             )}
 
             {apiStatus && (
               <FeedbackBanner
                 tone="success"
-                title="Row written to Snowflake staging"
+                title="Stock record updated"
                 message={apiStatus}
-                detail="The reviewed payload was accepted as one JSON staging record. You can export CSV or continue with the next photo."
+                detail="The current draft was saved and can still be edited before the final Snowflake load."
               />
             )}
 
@@ -1912,11 +2148,11 @@ export default function Home() {
               </button>
               <button
                 type="button"
-                onClick={saveToSnowflake}
-                disabled={!parsedData || !isValidatedByStaff || isSaving || isExporting}
+                onClick={loadToSnowflake}
+                disabled={!parsedData || !isValidatedByStaff || !hasSavedToSupabase || isSaving || isExporting}
                 className="w-full rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-brand-300 sm:w-auto"
               >
-                {isSaving ? 'Loading to DB...' : 'Load to DB'}
+                {isSaving ? 'Loading to Snowflake...' : 'Load to Snowflake'}
               </button>
             </div>
               </section>
@@ -1943,6 +2179,7 @@ export default function Home() {
                 <thead>
                   <tr className="border-b border-slate-200 text-slate-500">
                     <th className="pb-2 font-medium pl-2">Code</th>
+                    <th className="pb-2 font-medium pl-2">Visible</th>
                     <th className="pb-2 font-medium">Location</th>
                     <th className="pb-2 font-medium pl-2">Sub-location</th>
                     <th className="pb-2 font-medium pl-2">Category</th>
@@ -1958,6 +2195,17 @@ export default function Home() {
                     <tr key={index} className="hover:bg-slate-50">
                       <td className="py-2 pr-2">
                         <input className="w-full min-w-[90px] rounded border border-transparent bg-transparent px-2 py-1 hover:border-slate-300 focus:border-brand-500 focus:bg-white focus:outline-none" value={item.code ?? ''} onChange={(e) => { const c = [...activeCatalog]; c[index].code = e.target.value; setActiveCatalog(c); setCatalogSource('edited') }} />
+                      </td>
+                      <td className="py-2 pr-2">
+                        <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-600">
+                          <input
+                            type="checkbox"
+                            checked={item.is_visible !== false}
+                            onChange={(e) => { const c = [...activeCatalog]; c[index].is_visible = e.target.checked; setActiveCatalog(c); setCatalogSource('edited') }}
+                            className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                          />
+                          <span>{item.is_visible !== false ? 'Visible' : 'Hidden'}</span>
+                        </label>
                       </td>
                       <td className="py-2 pr-2">
                         <input className="w-full min-w-[130px] rounded border border-transparent bg-transparent px-2 py-1 hover:border-slate-300 focus:border-brand-500 focus:bg-white focus:outline-none" value={item.location} onChange={(e) => { const c = [...activeCatalog]; c[index].location = e.target.value; setActiveCatalog(c); setCatalogSource('edited') }} />
@@ -1995,7 +2243,7 @@ export default function Home() {
                 const prod3 = 'NEW'
                 const attr3 = 'STD'
                 const newCode = `${cat3}-${prod3}-${attr3}`
-                const newRow = { id: 0, code: newCode, location: '', sub_location: '', category: '', product: '', attribute: '', official_name: '', stocklist_name: '', navigation_guide: '', row_position: 'single' as const }
+                const newRow = { id: 0, code: newCode, location: '', sub_location: '', category: '', product: '', attribute: '', official_name: '', stocklist_name: '', navigation_guide: '', row_position: 'single' as const, is_visible: true }
                 setActiveCatalog([...activeCatalog, newRow])
                 setCatalogSource('edited')
               }} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2">
@@ -2017,6 +2265,7 @@ export default function Home() {
         onRepush={reopushToSnowflake}
         isRepushing={isRepushing}
         selectedUid={selectedHistoryUid}
+        visibleCatalogCodes={visibleCatalogCodes}
       />
     </main>
   )
