@@ -20,6 +20,7 @@ type TranscriptionHistoryDialogProps = {
   onRepush: (uid: string) => void
   isRepushing: boolean
   selectedUid?: string | null
+  visibleCatalogCodes?: Set<string>
 }
 
 export function TranscriptionHistoryDialog({
@@ -30,6 +31,7 @@ export function TranscriptionHistoryDialog({
   onRepush,
   isRepushing,
   selectedUid,
+  visibleCatalogCodes,
 }: TranscriptionHistoryDialogProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
@@ -81,12 +83,18 @@ export function TranscriptionHistoryDialog({
       if (!item || typeof item !== 'object') return
 
       const row = item as {
+        catalog_code?: string | null
         location?: string
         sub_location?: string
         official_name?: string
         product_raw?: string
         quantity?: number | null
         quantity_raw?: string | null
+      }
+
+      const catalogCode = row.catalog_code?.trim().toUpperCase() ?? ''
+      if (catalogCode && visibleCatalogCodes && !visibleCatalogCodes.has(catalogCode)) {
+        return
       }
 
       const location = row.location?.trim() || 'Unknown'
@@ -205,6 +213,9 @@ export function TranscriptionHistoryDialog({
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-semibold text-slate-900">{entry.filename}</p>
+                      <span className="rounded-full bg-slate-200 px-2 py-1 text-[10px] font-semibold text-slate-700">
+                        {entry.stockMode === 'stock-closing' ? 'Closing' : 'Arrival'}
+                      </span>
                       <span
                         className={`rounded-full px-2 py-1 text-xs font-semibold ${
                           entry.isPushed
