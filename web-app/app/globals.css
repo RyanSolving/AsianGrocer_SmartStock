@@ -41,6 +41,8 @@ body {
 	padding: 14px;
 	border-radius: 14px;
 	border: 1px solid #b9c1ce;
+	scroll-padding-top: 88px;
+	scroll-padding-bottom: 168px;
 }
 
 .stock-paper {
@@ -74,7 +76,17 @@ body {
 	font-size: 12px;
 	font-weight: 700;
 	letter-spacing: 0.2em;
-	padding: 6px;
+	padding: 5px;
+}
+
+.stock-sec-hdr-btn {
+	width: 100%;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 6px;
+	border: 0;
+	cursor: pointer;
 }
 
 .stock-inside-grid {
@@ -94,11 +106,29 @@ body {
 .stock-sub-hdr {
 	font-weight: 700;
 	font-size: 11px;
-	padding: 4px 6px;
+	padding: 3px 5px;
 	background: #ececec;
 	border-top: 1px solid #c7c7c7;
 	border-bottom: 1px solid #3f3f3f;
 	letter-spacing: 0.06em;
+}
+
+.stock-sub-hdr-btn {
+	width: 100%;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 6px;
+	border-left: none;
+	border-right: none;
+	cursor: pointer;
+}
+
+.stock-collapse-indicator {
+	font-size: 14px;
+	font-weight: 700;
+	line-height: 1;
+	letter-spacing: normal;
 }
 
 .stock-pt {
@@ -125,7 +155,8 @@ body {
 .stock-input,
 .stock-qty-input {
 	width: 100%;
-	min-width: 0; /* Prevents input blowout inside tables */
+	min-width: 0;
+	/* Prevents input blowout inside tables */
 	border: none;
 	background: transparent;
 	font-size: 11px;
@@ -148,11 +179,12 @@ body {
 /* Hide spin buttons to prevent width bloat in narrow columns */
 .stock-qty-input::-webkit-outer-spin-button,
 .stock-qty-input::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
+	-webkit-appearance: none;
+	margin: 0;
 }
+
 .stock-qty-input[type=number] {
-  -moz-appearance: textfield;
+	-moz-appearance: textfield;
 }
 
 .stock-hw-row td {
@@ -178,6 +210,128 @@ body {
 	border-right: none;
 }
 
+.stock-mobile-section-hdr {
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: 0.13em;
+	text-transform: uppercase;
+	color: #334155;
+	padding: 0 1px;
+}
+
+.stock-mobile-section-hdr-btn {
+	width: 100%;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 6px;
+	border: 0;
+	background: transparent;
+	cursor: pointer;
+	padding: 0;
+	text-align: left;
+}
+
+.stock-mobile-card {
+	width: 100%;
+	border: 1px solid #cfd8e3;
+	border-radius: 10px;
+	background: #ffffff;
+	padding: 7px;
+	box-shadow: 0 1px 5px rgba(15, 23, 42, 0.06);
+}
+
+.stock-mobile-card-grid {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 96px;
+	align-items: center;
+	column-gap: 6px;
+}
+
+.stock-mobile-card:focus-visible {
+	outline: 2px solid #1d4ed8;
+	outline-offset: 2px;
+}
+
+.stock-mobile-card-label {
+	margin: 0;
+	font-size: 12px;
+	line-height: 1.2;
+}
+
+.stock-mobile-card-qty-wrap {
+	display: grid;
+	grid-template-columns: 28px minmax(0, 1fr);
+	align-items: center;
+	gap: 2px;
+}
+
+.stock-mobile-qty-label {
+	font-size: 9px;
+	font-weight: 700;
+	letter-spacing: 0.06em;
+	line-height: 1.1;
+	text-transform: uppercase;
+	color: #475569;
+	min-width: 0;
+	text-align: left;
+}
+
+.stock-mobile-card-qty {
+	width: 100%;
+}
+
+.mobile-sticky-top {
+	position: sticky;
+	top: 0;
+	z-index: 30;
+	background: #ffffff;
+	border-bottom: 1px solid #e2e8f0;
+	padding: 12px;
+	margin: -2px -2px 10px;
+	border-top-left-radius: 10px;
+	border-top-right-radius: 10px;
+}
+
+.mobile-sticky-add {
+	position: sticky;
+	bottom: calc(96px + env(safe-area-inset-bottom));
+	z-index: 25;
+	background: #ffffff;
+	border: 1px solid #e2e8f0;
+	border-radius: 12px;
+	padding: 12px;
+	box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+}
+
+.mobile-sticky-actions {
+	position: sticky;
+	bottom: 0;
+	z-index: 35;
+	background: #ffffff;
+	border-top: 1px solid #e2e8f0;
+	box-shadow: 0 -6px 18px rgba(15, 23, 42, 0.08);
+	padding-top: 8px;
+	padding-left: 4px;
+	padding-right: 4px;
+	padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+
+@media (min-width: 768px) {
+
+	.mobile-sticky-top,
+	.mobile-sticky-add,
+	.mobile-sticky-actions {
+		position: static;
+		z-index: auto;
+		background: transparent;
+		border: none;
+		padding: 0;
+		margin: 0;
+		box-shadow: none;
+	}
+}
+
 @media (max-width: 900px) {
 	.stock-paper-wrap {
 		padding: 8px;
@@ -200,14 +354,14 @@ body {
 	}
 
 	.stock-sec-hdr {
-		font-size: 11px;
-		letter-spacing: 0.14em;
-		padding: 5px;
+		font-size: 12px;
+		letter-spacing: 0.12em;
+		padding: 4px;
 	}
 
 	.stock-sub-hdr {
-		font-size: 10px;
-		padding: 3px 5px;
+		font-size: 11px;
+		padding: 2px 4px;
 	}
 
 	.stock-pt {
@@ -220,6 +374,39 @@ body {
 
 	.stock-input,
 	.stock-qty-input {
-		font-size: 10px;
+		font-size: 13px;
+		min-height: 40px;
+		padding: 6px 8px;
+		border-radius: 8px;
+	}
+
+	.stock-input {
+		background: #f8fafc;
+		border: 1px solid #d9e2ef;
+	}
+
+	.stock-qty-input {
+		font-size: 15px;
+		border: 2px dashed #5b9bff;
+		background: #eef6ff;
+		text-align: center;
+	}
+
+	.stock-mobile-section-hdr {
+		font-size: 11px;
+	}
+
+	.stock-mobile-card .stock-input,
+	.stock-mobile-card .stock-qty-input {
+		min-height: 35px;
+		padding: 5px 7px;
+	}
+
+	.stock-mobile-card .stock-input {
+		font-size: 12px;
+	}
+
+	.stock-mobile-card .stock-qty-input {
+		font-size: 14px;
 	}
 }

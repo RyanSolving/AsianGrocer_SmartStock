@@ -1,16 +1,14 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Download, FileImage, FileText, Loader2, Plus, Save, Search, X } from 'lucide-react'
+import { Download, Eye, EyeOff, FileImage, Loader2, Plus, Search, X } from 'lucide-react'
 import { toPng } from 'html-to-image'
-import {
-  catalogLocationOptions,
-  catalogRowPositionOptions,
-  catalogSubLocationInsideOptions,
-  catalogSubLocationOutsideOptions,
-} from '../../lib/stock-schema'
 import { normalizeBlankStockCheckQuantities } from '../../lib/stock-check-utils'
 import { filterVisibleCatalogItems } from '../../lib/catalog-visibility'
+import { EntryMethodToggle } from './EntryMethodToggle'
+import { CreateCatalogItemModal, type CreateCatalogItemPayload } from './CreateCatalogItemModal'
+import { StockPaperCardSection, StockPaperSectionTable, StockPaperThreeColumnTable } from './StockPaperTables'
+import { formatSheetDate, normalizeInsideSectionLabel } from '../../lib/stock-paper-utils'
 
 type CatalogItem = {
   id?: number
@@ -54,20 +52,6 @@ type RowColumns = {
   left: IndexedRow[]
   right: IndexedRow[]
   single: IndexedRow[]
-}
-
-type UnknownCreateForm = {
-  unknownId: string
-  code: string
-  location: 'Inside Coolroom' | 'Outside Coolroom'
-  sub_location: string
-  category: string
-  product: string
-  attribute: string
-  official_name: string
-  stocklist_name: string
-  navigation_guide: string
-  row_position: 'left' | 'right' | 'single'
 }
 
 type StockCheckRecordData = {
@@ -115,14 +99,45 @@ type RecheckWarning = {
   reason: 'now_zero' | 'now_blank'
 }
 
-function formatSheetDate(value: string) {
-  const parts = value.split('-')
-  if (parts.length !== 3) return value
-  const [y, m, d] = parts
-  const month = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'][
-    Number(m) - 1
-  ]
-  return `${d} ${month ?? m} ${y.slice(-2)}`
+type ParsedPhotoItem = {
+  catalog_code?: string | null
+  product_raw?: string | null
+  location?: string | null
+  sub_location?: string | null
+  category?: string | null
+  product?: string | null
+  attribute?: string | null
+  official_name?: string | null
+  stocklist_name?: string | null
+  navigation_guide?: string | null
+  row_position?: 'left' | 'right' | 'single' | null
+  quantity?: number | null
+  notes?: string | null
+}
+
+type ParsedPhotoResponse = {
+  data?: {
+    stock_date?: string | null
+    items?: ParsedPhotoItem[]
+  }
+  unknown_items?: Array<{
+    product_raw?: string | null
+    location?: string | null
+    sub_location?: string | null
+    category?: string | null
+    product?: string | null
+    attribute?: string | null
+    official_name?: string | null
+    stocklist_name?: string | null
+    navigation_guide?: string | null
+    row_position?: 'left' | 'right' | 'single' | null
+    quantity?: number | null
+  }>
+  missing_catalog_items?: Array<CatalogItem & { quantity?: number | null }>
+  uid_generate?: string | null
+  review_required_count?: number
+  catalog_item_count?: number
+  catalog_source?: string | null
 }
 
 function splitRows(items: IndexedRow[]): RowColumns {
@@ -171,17 +186,6 @@ function sortIndexedRowsByName(rows: IndexedRow[]) {
   })
 }
 
-function normalizeSubLocation(value: string) {
-  if (value.toLowerCase() === 'all year') return 'All Year'
-  return value
-}
-
-function normalizeInsideSectionLabel(category: string, subLocation: string) {
-  const raw = (category || subLocation || 'Unknown').trim()
-  if (!raw) return 'Unknown'
-  return normalizeSubLocation(raw)
-}
-
 function normalizeCompareKey(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, ' ')
 }
@@ -192,19 +196,18 @@ function parseNumericQuantity(value: number | null | undefined) {
   return value
 }
 
-function generateItemCode(category: string, product: string, attribute: string) {
-  const cat3 = (category || 'OTH').toUpperCase().slice(0, 3)
-  const prod3 = (product || 'NEW').toUpperCase().slice(0, 3)
-  const attr3 = attribute ? attribute.toUpperCase().slice(0, 3) : 'STD'
-  return `${cat3}-${prod3}-${attr3}`
+export { normalizeBlankStockCheckQuantities }
+const STOCK_CHECK_MOBILE_VIEW_KEY = 'smartstock:stock-check-mobile-view'
+const STOCK_CHECK_EXPANDED_SECTIONS_KEY = 'smartstock:stock-check-expanded-sections'
+const OUTSIDE_SECTION_ID = 'outside-coolroom'
+const UNKNOWN_SECTION_ID = 'unclassified-staff-inspection'
+
+function toSectionId(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
 }
 
-export { normalizeBlankStockCheckQuantities }
-
-function getSubLocationOptions(location: 'Inside Coolroom' | 'Outside Coolroom') {
-  return location === 'Outside Coolroom'
-    ? [...catalogSubLocationOutsideOptions]
-    : [...catalogSubLocationInsideOptions]
+function buildInsideSectionId(title: string) {
+  return `inside-${toSectionId(title)}`
 }
 
 function makeCatalogRow(item: CatalogItem): StockCheckRow {
@@ -227,6 +230,148 @@ function makeCatalogRow(item: CatalogItem): StockCheckRow {
   }
 }
 
+function normalizeTextValue(value: string | null | undefined, fallback: string) {
+  const trimmed = value?.trim() ?? ''
+  return trimmed.length > 0 ? trimmed : fallback
+}
+
+function buildRowsFromParsedPhoto(items: CatalogItem[], response: ParsedPhotoResponse) {
+  const nextRows = items.map(makeCatalogRow)
+  const codeToIndex = new Map(nextRows.map((row, index) => [row.code.trim().toUpperCase(), index]))
+
+  const updateKnownRow = (rowIndex: number, patch: Partial<StockCheckRow>) => {
+    nextRows[rowIndex] = {
+      ...nextRows[rowIndex],
+      ...patch,
+    }
+  }
+
+  const pushKnownRow = (row: StockCheckRow) => {
+    const nextIndex = nextRows.length
+    nextRows.push(row)
+    if (row.code) {
+      codeToIndex.set(row.code.trim().toUpperCase(), nextIndex)
+    }
+  }
+
+  const pushUnknownRow = (row: StockCheckRow) => {
+    nextRows.push(row)
+  }
+
+  for (const item of response.data?.items ?? []) {
+    const codeKey = item.catalog_code?.trim().toUpperCase() ?? ''
+    const quantity = typeof item.quantity === 'number' ? item.quantity : null
+    const baseRow: StockCheckRow = {
+      id: `parsed-${codeKey || crypto.randomUUID()}`,
+      code: codeKey || null,
+      location: normalizeTextValue(item.location, 'Unknown'),
+      sub_location: normalizeTextValue(item.sub_location, 'Unknown'),
+      category: normalizeTextValue(item.category, 'Unknown'),
+      product: normalizeTextValue(item.product, normalizeTextValue(item.official_name, normalizeTextValue(item.product_raw, 'Unknown'))),
+      attribute: normalizeTextValue(item.attribute, ''),
+      official_name: normalizeTextValue(item.official_name, normalizeTextValue(item.product_raw, 'Unknown')),
+      stocklist_name: normalizeTextValue(item.stocklist_name, normalizeTextValue(item.official_name, normalizeTextValue(item.product_raw, 'Unknown'))),
+      navigation_guide: normalizeTextValue(item.navigation_guide, ''),
+      row_position: item.row_position ?? 'single',
+      quantity,
+      red_marked: false,
+      notes: normalizeTextValue(item.notes, ''),
+      source: codeKey ? 'catalog' : 'unknown',
+    }
+
+    if (!codeKey) {
+      pushUnknownRow(baseRow)
+      continue
+    }
+
+    const existingIndex = codeToIndex.get(codeKey)
+    if (existingIndex === undefined) {
+      pushKnownRow(baseRow)
+      continue
+    }
+
+    updateKnownRow(existingIndex, {
+      location: baseRow.location,
+      sub_location: baseRow.sub_location,
+      category: baseRow.category,
+      product: baseRow.product,
+      attribute: baseRow.attribute,
+      official_name: baseRow.official_name,
+      stocklist_name: baseRow.stocklist_name,
+      navigation_guide: baseRow.navigation_guide,
+      row_position: baseRow.row_position,
+      quantity: baseRow.quantity,
+      notes: baseRow.notes,
+      source: 'catalog',
+    })
+  }
+
+  for (const item of response.missing_catalog_items ?? []) {
+    const codeKey = item.code.trim().toUpperCase()
+    const quantity = typeof item.quantity === 'number' ? item.quantity : null
+    const existingIndex = codeToIndex.get(codeKey)
+    const baseRow: StockCheckRow = {
+      id: `missing-${codeKey || crypto.randomUUID()}`,
+      code: item.code,
+      location: normalizeTextValue(item.location, 'Inside Coolroom'),
+      sub_location: normalizeTextValue(item.sub_location, 'Unknown'),
+      category: normalizeTextValue(item.category, 'Unknown'),
+      product: normalizeTextValue(item.product, normalizeTextValue(item.official_name, 'Unknown')),
+      attribute: normalizeTextValue(item.attribute, ''),
+      official_name: normalizeTextValue(item.official_name, normalizeTextValue(item.product, 'Unknown')),
+      stocklist_name: normalizeTextValue(item.stocklist_name, normalizeTextValue(item.official_name, normalizeTextValue(item.product, 'Unknown'))),
+      navigation_guide: normalizeTextValue(item.navigation_guide, ''),
+      row_position: item.row_position ?? 'single',
+      quantity,
+      red_marked: false,
+      notes: '',
+      source: 'catalog',
+    }
+
+    if (existingIndex === undefined) {
+      pushKnownRow(baseRow)
+      continue
+    }
+
+    updateKnownRow(existingIndex, {
+      location: baseRow.location,
+      sub_location: baseRow.sub_location,
+      category: baseRow.category,
+      product: baseRow.product,
+      attribute: baseRow.attribute,
+      official_name: baseRow.official_name,
+      stocklist_name: baseRow.stocklist_name,
+      navigation_guide: baseRow.navigation_guide,
+      row_position: baseRow.row_position,
+      quantity: baseRow.quantity,
+      notes: baseRow.notes,
+      source: 'catalog',
+    })
+  }
+
+  for (const item of response.unknown_items ?? []) {
+    pushUnknownRow({
+      id: `unknown-${crypto.randomUUID()}`,
+      code: null,
+      location: normalizeTextValue(item.location, 'Unknown'),
+      sub_location: normalizeTextValue(item.sub_location, 'Unknown'),
+      category: normalizeTextValue(item.category, 'Unknown'),
+      product: normalizeTextValue(item.product, normalizeTextValue(item.official_name, normalizeTextValue(item.product_raw, 'Unknown'))),
+      attribute: normalizeTextValue(item.attribute, ''),
+      official_name: normalizeTextValue(item.official_name, normalizeTextValue(item.product_raw, 'Unknown')),
+      stocklist_name: normalizeTextValue(item.stocklist_name, normalizeTextValue(item.official_name, normalizeTextValue(item.product_raw, 'Unknown'))),
+      navigation_guide: normalizeTextValue(item.navigation_guide, ''),
+      row_position: item.row_position ?? 'single',
+      quantity: typeof item.quantity === 'number' ? item.quantity : null,
+      red_marked: false,
+      notes: 'Parsed from photo',
+      source: 'unknown',
+    })
+  }
+
+  return nextRows
+}
+
 function isKnownRow(row: StockCheckRow) {
   return row.source === 'catalog' && Boolean(row.code)
 }
@@ -246,23 +391,28 @@ export function EmbeddedStockCheckPanel({
   catalogItems,
   selectedHistoryRecord,
   historyRecords,
+  onToggleCatalogVisibility,
 }: {
   catalogItems: CatalogItem[] | null
   selectedHistoryRecord?: SelectedStockCheckHistoryRecord | null
   historyRecords?: StockCheckHistoryRecord[]
+  onToggleCatalogVisibility?: (code: string, nextVisible: boolean) => Promise<boolean>
 }) {
   const today = useMemo(() => new Date().toISOString().slice(0, 10), [])
   const stockPaperRef = useRef<HTMLDivElement | null>(null)
+  const stockPaperAreaRef = useRef<HTMLDivElement | null>(null)
   const stockFindContainerRef = useRef<HTMLDivElement | null>(null)
   const [rows, setRows] = useState<StockCheckRow[]>([])
+  const [stockEntryMode, setStockEntryMode] = useState<'manual' | 'photo'>('manual')
+  const [stockPhotoFile, setStockPhotoFile] = useState<File | null>(null)
   const [stockDate, setStockDate] = useState(today)
   const [isValidated, setIsValidated] = useState(false)
+  const [isParsing, setIsParsing] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [newItemName, setNewItemName] = useState('')
-  const [showCreateUnknownModal, setShowCreateUnknownModal] = useState(false)
-  const [createForms, setCreateForms] = useState<UnknownCreateForm[]>([])
-  const [isCreatingUnknownItems, setIsCreatingUnknownItems] = useState(false)
+  const [createCatalogItemPrefillName, setCreateCatalogItemPrefillName] = useState('')
+  const [showCreateCatalogItemModal, setShowCreateCatalogItemModal] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [recheckWarnings, setRecheckWarnings] = useState<RecheckWarning[]>([])
@@ -272,6 +422,12 @@ export function EmbeddedStockCheckPanel({
   const [highlightedRowIndex, setHighlightedRowIndex] = useState<number | null>(null)
   const [paperZoom, setPaperZoom] = useState(1)
   const [isMobileViewport, setIsMobileViewport] = useState(false)
+  const [stockMobileView, setStockMobileView] = useState<'card' | 'paper'>('card')
+  const [stockExportType, setStockExportType] = useState<'csv' | 'photo'>('csv')
+  const [stockCheckExpandedSections, setStockCheckExpandedSections] = useState<Set<string>>(new Set())
+  const [storedExpandedSectionKeys, setStoredExpandedSectionKeys] = useState<string[] | null>(null)
+  const [hasLoadedExpandedSectionPrefs, setHasLoadedExpandedSectionPrefs] = useState(false)
+  const [hasInitializedExpandedSections, setHasInitializedExpandedSections] = useState(false)
   const pinchStartDistanceRef = useRef<number | null>(null)
   const pinchStartZoomRef = useRef(1)
   const currentZoomRef = useRef(1)
@@ -284,6 +440,18 @@ export function EmbeddedStockCheckPanel({
     const uniqueCategories = new Set(catalogItems.map((item) => item.category).filter((cat) => cat && cat.trim().length > 0))
     return Array.from(uniqueCategories).sort()
   }, [catalogItems])
+  const catalogCodes = useMemo(() => {
+    return new Set(visibleCatalogItems.map((item) => item.code.trim().toUpperCase()))
+  }, [visibleCatalogItems])
+  const rowVisibilityByCode = useMemo(() => {
+    const map = new Map<string, boolean>()
+
+    visibleCatalogItems.forEach((item) => {
+      map.set(item.code.trim().toUpperCase(), item.is_visible !== false)
+    })
+
+    return map
+  }, [visibleCatalogItems])
 
   useEffect(() => {
     currentZoomRef.current = paperZoom
@@ -293,7 +461,23 @@ export function EmbeddedStockCheckPanel({
     if (typeof window === 'undefined') return
 
     const mediaQuery = window.matchMedia('(max-width: 767px)')
-    const updateMobileState = () => setIsMobileViewport(mediaQuery.matches)
+    const updateMobileState = () => {
+      const isMobile = mediaQuery.matches
+      setIsMobileViewport(isMobile)
+      if (isMobile) {
+        try {
+          const stored = window.localStorage.getItem(STOCK_CHECK_MOBILE_VIEW_KEY)
+          if (stored === 'card' || stored === 'paper') {
+            setStockMobileView(stored)
+            return
+          }
+        } catch {
+          // Ignore storage availability errors and use default.
+        }
+
+        setStockMobileView('card')
+      }
+    }
 
     updateMobileState()
 
@@ -305,6 +489,54 @@ export function EmbeddedStockCheckPanel({
     mediaQuery.addListener(updateMobileState)
     return () => mediaQuery.removeListener(updateMobileState)
   }, [])
+
+  useEffect(() => {
+    if (!isMobileViewport || typeof window === 'undefined') return
+
+    try {
+      window.localStorage.setItem(STOCK_CHECK_MOBILE_VIEW_KEY, stockMobileView)
+    } catch {
+      // Ignore storage availability errors.
+    }
+  }, [isMobileViewport, stockMobileView])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    try {
+      const stored = window.localStorage.getItem(STOCK_CHECK_EXPANDED_SECTIONS_KEY)
+      if (!stored) {
+        setStoredExpandedSectionKeys(null)
+        setHasLoadedExpandedSectionPrefs(true)
+        return
+      }
+
+      const parsed = JSON.parse(stored)
+      if (!Array.isArray(parsed)) {
+        setStoredExpandedSectionKeys(null)
+        setHasLoadedExpandedSectionPrefs(true)
+        return
+      }
+
+      const keys = parsed.filter((entry): entry is string => typeof entry === 'string')
+      setStoredExpandedSectionKeys(keys)
+    } catch {
+      // Ignore malformed local storage.
+      setStoredExpandedSectionKeys(null)
+    } finally {
+      setHasLoadedExpandedSectionPrefs(true)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!hasInitializedExpandedSections || typeof window === 'undefined') return
+
+    try {
+      window.localStorage.setItem(STOCK_CHECK_EXPANDED_SECTIONS_KEY, JSON.stringify(Array.from(stockCheckExpandedSections)))
+    } catch {
+      // Ignore storage availability errors.
+    }
+  }, [hasInitializedExpandedSections, stockCheckExpandedSections])
 
   useEffect(() => {
     if (!isMobileViewport) {
@@ -360,6 +592,88 @@ export function EmbeddedStockCheckPanel({
       return visibleCatalogItems.map(makeCatalogRow)
     })
   }, [visibleCatalogItems])
+
+  const startManualEntry = useCallback(() => {
+    setStockEntryMode('manual')
+    setStockPhotoFile(null)
+    setRows(visibleCatalogItems.map(makeCatalogRow))
+    setStatus('Manual closing entry is ready.')
+    setError(null)
+    setIsValidated(false)
+    setHasPassedRecheck(false)
+    setShowRecheckWarningModal(false)
+    setRecheckWarnings([])
+  }, [visibleCatalogItems])
+
+  const startPhotoEntry = useCallback(() => {
+    setStockEntryMode('photo')
+    setStockPhotoFile(null)
+    setStatus('Photo closing entry is ready. Choose a photo to parse.')
+    setError(null)
+  }, [])
+
+  const parsePhoto = useCallback(async () => {
+    if (!stockPhotoFile) {
+      setError('Please select a stock closing photo first.')
+      return
+    }
+
+    setStockEntryMode('photo')
+    setIsParsing(true)
+    setError(null)
+    setStatus(null)
+
+    try {
+      const formData = new FormData()
+      formData.append('photo', stockPhotoFile)
+      formData.append('mode', 'stock-closing')
+      if (visibleCatalogItems.length > 0) {
+        formData.append('catalog', JSON.stringify(visibleCatalogItems))
+      }
+
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 300000)
+
+      let response: Response
+      try {
+        response = await fetch('/api/parse-photo', {
+          method: 'POST',
+          body: formData,
+          signal: controller.signal,
+        })
+      } finally {
+        clearTimeout(timeoutId)
+      }
+
+      const payload = await response.json()
+      if (response.status === 401) {
+        throw new Error('Unauthorized. Please sign in at /login before parsing photos.')
+      }
+
+      if (!response.ok) {
+        const details = payload?.details
+        const detailsText = typeof details === 'string' ? details : details ? JSON.stringify(details) : ''
+        throw new Error(detailsText ? `${payload?.error ?? 'Parse request failed.'} Details: ${detailsText}` : (payload?.error ?? 'Parse request failed.'))
+      }
+
+      const parsedRows = buildRowsFromParsedPhoto(visibleCatalogItems, payload as ParsedPhotoResponse)
+      setRows(parsedRows)
+      setStockDate(typeof payload?.data?.stock_date === 'string' && payload.data.stock_date.length > 0 ? payload.data.stock_date : today)
+      setIsValidated(false)
+      setHasPassedRecheck(false)
+      setShowRecheckWarningModal(false)
+      setRecheckWarnings([])
+      setStatus(`Parsed ${parsedRows.length} stock row(s) from photo. Run Recheck before Save.`)
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        setError('Parsing timed out after 5 minutes. The stock photo took too long to process.')
+      } else {
+        setError(error instanceof Error ? error.message : 'Unexpected parse error.')
+      }
+    } finally {
+      setIsParsing(false)
+    }
+  }, [stockPhotoFile, today, visibleCatalogItems])
 
   useEffect(() => {
     if (!selectedHistoryRecord || visibleCatalogItems.length === 0) return
@@ -486,7 +800,25 @@ export function EmbeddedStockCheckPanel({
   }, [highlightedRowIndex])
 
   const focusAndHighlightRow = useCallback((index: number) => {
-    const target = stockPaperRef.current?.querySelector(`[data-stock-row-index="${index}"]`) as HTMLElement | null
+    const targetRow = indexedRows[index]
+    const sectionId = !targetRow
+      ? undefined
+      : targetRow.row.source === 'unknown'
+      ? UNKNOWN_SECTION_ID
+      : targetRow.row.location === 'Outside Coolroom'
+      ? OUTSIDE_SECTION_ID
+      : buildInsideSectionId(normalizeInsideSectionLabel(targetRow.row.category, targetRow.row.sub_location))
+
+    if (sectionId) {
+      setStockCheckExpandedSections((current) => {
+        if (current.has(sectionId)) return current
+        const next = new Set(current)
+        next.add(sectionId)
+        return next
+      })
+    }
+
+    const target = stockPaperAreaRef.current?.querySelector(`[data-stock-row-index="${index}"]`) as HTMLElement | null
     if (target) {
       target.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }
@@ -501,7 +833,7 @@ export function EmbeddedStockCheckPanel({
       setHighlightedRowIndex(null)
       highlightTimeoutRef.current = null
     }, 3000)
-  }, [])
+  }, [indexedRows])
 
   useEffect(() => {
     return () => {
@@ -554,6 +886,7 @@ export function EmbeddedStockCheckPanel({
         numeric: true,
       }))
       .map(([label, sectionRows]) => ({
+        id: buildInsideSectionId(label),
         title: label.toUpperCase(),
         rows: splitRows(sortIndexedRowsByName(sectionRows)),
       }))
@@ -584,6 +917,110 @@ export function EmbeddedStockCheckPanel({
       right: combinedOutside.slice(12),
     }
   }, [paperSections.outsideRows.left, paperSections.outsideRows.right, paperSections.outsideRows.single])
+
+  const stockCardSections = useMemo(() => {
+    const sections = [
+      ...paperSections.leftColumn.map((section) => ({
+        id: section.id,
+        title: section.title,
+        items: [...section.rows.left, ...section.rows.right, ...section.rows.single],
+      })),
+      ...paperSections.rightColumn.map((section) => ({
+        id: section.id,
+        title: section.title,
+        items: [...section.rows.left, ...section.rows.right, ...section.rows.single],
+      })),
+      {
+        id: OUTSIDE_SECTION_ID,
+        title: 'OUTSIDE COOLROOM',
+        items: [...outsideDisplayColumns.left, ...outsideDisplayColumns.middle, ...outsideDisplayColumns.right],
+      },
+    ]
+
+    const unknownItemsForCard = [
+      ...paperSections.unknownRows.left,
+      ...paperSections.unknownRows.right,
+      ...paperSections.unknownRows.single,
+    ]
+
+    if (unknownItemsForCard.length > 0) {
+      sections.push({
+        id: UNKNOWN_SECTION_ID,
+        title: 'UNCLASSIFIED / STAFF INSPECTION',
+        items: unknownItemsForCard,
+      })
+    }
+
+    return sections.filter((section) => section.items.length > 0)
+  }, [outsideDisplayColumns.left, outsideDisplayColumns.middle, outsideDisplayColumns.right, paperSections.leftColumn, paperSections.rightColumn, paperSections.unknownRows.left, paperSections.unknownRows.right, paperSections.unknownRows.single])
+
+  const isStockCheckSectionCollapsed = useCallback((sectionId: string) => {
+    return !stockCheckExpandedSections.has(sectionId)
+  }, [stockCheckExpandedSections])
+
+  const stockCheckSectionIds = useMemo(() => {
+    const ids = new Set<string>()
+
+    paperSections.leftColumn.forEach((section) => ids.add(section.id))
+    paperSections.rightColumn.forEach((section) => ids.add(section.id))
+    ids.add(OUTSIDE_SECTION_ID)
+
+    if (
+      paperSections.unknownRows.left.length > 0
+      || paperSections.unknownRows.right.length > 0
+      || paperSections.unknownRows.single.length > 0
+    ) {
+      ids.add(UNKNOWN_SECTION_ID)
+    }
+
+    return Array.from(ids)
+  }, [paperSections.leftColumn, paperSections.rightColumn, paperSections.unknownRows.left.length, paperSections.unknownRows.right.length, paperSections.unknownRows.single.length])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (!hasLoadedExpandedSectionPrefs || hasInitializedExpandedSections) return
+
+    const initialExpanded = storedExpandedSectionKeys
+      ? new Set(storedExpandedSectionKeys)
+      : new Set(stockCheckSectionIds)
+
+    setStockCheckExpandedSections(initialExpanded)
+    setHasInitializedExpandedSections(true)
+  }, [hasInitializedExpandedSections, hasLoadedExpandedSectionPrefs, stockCheckSectionIds, storedExpandedSectionKeys])
+
+  const toggleStockCheckSection = useCallback((sectionId: string) => {
+    setStockCheckExpandedSections((current) => {
+      const next = new Set(current)
+      if (next.has(sectionId)) {
+        next.delete(sectionId)
+      } else {
+        next.add(sectionId)
+      }
+      return next
+    })
+  }, [])
+
+  const expandAllStockCheckSections = useCallback(() => {
+    setStockCheckExpandedSections(new Set(stockCheckSectionIds))
+  }, [stockCheckSectionIds])
+
+  const collapseAllStockCheckSections = useCallback(() => {
+    setStockCheckExpandedSections(new Set())
+  }, [])
+
+  const isExportActionDisabled = stockExportType === 'csv'
+    ? !isValidated || isExporting || isSaving || isParsing
+    : isExporting || isSaving || isParsing
+
+  const getCardHighlightClass = useCallback((index: number | undefined) => {
+    if (index === undefined) return ''
+    const target = indexedRows[index]
+    if (!target) return ''
+    if (index === highlightedRowIndex) return 'ring-2 ring-emerald-400 bg-emerald-50'
+    if (target.row.source === 'unknown') return 'border-amber-300 bg-amber-50'
+    if (target.row.red_marked) return 'border-red-300 bg-red-50'
+    return ''
+  }, [highlightedRowIndex, indexedRows])
 
   const latestPreviousValidatedRecord = useMemo(() => {
     if (!historyRecords || historyRecords.length === 0) return null
@@ -628,30 +1065,30 @@ export function EmbeddedStockCheckPanel({
 
   function addUnknownItem() {
     const trimmed = newItemName.trim()
-    if (!trimmed) return
+    if (!trimmed) {
+      setError('Enter item name first, then click Create new Item.')
+      return
+    }
 
-    setRows((prev) => [
-      ...prev,
-      {
-        id: `unknown-${Date.now()}-${trimmed}`,
-        code: null,
-        location: 'Unknown',
-        sub_location: 'Unknown',
-        category: 'Unknown',
-        product: trimmed,
-        attribute: '',
-        official_name: trimmed,
-        stocklist_name: trimmed,
-        navigation_guide: '',
-        row_position: 'single',
-        quantity: null,
-        red_marked: false,
-        notes: 'New item (not in catalog)',
-        source: 'unknown',
-      },
-    ])
+    setCreateCatalogItemPrefillName(trimmed)
+    setShowCreateCatalogItemModal(true)
+    setError(null)
+  }
+
+  function addCreatedStockCheckItem(created: CreateCatalogItemPayload) {
+    const normalizedCode = created.code.trim().toUpperCase()
+
+    setRows((prev) => {
+      const exists = prev.some((row) => row.code?.trim().toUpperCase() === normalizedCode)
+      if (exists) return prev
+
+      return [...prev, makeCatalogRow(created)]
+    })
+
+    setShowCreateCatalogItemModal(false)
+    setCreateCatalogItemPrefillName('')
     setNewItemName('')
-    setStatus(`Added new item: ${trimmed}`)
+    setStatus(`Created and added ${created.official_name} immediately.`)
     setError(null)
   }
 
@@ -741,119 +1178,6 @@ export function EmbeddedStockCheckPanel({
     setIsValidated(true)
     setHasPassedRecheck(true)
     setShowRecheckWarningModal(false)
-  }
-
-  function openCreateUnknownModal() {
-    const unknownRows = rows.filter((x) => x.source === 'unknown')
-    if (unknownRows.length === 0) {
-      setStatus('No unknown items to create.')
-      return
-    }
-
-    const forms: UnknownCreateForm[] = unknownRows.map((x) => ({
-      unknownId: x.id,
-      code: generateItemCode('Other', x.product, x.attribute),
-      location: 'Inside Coolroom',
-      sub_location: catalogSubLocationInsideOptions[0],
-      category: 'Other',
-      product: x.product,
-      attribute: x.attribute,
-      official_name: x.official_name,
-      stocklist_name: x.stocklist_name || x.official_name,
-      navigation_guide: '',
-      row_position: 'single',
-    }))
-
-    setCreateForms(forms)
-    setShowCreateUnknownModal(true)
-  }
-
-  function updateCreateForm(unknownId: string, patch: Partial<UnknownCreateForm>) {
-    setCreateForms((prev) => prev.map((form) => {
-      if (form.unknownId !== unknownId) return form
-
-      const next = { ...form, ...patch }
-
-      if (patch.location) {
-        const options = getSubLocationOptions(patch.location)
-        next.sub_location = options[0]
-      }
-
-      if (patch.category !== undefined || patch.product !== undefined || patch.attribute !== undefined) {
-        next.code = generateItemCode(next.category, next.product, next.attribute)
-      }
-
-      return next
-    }))
-  }
-
-  async function createUnknownItemsInCatalog() {
-    if (createForms.length === 0) return
-
-    setIsCreatingUnknownItems(true)
-    setError(null)
-    setStatus(null)
-
-    try {
-      for (const form of createForms) {
-        const response = await fetch('/api/catalog/item', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            code: form.code,
-            location: form.location,
-            sub_location: form.sub_location,
-            category: form.category,
-            product: form.product,
-            attribute: form.attribute,
-            official_name: form.official_name,
-            stocklist_name: form.stocklist_name,
-            navigation_guide: form.navigation_guide,
-            row_position: form.row_position,
-          }),
-        })
-
-        const payload = await response.json()
-        if (!response.ok) {
-          throw new Error(payload?.error ?? `Failed to create ${form.official_name}`)
-        }
-      }
-
-      const formsById = new Map(createForms.map((x) => [x.unknownId, x]))
-      setRows((prev) => {
-        return prev.map((row) => {
-          if (row.source !== 'unknown') return row
-
-          const form = formsById.get(row.id)
-          if (!form) return row
-
-          return {
-            ...row,
-            source: 'catalog',
-            id: `catalog-${form.code}`,
-            code: form.code,
-            location: form.location,
-            sub_location: form.sub_location,
-            category: form.category,
-            product: form.product,
-            attribute: form.attribute,
-            official_name: form.official_name,
-            stocklist_name: form.stocklist_name,
-            navigation_guide: form.navigation_guide,
-            row_position: form.row_position,
-            notes: '',
-          }
-        })
-      })
-
-      setShowCreateUnknownModal(false)
-      setCreateForms([])
-      setStatus('Unknown items were created in catalog and converted to regular stock rows.')
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to create unknown items.')
-    } finally {
-      setIsCreatingUnknownItems(false)
-    }
   }
 
   function buildPayload(exportFormat?: 'csv' | 'pdf' | 'image') {
@@ -966,7 +1290,7 @@ export function EmbeddedStockCheckPanel({
         throw new Error(payload?.error ?? 'Save failed.')
       }
 
-      setStatus(`Saved (UID: ${payload?.uid_stock_check ?? '-'}) and validated. Blank quantities were set to 0. Export and Load to Snowflake are enabled.`)
+      setStatus(`Saved (UID: ${payload?.uid_stock_check ?? '-'}) and validated. Blank quantities were set to 0. Export and Push to Snowflake Database are enabled.`)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Save failed.')
       setStatus('Validated by staff. Blank quantities were set to 0. Save to Supabase failed, please retry Save.')
@@ -1005,42 +1329,6 @@ export function EmbeddedStockCheckPanel({
       setStatus('CSV exported.')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'CSV export failed.')
-    } finally {
-      setIsExporting(false)
-    }
-  }
-
-  async function exportPdf() {
-    setIsExporting(true)
-    setStatus(null)
-    setError(null)
-
-    try {
-      const response = await fetch('/api/stock-check/export-pdf', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildPayload('pdf')),
-      })
-
-      if (!response.ok) {
-        const payload = await response.json()
-        throw new Error(payload?.error ?? 'PDF export failed.')
-      }
-
-      const html = await response.text()
-      const popup = window.open('', '_blank')
-      if (!popup) {
-        throw new Error('Popup blocked. Allow popups to print.')
-      }
-
-      popup.document.write(html)
-      popup.document.close()
-      popup.focus()
-      popup.print()
-
-      setStatus('Print dialog opened for PDF export.')
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'PDF export failed.')
     } finally {
       setIsExporting(false)
     }
@@ -1105,23 +1393,40 @@ export function EmbeddedStockCheckPanel({
 
       const payload = await response.json()
       if (!response.ok) {
-        throw new Error(payload?.error ?? 'Load to Snowflake failed.')
+        throw new Error(payload?.error ?? 'Push to Snowflake Database failed.')
       }
 
-      setStatus(`Loaded to Snowflake (UID: ${payload?.uid_stock_check ?? '-'})`)
-
-      if (rows.some((x) => x.source === 'unknown')) {
-        openCreateUnknownModal()
-      }
+      setStatus(`Pushed to Snowflake Database (UID: ${payload?.uid_stock_check ?? '-'})`)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Load to Snowflake failed.')
+      setError(e instanceof Error ? e.message : 'Push to Snowflake Database failed.')
     } finally {
       setIsSaving(false)
     }
   }
 
+  const toggleStockCheckVisibility = useCallback(async (code: string, nextVisible: boolean) => {
+    if (!onToggleCatalogVisibility) {
+      return
+    }
+
+    const changed = await onToggleCatalogVisibility(code, nextVisible)
+
+    if (!changed) {
+      return
+    }
+
+    if (!nextVisible) {
+      const normalizedCode = code.trim().toUpperCase()
+      setRows((prev) => prev.filter((row) => row.code?.trim().toUpperCase() !== normalizedCode))
+    }
+  }, [onToggleCatalogVisibility])
+
   function renderLabelCell(item: IndexedRow | undefined, className: string) {
     if (!item) return null
+
+    const code = item.row.code?.trim().toUpperCase() ?? ''
+    const canToggleVisibility = item.row.source === 'catalog' && code.length > 0
+    const isVisible = canToggleVisibility ? (rowVisibilityByCode.get(code) ?? true) : true
 
     return (
       <div className="flex items-center gap-1">
@@ -1139,13 +1444,42 @@ export function EmbeddedStockCheckPanel({
           readOnly
           onChange={(event) => updateRow(item.index, { official_name: event.target.value })}
         />
+        {canToggleVisibility && (
+          <button
+            type="button"
+            aria-label={isVisible ? 'Hide item' : 'Show item'}
+            title={isVisible ? 'Hide item' : 'Show item'}
+            className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-slate-300 bg-white text-slate-500 hover:border-slate-400 hover:text-slate-700"
+            onClick={(event) => {
+              event.stopPropagation()
+              void toggleStockCheckVisibility(code, !isVisible).catch((toggleError) => {
+                setError(toggleError instanceof Error ? toggleError.message : 'Failed to update visibility.')
+              })
+            }}
+          >
+            {isVisible ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+          </button>
+        )}
       </div>
+    )
+  }
+
+  function renderQuantityCell(item: IndexedRow) {
+    return (
+      <input
+        type="number"
+        data-stock-row-index={item.index}
+        className={`stock-qty-input ${item.row.red_marked ? 'text-red-600' : ''}`}
+        aria-label={`Quantity for ${item.row.official_name}`}
+        value={item.row.quantity ?? ''}
+        onChange={(event) => setQuantity(item.index, event.target.value)}
+      />
     )
   }
 
   if (visibleCatalogItems.length === 0) {
     return (
-      <section className="card-surface rounded-2xl p-4 sm:p-6 md:p-8">
+      <section className="card-surface rounded-2xl p-4 pb-24 sm:p-6 md:p-8 md:pb-8">
         <h1 className="text-2xl font-bold text-slate-900 md:text-3xl">Stock Check</h1>
         <p className="mt-2 text-sm text-slate-600">Catalog is empty. Upload or manage catalog first, then return to stock check.</p>
       </section>
@@ -1166,6 +1500,16 @@ export function EmbeddedStockCheckPanel({
           )}
         </div>
 
+        <div className="mb-4">
+          <EntryMethodToggle
+            value={stockEntryMode}
+            onManual={startManualEntry}
+            onPhoto={startPhotoEntry}
+            manualHelpText="Manual entry is active. Adjust quantities directly in the paper view."
+            photoHelpText="Photo entry is active. Choose a stock-closing image and parse it into the same paper layout."
+          />
+        </div>
+
         <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
           <div className="relative">
             <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Stock Date</label>
@@ -1173,7 +1517,7 @@ export function EmbeddedStockCheckPanel({
               type="date"
               value={stockDate}
               onChange={(event) => setStockDate(event.target.value || today)}
-              className="mb-3 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
+              className="mb-3 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
             />
 
             <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Add Item</label>
@@ -1182,7 +1526,7 @@ export function EmbeddedStockCheckPanel({
               value={newItemName}
               onChange={(event) => setNewItemName(event.target.value)}
               placeholder="Type to match catalog or add as new"
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
+              className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base text-slate-700 focus:border-brand-500 focus:outline-none"
             />
 
             {newItemName.trim().length > 0 && suggestions.length > 0 && (
@@ -1205,96 +1549,101 @@ export function EmbeddedStockCheckPanel({
             type="button"
             onClick={addUnknownItem}
             disabled={newItemName.trim().length === 0}
-            className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <Plus className="h-4 w-4" />
-            Add As New
+            Create new Item
           </button>
         </div>
 
-        <div className="mt-4 space-y-2">
-          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
-            <button
-              type="button"
-              onClick={compareWithPreviousValidatedStockCheck}
-              disabled={isExporting || isSaving}
-              className="w-full rounded-lg border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
-            >
-              Recheck
-            </button>
-
-            <button
-              type="button"
-              onClick={saveStockCheck}
-              disabled={!hasPassedRecheck || isExporting || isSaving}
-              className="w-full rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
-            >
-              {isSaving ? 'Saving...' : isValidated ? 'Saved' : 'Save'}
-            </button>
+        {isMobileViewport && (
+          <div className="mt-3 mb-2 flex items-center justify-between rounded-lg border border-slate-200 bg-white p-2 md:hidden">
+            <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Mobile View</span>
+            <div className="grid grid-cols-2 gap-1 rounded-md bg-slate-100 p-1">
+              <button
+                type="button"
+                onClick={() => setStockMobileView('card')}
+                className={`rounded px-3 py-1.5 text-xs font-semibold ${stockMobileView === 'card' ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-600'}`}
+              >
+                Card
+              </button>
+              <button
+                type="button"
+                onClick={() => setStockMobileView('paper')}
+                className={`rounded px-3 py-1.5 text-xs font-semibold ${stockMobileView === 'paper' ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-600'}`}
+              >
+                Paper
+              </button>
+            </div>
           </div>
+        )}
 
-          <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:items-center">
-            <button
-              type="button"
-              onClick={exportCsv}
-              disabled={!isValidated || isExporting || isSaving}
-              className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:gap-2 sm:px-4"
-            >
-              <Download className="h-4 w-4" />
-              CSV
-            </button>
-
-            <button
-              type="button"
-              onClick={exportPdf}
-              disabled={!isValidated || isExporting || isSaving}
-              className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:gap-2 sm:px-4"
-            >
-              <FileText className="h-4 w-4" />
-              PDF
-            </button>
-
-            <button
-              type="button"
-              onClick={exportPhoto}
-              disabled={isExporting || isSaving}
-              className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:gap-2 sm:px-4"
-            >
-              <FileImage className="h-4 w-4" />
-              Photo
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-center">
-            <button
-              type="button"
-              onClick={saveToDb}
-              disabled={!isValidated || isExporting || isSaving}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-brand-300 bg-brand-50 px-4 py-2 text-sm font-medium text-brand-700 hover:bg-brand-100 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
-            >
-              {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-              Load to Snowflake
-            </button>
-
-            <button
-              type="button"
-              onClick={openCreateUnknownModal}
-              disabled={!rows.some((x) => x.source === 'unknown') || isCreatingUnknownItems}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
-            >
-              {isCreatingUnknownItems ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              Create Unknown Items
-            </button>
-          </div>
+        <div className="mb-3 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={expandAllStockCheckSections}
+            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Expand all
+          </button>
+          <button
+            type="button"
+            onClick={collapseAllStockCheckSections}
+            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Collapse all
+          </button>
         </div>
 
-        {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
-        {status && <p className="mt-3 text-sm text-emerald-700">{status}</p>}
+        {stockEntryMode === 'photo' && (
+          <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white p-3">
+            <input
+              id="stock-check-photo-upload"
+              type="file"
+              className="hidden"
+              accept="image/jpeg,image/png"
+              onChange={(event) => {
+                const file = event.target.files?.[0]
+                setStockPhotoFile(file ?? null)
+              }}
+            />
+
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-slate-700">Stock closing photo</p>
+                <p className="text-xs text-slate-500">
+                  {stockPhotoFile ? stockPhotoFile.name : 'Choose a photo to parse closing rows.'}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <label
+                  htmlFor="stock-check-photo-upload"
+                  className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Choose Photo
+                </label>
+                <button
+                  type="button"
+                  onClick={() => void parsePhoto()}
+                  disabled={isParsing || !stockPhotoFile}
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-brand-300"
+                >
+                  {isParsing && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {isParsing ? 'Parsing...' : 'Parse Photo'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {error && <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+        {status && <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{status}</p>}
         {!hasPassedRecheck && !isValidated && (
           <p className="mt-1 text-xs font-medium text-amber-700">Run Recheck before Save.</p>
         )}
 
-        {isMobileViewport && (
+        {isMobileViewport && stockMobileView === 'paper' && (
           <div className="mt-4 flex justify-end">
             <div className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-2">
               <button
@@ -1328,13 +1677,14 @@ export function EmbeddedStockCheckPanel({
         )}
 
         <div
+          ref={stockPaperAreaRef}
           className="mt-5 stock-paper-wrap overflow-x-auto"
           onTouchStart={handlePaperTouchStart}
           onTouchMove={handlePaperTouchMove}
           onTouchEnd={clearPinchState}
           onTouchCancel={clearPinchState}
         >
-          <div className="mb-3 rounded-lg border border-slate-200 bg-white p-3">
+          <div className="mobile-sticky-top mb-3 rounded-lg border border-slate-200 bg-white p-3">
             <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Find In Stocklist</label>
             <div ref={stockFindContainerRef} className="relative">
               <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
@@ -1343,8 +1693,19 @@ export function EmbeddedStockCheckPanel({
                 value={findTerm}
                 onChange={(event) => setFindTerm(event.target.value)}
                 placeholder="Search official or stocklist name"
-                className="w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
+                className="min-h-11 w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-9 pr-10 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
               />
+
+              {findTerm.trim().length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setFindTerm('')}
+                  aria-label="Clear stocklist search"
+                  className="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
 
               {findTerm.trim().length > 0 && (
                 <div className="absolute z-20 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg">
@@ -1371,11 +1732,27 @@ export function EmbeddedStockCheckPanel({
             </div>
           </div>
 
-          <div
-            ref={stockPaperRef}
-            className="stock-paper min-w-[700px] sm:min-w-[760px] md:min-w-[820px]"
-            style={isMobileViewport ? { zoom: paperZoom } : undefined}
-          >
+          {isMobileViewport && stockMobileView === 'card' ? (
+            <div className="space-y-3 md:hidden">
+              {stockCardSections.map((section) => (
+                <StockPaperCardSection
+                  key={`stock-check-card-${section.title}`}
+                  title={section.title}
+                  items={section.items}
+                  keyPrefix="stock-check-mobile"
+                  getCardClass={getCardHighlightClass}
+                  onPressRow={(item) => focusAndHighlightRow(item.index)}
+                  renderLabelCell={renderLabelCell}
+                  renderQuantityCell={renderQuantityCell}
+                />
+              ))}
+            </div>
+          ) : (
+            <div
+              ref={stockPaperRef}
+              className="stock-paper min-w-[700px] sm:min-w-[760px] md:min-w-[820px]"
+              style={isMobileViewport ? { zoom: paperZoom } : undefined}
+            >
             <div className="stock-date-row">
               <span>DATE:</span>
               <span className="stock-date-hand">{formatSheetDate(stockDate)}</span>
@@ -1384,465 +1761,160 @@ export function EmbeddedStockCheckPanel({
             <div className="stock-sec-hdr">INSIDE COOLROOM</div>
             <div className="stock-inside-grid">
               <div className="stock-col stock-col-left">
-                {paperSections.leftColumn.map((section) => {
-                  const maxRows = Math.max(section.rows.left.length, section.rows.right.length)
-                  return (
-                    <div key={section.title}>
-                      <div className="stock-sub-hdr">{section.title}</div>
-                      <table className="stock-pt">
-                        <colgroup>
-                          <col style={{ width: '42%' }} />
-                          <col style={{ width: '8%' }} />
-                          <col style={{ width: '42%' }} />
-                          <col style={{ width: '8%' }} />
-                        </colgroup>
-                        <tbody>
-                          {Array.from({ length: maxRows }).map((_, i) => {
-                            const left = section.rows.left[i]
-                            const right = section.rows.right[i]
-                            return (
-                              <tr key={`${section.title}-pair-${i}`}>
-                                <td className={`stock-lbl ${getHighlightClass(left?.index)}`}>{renderLabelCell(left, 'stock-input')}</td>
-                                <td className={`stock-qty ${getHighlightClass(left?.index)}`}>
-                                  {left ? (
-                                    <input
-                                      type="number"
-                                      data-stock-row-index={left.index}
-                                      className={`stock-qty-input ${left.row.red_marked ? 'text-red-600' : ''}`}
-                                      value={left.row.quantity ?? ''}
-                                      onChange={(event) => setQuantity(left.index, event.target.value)}
-                                    />
-                                  ) : null}
-                                </td>
-                                <td className={`stock-lbl ${getHighlightClass(right?.index)}`}>{renderLabelCell(right, 'stock-input')}</td>
-                                <td className={`stock-qty ${getHighlightClass(right?.index)}`}>
-                                  {right ? (
-                                    <input
-                                      type="number"
-                                      data-stock-row-index={right.index}
-                                      className={`stock-qty-input ${right.row.red_marked ? 'text-red-600' : ''}`}
-                                      value={right.row.quantity ?? ''}
-                                      onChange={(event) => setQuantity(right.index, event.target.value)}
-                                    />
-                                  ) : null}
-                                </td>
-                              </tr>
-                            )
-                          })}
-
-                          {section.rows.single.map((single, i) => (
-                            <tr key={`${section.title}-single-${i}`} className="stock-hw-row">
-                              <td className={`stock-lbl ${getHighlightClass(single.index)}`} colSpan={3}>{renderLabelCell(single, 'stock-input stock-input-hw')}</td>
-                              <td className={`stock-qty ${getHighlightClass(single.index)}`}>
-                                <input
-                                  type="number"
-                                  data-stock-row-index={single.index}
-                                  className={`stock-qty-input ${single.row.red_marked ? 'text-red-600' : ''}`}
-                                  value={single.row.quantity ?? ''}
-                                  onChange={(event) => setQuantity(single.index, event.target.value)}
-                                />
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )
-                })}
+                {paperSections.leftColumn.map((section) => (
+                  <StockPaperSectionTable
+                    key={section.id}
+                    section={section}
+                    keyPrefix="stock-check-left"
+                    isCollapsed={isStockCheckSectionCollapsed(section.id)}
+                    onToggleCollapse={() => toggleStockCheckSection(section.id)}
+                    getCellClass={getHighlightClass}
+                    renderLabelCell={renderLabelCell}
+                    renderQuantityCell={renderQuantityCell}
+                  />
+                ))}
               </div>
 
               <div className="stock-col">
-                {paperSections.rightColumn.map((section) => {
-                  const maxRows = Math.max(section.rows.left.length, section.rows.right.length)
-                  return (
-                    <div key={section.title}>
-                      <div className="stock-sub-hdr">{section.title}</div>
-                      <table className="stock-pt">
-                        <colgroup>
-                          <col style={{ width: '42%' }} />
-                          <col style={{ width: '8%' }} />
-                          <col style={{ width: '42%' }} />
-                          <col style={{ width: '8%' }} />
-                        </colgroup>
-                        <tbody>
-                          {Array.from({ length: maxRows }).map((_, i) => {
-                            const left = section.rows.left[i]
-                            const right = section.rows.right[i]
-                            return (
-                              <tr key={`${section.title}-pair-${i}`}>
-                                <td className={`stock-lbl ${getHighlightClass(left?.index)}`}>{renderLabelCell(left, 'stock-input')}</td>
-                                <td className={`stock-qty ${getHighlightClass(left?.index)}`}>
-                                  {left ? (
-                                    <input
-                                      type="number"
-                                      data-stock-row-index={left.index}
-                                      className={`stock-qty-input ${left.row.red_marked ? 'text-red-600' : ''}`}
-                                      value={left.row.quantity ?? ''}
-                                      onChange={(event) => setQuantity(left.index, event.target.value)}
-                                    />
-                                  ) : null}
-                                </td>
-                                <td className={`stock-lbl ${getHighlightClass(right?.index)}`}>{renderLabelCell(right, 'stock-input')}</td>
-                                <td className={`stock-qty ${getHighlightClass(right?.index)}`}>
-                                  {right ? (
-                                    <input
-                                      type="number"
-                                      data-stock-row-index={right.index}
-                                      className={`stock-qty-input ${right.row.red_marked ? 'text-red-600' : ''}`}
-                                      value={right.row.quantity ?? ''}
-                                      onChange={(event) => setQuantity(right.index, event.target.value)}
-                                    />
-                                  ) : null}
-                                </td>
-                              </tr>
-                            )
-                          })}
-
-                          {section.rows.single.map((single, i) => (
-                            <tr key={`${section.title}-single-${i}`} className="stock-hw-row">
-                              <td className={`stock-lbl ${getHighlightClass(single.index)}`} colSpan={3}>{renderLabelCell(single, 'stock-input stock-input-hw')}</td>
-                              <td className={`stock-qty ${getHighlightClass(single.index)}`}>
-                                <input
-                                  type="number"
-                                  data-stock-row-index={single.index}
-                                  className={`stock-qty-input ${single.row.red_marked ? 'text-red-600' : ''}`}
-                                  value={single.row.quantity ?? ''}
-                                  onChange={(event) => setQuantity(single.index, event.target.value)}
-                                />
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )
-                })}
+                {paperSections.rightColumn.map((section) => (
+                  <StockPaperSectionTable
+                    key={section.id}
+                    section={section}
+                    keyPrefix="stock-check-right"
+                    isCollapsed={isStockCheckSectionCollapsed(section.id)}
+                    onToggleCollapse={() => toggleStockCheckSection(section.id)}
+                    getCellClass={getHighlightClass}
+                    renderLabelCell={renderLabelCell}
+                    renderQuantityCell={renderQuantityCell}
+                  />
+                ))}
               </div>
             </div>
 
-            <div className="stock-sec-hdr">OUTSIDE COOLROOM</div>
-            <div className="stock-outside-grid">
-              <div className="stock-oc-col">
-                <table className="stock-pt">
-                  <colgroup>
-                    <col style={{ width: '84%' }} />
-                    <col style={{ width: '16%' }} />
-                  </colgroup>
-                  <tbody>
-                    {outsideDisplayColumns.left.map((item, i) => (
-                      <tr key={`outside-left-${i}`}>
-                        <td className={`stock-lbl ${getHighlightClass(item.index)}`}>{renderLabelCell(item, 'stock-input')}</td>
-                        <td className={`stock-qty ${getHighlightClass(item.index)}`}>
-                          <input
-                            type="number"
-                            data-stock-row-index={item.index}
-                            className={`stock-qty-input ${item.row.red_marked ? 'text-red-600' : ''}`}
-                            value={item.row.quantity ?? ''}
-                            onChange={(event) => setQuantity(item.index, event.target.value)}
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="stock-oc-col">
-                <table className="stock-pt">
-                  <colgroup>
-                    <col style={{ width: '84%' }} />
-                    <col style={{ width: '16%' }} />
-                  </colgroup>
-                  <tbody>
-                    {outsideDisplayColumns.middle.map((item, i) => (
-                      <tr key={`outside-right-${i}`}>
-                        <td className={`stock-lbl ${getHighlightClass(item.index)}`}>{renderLabelCell(item, 'stock-input')}</td>
-                        <td className={`stock-qty ${getHighlightClass(item.index)}`}>
-                          <input
-                            type="number"
-                            data-stock-row-index={item.index}
-                            className={`stock-qty-input ${item.row.red_marked ? 'text-red-600' : ''}`}
-                            value={item.row.quantity ?? ''}
-                            onChange={(event) => setQuantity(item.index, event.target.value)}
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="stock-oc-col">
-                <table className="stock-pt">
-                  <colgroup>
-                    <col style={{ width: '84%' }} />
-                    <col style={{ width: '16%' }} />
-                  </colgroup>
-                  <tbody>
-                    {outsideDisplayColumns.right.map((item, i) => (
-                      <tr key={`outside-single-${i}`}>
-                        <td className={`stock-lbl ${getHighlightClass(item.index)}`}>{renderLabelCell(item, 'stock-input')}</td>
-                        <td className={`stock-qty ${getHighlightClass(item.index)}`}>
-                          <input
-                            type="number"
-                            data-stock-row-index={item.index}
-                            className={`stock-qty-input ${item.row.red_marked ? 'text-red-600' : ''}`}
-                            value={item.row.quantity ?? ''}
-                            onChange={(event) => setQuantity(item.index, event.target.value)}
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <button
+              type="button"
+              className="stock-sec-hdr stock-sec-hdr-btn"
+              onClick={() => toggleStockCheckSection(OUTSIDE_SECTION_ID)}
+              aria-expanded={!isStockCheckSectionCollapsed(OUTSIDE_SECTION_ID)}
+            >
+              <span>OUTSIDE COOLROOM</span>
+              <span className="stock-collapse-indicator" aria-hidden="true">{isStockCheckSectionCollapsed(OUTSIDE_SECTION_ID) ? '+' : '-'}</span>
+            </button>
+            {!isStockCheckSectionCollapsed(OUTSIDE_SECTION_ID) && (
+              <StockPaperThreeColumnTable
+                columns={outsideDisplayColumns}
+                keyPrefix="stock-check-outside"
+                getCellClass={getHighlightClass}
+                renderLabelCell={renderLabelCell}
+                renderQuantityCell={renderQuantityCell}
+              />
+            )}
 
             {paperSections.unknownRows.left.length > 0 || paperSections.unknownRows.right.length > 0 || paperSections.unknownRows.single.length > 0 ? (
               <>
-                <div className="stock-sec-hdr !bg-red-900 !text-white">UNCLASSIFIED / STAFF INSPECTION</div>
-                <div className="stock-outside-grid">
-                  <div className="stock-oc-col">
-                    <table className="stock-pt">
-                      <colgroup>
-                        <col style={{ width: '84%' }} />
-                        <col style={{ width: '16%' }} />
-                      </colgroup>
-                      <tbody>
-                        {paperSections.unknownRows.left.map((item, i) => (
-                          <tr key={`unknown-left-${i}`}>
-                            <td className={`stock-lbl ${getHighlightClass(item.index)}`}>{renderLabelCell(item, 'stock-input')}</td>
-                            <td className={`stock-qty ${getHighlightClass(item.index)}`}>
-                              <input
-                                type="number"
-                                data-stock-row-index={item.index}
-                                className={`stock-qty-input ${item.row.red_marked ? 'text-red-600' : ''}`}
-                                value={item.row.quantity ?? ''}
-                                onChange={(event) => setQuantity(item.index, event.target.value)}
-                              />
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <div className="stock-oc-col">
-                    <table className="stock-pt">
-                      <colgroup>
-                        <col style={{ width: '84%' }} />
-                        <col style={{ width: '16%' }} />
-                      </colgroup>
-                      <tbody>
-                        {paperSections.unknownRows.right.map((item, i) => (
-                          <tr key={`unknown-right-${i}`}>
-                            <td className={`stock-lbl ${getHighlightClass(item.index)}`}>{renderLabelCell(item, 'stock-input')}</td>
-                            <td className={`stock-qty ${getHighlightClass(item.index)}`}>
-                              <input
-                                type="number"
-                                data-stock-row-index={item.index}
-                                className={`stock-qty-input ${item.row.red_marked ? 'text-red-600' : ''}`}
-                                value={item.row.quantity ?? ''}
-                                onChange={(event) => setQuantity(item.index, event.target.value)}
-                              />
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <div className="stock-oc-col">
-                    <table className="stock-pt">
-                      <colgroup>
-                        <col style={{ width: '84%' }} />
-                        <col style={{ width: '16%' }} />
-                      </colgroup>
-                      <tbody>
-                        {paperSections.unknownRows.single.map((item, i) => (
-                          <tr key={`unknown-single-${i}`}>
-                            <td className={`stock-lbl ${getHighlightClass(item.index)}`}>{renderLabelCell(item, 'stock-input')}</td>
-                            <td className={`stock-qty ${getHighlightClass(item.index)}`}>
-                              <input
-                                type="number"
-                                data-stock-row-index={item.index}
-                                className={`stock-qty-input ${item.row.red_marked ? 'text-red-600' : ''}`}
-                                value={item.row.quantity ?? ''}
-                                onChange={(event) => setQuantity(item.index, event.target.value)}
-                              />
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
+                <button
+                  type="button"
+                  className="stock-sec-hdr stock-sec-hdr-btn !bg-red-900 !text-white"
+                  onClick={() => toggleStockCheckSection(UNKNOWN_SECTION_ID)}
+                  aria-expanded={!isStockCheckSectionCollapsed(UNKNOWN_SECTION_ID)}
+                >
+                  <span>UNCLASSIFIED / STAFF INSPECTION</span>
+                  <span className="stock-collapse-indicator" aria-hidden="true">{isStockCheckSectionCollapsed(UNKNOWN_SECTION_ID) ? '+' : '-'}</span>
+                </button>
+                {!isStockCheckSectionCollapsed(UNKNOWN_SECTION_ID) && (
+                  <StockPaperThreeColumnTable
+                    columns={{
+                      left: paperSections.unknownRows.left,
+                      middle: paperSections.unknownRows.right,
+                      right: paperSections.unknownRows.single,
+                    }}
+                    keyPrefix="stock-check-unknown"
+                    getCellClass={getHighlightClass}
+                    renderLabelCell={renderLabelCell}
+                    renderQuantityCell={renderQuantityCell}
+                  />
+                )}
               </>
             ) : null}
+            </div>
+          )}
+        </div>
+
+        <div className="mt-5 space-y-3">
+          <div className="space-y-2">
+            <p className="inline-flex rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-700">Primary Actions</p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <button
+                type="button"
+                onClick={compareWithPreviousValidatedStockCheck}
+                disabled={isExporting || isSaving || isParsing}
+                className="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-[13px] font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Recheck
+              </button>
+
+              <button
+                type="button"
+                onClick={saveStockCheck}
+                disabled={!hasPassedRecheck || isExporting || isSaving || isParsing}
+                className="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-[13px] font-medium text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSaving ? 'Saving...' : isValidated ? 'Saved' : 'Save'}
+              </button>
+
+              <div className="grid grid-cols-[1fr_auto] gap-2">
+                <select
+                  value={stockExportType}
+                  onChange={(event) => setStockExportType(event.target.value as 'csv' | 'photo')}
+                  className="min-h-9 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-[13px] text-slate-700 focus:border-brand-500 focus:outline-none"
+                  aria-label="Choose export format"
+                >
+                  <option value="csv">CSV file</option>
+                  <option value="photo">Photo</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (stockExportType === 'csv') {
+                      void exportCsv()
+                      return
+                    }
+
+                    void exportPhoto()
+                  }}
+                  disabled={isExportActionDisabled}
+                  className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[13px] font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <FileImage className="h-4 w-4" />
+                  Export
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={saveToDb}
+                disabled={!isValidated || isExporting || isSaving || isParsing}
+                className="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-brand-300 bg-brand-50 px-3 py-1.5 text-[13px] font-medium text-brand-700 hover:bg-brand-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                Push to Snowflake Database
+              </button>
+            </div>
           </div>
         </div>
       </section>
 
-      {showCreateUnknownModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="max-h-[88vh] w-full max-w-5xl overflow-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900">Create Unknown Items In Catalog</h3>
-                <p className="text-sm text-slate-600">Complete details for new items found during stock check.</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowCreateUnknownModal(false)}
-                className="rounded-md p-2 text-slate-500 hover:bg-slate-100"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              {createForms.map((form) => (
-                <div key={form.unknownId} className="rounded-xl border border-slate-200 p-4">
-                  <div className="mb-3 grid gap-3 md:grid-cols-3">
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-slate-600">Code</label>
-                      <input
-                        value={form.code}
-                        onChange={(event) => updateCreateForm(form.unknownId, { code: event.target.value })}
-                        className="w-full rounded-md border border-slate-300 px-2.5 py-2 text-sm"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-slate-600">Location</label>
-                      <select
-                        value={form.location}
-                        onChange={(event) => updateCreateForm(form.unknownId, { location: event.target.value as 'Inside Coolroom' | 'Outside Coolroom' })}
-                        className="w-full rounded-md border border-slate-300 px-2.5 py-2 text-sm"
-                      >
-                        {catalogLocationOptions.map((option) => (
-                          <option key={option} value={option}>{option}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-slate-600">Sub-location</label>
-                      <select
-                        value={form.sub_location}
-                        onChange={(event) => updateCreateForm(form.unknownId, { sub_location: event.target.value })}
-                        className="w-full rounded-md border border-slate-300 px-2.5 py-2 text-sm"
-                      >
-                        {getSubLocationOptions(form.location).map((option) => (
-                          <option key={option} value={option}>{option}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="mb-3 grid gap-3 md:grid-cols-3">
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-slate-600">Category</label>
-                      <select
-                        value={form.category}
-                        onChange={(event) => updateCreateForm(form.unknownId, { category: event.target.value })}
-                        className="w-full rounded-md border border-slate-300 px-2.5 py-2 text-sm"
-                      >
-                        {availableCategories.length > 0 ? (
-                          availableCategories.map((option) => (
-                            <option key={option} value={option}>{option}</option>
-                          ))
-                        ) : (
-                          <option disabled>No categories available</option>
-                        )}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-slate-600">Product</label>
-                      <input
-                        value={form.product}
-                        onChange={(event) => updateCreateForm(form.unknownId, { product: event.target.value })}
-                        className="w-full rounded-md border border-slate-300 px-2.5 py-2 text-sm"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-slate-600">Attribute</label>
-                      <input
-                        value={form.attribute}
-                        onChange={(event) => updateCreateForm(form.unknownId, { attribute: event.target.value })}
-                        className="w-full rounded-md border border-slate-300 px-2.5 py-2 text-sm"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="mb-3 grid gap-3 md:grid-cols-3">
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-slate-600">Official Name</label>
-                      <input
-                        value={form.official_name}
-                        onChange={(event) => updateCreateForm(form.unknownId, { official_name: event.target.value })}
-                        className="w-full rounded-md border border-slate-300 px-2.5 py-2 text-sm"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-slate-600">Name On Stocklist</label>
-                      <input
-                        value={form.stocklist_name}
-                        onChange={(event) => updateCreateForm(form.unknownId, { stocklist_name: event.target.value })}
-                        className="w-full rounded-md border border-slate-300 px-2.5 py-2 text-sm"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-slate-600">Row Position</label>
-                      <select
-                        value={form.row_position}
-                        onChange={(event) => updateCreateForm(form.unknownId, { row_position: event.target.value as 'left' | 'right' | 'single' })}
-                        className="w-full rounded-md border border-slate-300 px-2.5 py-2 text-sm"
-                      >
-                        {catalogRowPositionOptions.map((option) => (
-                          <option key={option} value={option}>{option}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-slate-600">Navigation Guide</label>
-                    <input
-                      value={form.navigation_guide}
-                      onChange={(event) => updateCreateForm(form.unknownId, { navigation_guide: event.target.value })}
-                      className="w-full rounded-md border border-slate-300 px-2.5 py-2 text-sm"
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setShowCreateUnknownModal(false)}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={createUnknownItemsInCatalog}
-                disabled={isCreatingUnknownItems}
-                className="inline-flex items-center gap-2 rounded-lg border border-brand-300 bg-brand-50 px-4 py-2 text-sm font-medium text-brand-700 hover:bg-brand-100 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isCreatingUnknownItems ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                Save To Catalog
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <CreateCatalogItemModal
+        isOpen={showCreateCatalogItemModal}
+        initialName={createCatalogItemPrefillName}
+        categories={availableCategories}
+        existingCodes={catalogCodes}
+        onClose={() => {
+          setShowCreateCatalogItemModal(false)
+          setCreateCatalogItemPrefillName('')
+        }}
+        onCreated={addCreatedStockCheckItem}
+      />
 
       {showRecheckWarningModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">

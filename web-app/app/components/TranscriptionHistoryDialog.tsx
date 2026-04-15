@@ -213,6 +213,9 @@ export function TranscriptionHistoryDialog({
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-semibold text-slate-900">{entry.filename}</p>
+                      <span className="rounded-full bg-slate-200 px-2 py-1 text-[10px] font-semibold text-slate-700">
+                        {entry.stockMode === 'stock-closing' ? 'Closing' : 'Arrival'}
+                      </span>
                       <span
                         className={`rounded-full px-2 py-1 text-xs font-semibold ${
                           entry.isPushed
