@@ -1,4 +1,5 @@
 import type { SnowflakeStagingRecord } from './stock-schema'
+import { buildStockCheckRecordName } from './record-names'
 
 export type SupabaseStockCheckRecordData = {
   items: Array<{
@@ -25,6 +26,7 @@ export type SupabaseStockCheckRecordData = {
 export type SupabaseStockCheckUpsertRow = {
   user_id: string
   date: string
+  record_name: string
   mode: 'closing_check'
   item_data: SupabaseStockCheckRecordData
 }
@@ -69,6 +71,7 @@ export function buildSupabaseStockCheckUpsertRow(input: {
   return {
     user_id: input.userId,
     date: input.stockDate,
+    record_name: buildStockCheckRecordName(input.stockDate),
     mode: 'closing_check',
     item_data: input.itemData,
   }

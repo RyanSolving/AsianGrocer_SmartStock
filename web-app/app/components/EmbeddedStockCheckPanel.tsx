@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Download, Eye, EyeOff, FileImage, Loader2, Plus, Search, X } from 'lucide-react'
+import { Database, Download, Eye, EyeOff, FileImage, Loader2, Plus, Save, Search, X } from 'lucide-react'
 import { toPng } from 'html-to-image'
 import { normalizeBlankStockCheckQuantities } from '../../lib/stock-check-utils'
 import { filterVisibleCatalogItems } from '../../lib/catalog-visibility'
@@ -428,6 +428,11 @@ export function EmbeddedStockCheckPanel({
   const [storedExpandedSectionKeys, setStoredExpandedSectionKeys] = useState<string[] | null>(null)
   const [hasLoadedExpandedSectionPrefs, setHasLoadedExpandedSectionPrefs] = useState(false)
   const [hasInitializedExpandedSections, setHasInitializedExpandedSections] = useState(false)
+  const [manualCheckQuantity, setManualCheckQuantity] = useState('')
+  const [manualCheckHighlightIndex, setManualCheckHighlightIndex] = useState(0)
+  const [isItemProfilesExpanded, setIsItemProfilesExpanded] = useState(false)
+  const [showItemSuggestions, setShowItemSuggestions] = useState(false)
+  const [selectedProfileItem, setSelectedProfileItem] = useState<CatalogItem | null>(null)
   const pinchStartDistanceRef = useRef<number | null>(null)
   const pinchStartZoomRef = useRef(1)
   const currentZoomRef = useRef(1)
@@ -777,6 +782,23 @@ export function EmbeddedStockCheckPanel({
       .slice(0, 6)
   }, [newItemName, visibleCatalogItems])
 
+  const activeProfileItem = useMemo(() => {
+    if (selectedProfileItem) {
+      return selectedProfileItem
+    }
+
+    if (!newItemName.trim() || suggestions.length === 0) {
+      return null
+    }
+
+    const normalizedName = newItemName.trim().toLowerCase()
+    const exactMatch = suggestions.find((item) => {
+      return item.official_name.trim().toLowerCase() === normalizedName
+    })
+
+    return exactMatch ?? suggestions[0]
+  }, [newItemName, selectedProfileItem, suggestions])
+
   const indexedRows = useMemo(() => rows.map((row, index) => ({ row, index })), [rows])
 
   const findSuggestions = useMemo(() => {
@@ -976,6 +998,11 @@ export function EmbeddedStockCheckPanel({
     return Array.from(ids)
   }, [paperSections.leftColumn, paperSections.rightColumn, paperSections.unknownRows.left.length, paperSections.unknownRows.right.length, paperSections.unknownRows.single.length])
 
+  const areAllStockCheckSectionsExpanded = useMemo(() => {
+    if (stockCheckSectionIds.length === 0) return false
+    return stockCheckSectionIds.every((sectionId) => stockCheckExpandedSections.has(sectionId))
+  }, [stockCheckExpandedSections, stockCheckSectionIds])
+
   useEffect(() => {
     if (typeof window === 'undefined') return
     if (!hasLoadedExpandedSectionPrefs || hasInitializedExpandedSections) return
@@ -1008,9 +1035,7 @@ export function EmbeddedStockCheckPanel({
     setStockCheckExpandedSections(new Set())
   }, [])
 
-  const isExportActionDisabled = stockExportType === 'csv'
-    ? !isValidated || isExporting || isSaving || isParsing
-    : isExporting || isSaving || isParsing
+  const isExportActionDisabled = isExporting || isSaving || isParsing
 
   const getCardHighlightClass = useCallback((index: number | undefined) => {
     if (index === undefined) return ''
@@ -1059,6 +1084,8 @@ export function EmbeddedStockCheckPanel({
       return [...prev, makeCatalogRow(item)]
     })
     setNewItemName('')
+    setShowItemSuggestions(false)
+    setSelectedProfileItem(item)
     setStatus(`Added ${item.official_name} from catalog.`)
     setError(null)
   }
@@ -1088,8 +1115,70 @@ export function EmbeddedStockCheckPanel({
     setShowCreateCatalogItemModal(false)
     setCreateCatalogItemPrefillName('')
     setNewItemName('')
+    setShowItemSuggestions(false)
+    setSelectedProfileItem(created)
     setStatus(`Created and added ${created.official_name} immediately.`)
     setError(null)
+  }
+
+  const handleStockCheckItemInputKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (suggestions.length === 0) return
+
+      if (event.key === 'ArrowDown') {
+        event.preventDefault()
+        setManualCheckHighlightIndex((prev) => (prev + 1) % suggestions.length)
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault()
+        setManualCheckHighlightIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length)
+      } else if (event.key === 'Enter' && suggestions.length > 0) {
+        event.preventDefault()
+        selectStockCheckCatalogSuggestion(suggestions[manualCheckHighlightIndex])
+      } else if (event.key === 'Escape') {
+        event.preventDefault()
+        setManualCheckHighlightIndex(0)
+        setShowItemSuggestions(false)
+      }
+    },
+    [suggestions, manualCheckHighlightIndex]
+  )
+
+  function selectStockCheckCatalogSuggestion(item: CatalogItem) {
+    setNewItemName(item.official_name)
+    setManualCheckHighlightIndex(0)
+    setShowItemSuggestions(false)
+    setSelectedProfileItem(item)
+    setError(null)
+  }
+
+  function addStockCheckManualKnownItem() {
+    const trimmedItem = newItemName.trim()
+    const trimmedQty = manualCheckQuantity.trim()
+
+    if (!stockDate) {
+      setError('Please select a stock date first.')
+      return
+    }
+    if (!trimmedItem) {
+      setError('Please select or enter an item name.')
+      return
+    }
+    if (!trimmedQty || isNaN(Number(trimmedQty))) {
+      setError('Please enter a valid quantity.')
+      return
+    }
+
+    const matchedItem = suggestions.length > 0 ? suggestions[manualCheckHighlightIndex] : null
+    if (matchedItem) {
+      addKnownFromSuggestion(matchedItem)
+    } else {
+      // If no match, treat as unknown or create new
+      setCreateCatalogItemPrefillName(trimmedItem)
+      setShowCreateCatalogItemModal(true)
+    }
+
+    setManualCheckQuantity('')
+    setManualCheckHighlightIndex(0)
   }
 
   function compareWithPreviousValidatedStockCheck() {
@@ -1290,10 +1379,10 @@ export function EmbeddedStockCheckPanel({
         throw new Error(payload?.error ?? 'Save failed.')
       }
 
-      setStatus(`Saved (UID: ${payload?.uid_stock_check ?? '-'}) and validated. Blank quantities were set to 0. Export and Push to Snowflake Database are enabled.`)
+      setStatus(`Saved (UID: ${payload?.uid_stock_check ?? '-'}) to Supabase. Blank quantities were set to 0. Load and export are enabled.`)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Save failed.')
-      setStatus('Validated by staff. Blank quantities were set to 0. Save to Supabase failed, please retry Save.')
+      setStatus('Blank quantities were set to 0. Save to Supabase failed, please retry Save.')
     } finally {
       setIsSaving(false)
     }
@@ -1396,9 +1485,9 @@ export function EmbeddedStockCheckPanel({
         throw new Error(payload?.error ?? 'Push to Snowflake Database failed.')
       }
 
-      setStatus(`Pushed to Snowflake Database (UID: ${payload?.uid_stock_check ?? '-'})`)
+      setStatus(`Loaded to Snowflake (UID: ${payload?.uid_stock_check ?? '-'})`)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Push to Snowflake Database failed.')
+      setError(e instanceof Error ? e.message : 'Load to Snowflake failed.')
     } finally {
       setIsSaving(false)
     }
@@ -1510,90 +1599,166 @@ export function EmbeddedStockCheckPanel({
           />
         </div>
 
-        <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
-          <div className="relative">
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Stock Date</label>
-            <input
-              type="date"
-              value={stockDate}
-              onChange={(event) => setStockDate(event.target.value || today)}
-              className="mb-3 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
-            />
+        {stockEntryMode === 'manual' && (
+          <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-2">
+            <div className="relative">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-700">Input</p>
 
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Add Item</label>
-            <input
-              type="text"
-              value={newItemName}
-              onChange={(event) => setNewItemName(event.target.value)}
-              placeholder="Type to match catalog or add as new"
-              className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base text-slate-700 focus:border-brand-500 focus:outline-none"
-            />
+              <div className="space-y-3">
+                <div>
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Stock Date</label>
+                  <input
+                    type="date"
+                    value={stockDate}
+                    onChange={(event) => setStockDate(event.target.value || today)}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
+                  />
+                </div>
 
-            {newItemName.trim().length > 0 && suggestions.length > 0 && (
-              <div className="absolute z-20 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg">
-                {suggestions.map((item) => (
+                <div className="relative">
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Item</label>
+                  <input
+                    type="text"
+                    value={newItemName}
+                    onChange={(event) => {
+                      setNewItemName(event.target.value)
+                      setManualCheckHighlightIndex(0)
+                      setSelectedProfileItem(null)
+                      setShowItemSuggestions(event.target.value.trim().length > 0)
+                    }}
+                    onKeyDown={handleStockCheckItemInputKeyDown}
+                    placeholder="Type to match or add as new"
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
+                  />
+
+                  {showItemSuggestions && newItemName.trim().length > 0 && suggestions.length > 0 && (
+                    <div className="absolute top-full left-0 right-0 z-20 mt-1 max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+                      {suggestions.map((item, idx) => (
+                        <button
+                          key={item.code}
+                          type="button"
+                          onClick={() => {
+                            selectStockCheckCatalogSuggestion(item)
+                            setManualCheckQuantity('')
+                          }}
+                          className={`block w-full border-b border-slate-100 px-3 py-2 text-left text-sm last:border-b-0 transition-colors ${
+                            idx === manualCheckHighlightIndex
+                              ? 'bg-brand-100 text-brand-900 font-medium'
+                              : 'text-slate-700 hover:bg-slate-50'
+                          }`}
+                        >
+                          {item.official_name} <span className="text-xs text-slate-500">({item.code})</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {showItemSuggestions && newItemName.trim().length > 0 && suggestions.length === 0 && (
+                    <p className="mt-1 text-xs text-slate-500">No matching items. Use Qty and Add Button to create new.</p>
+                  )}
+                </div>
+
+                <div className="flex items-end gap-2">
+                  <div className="flex-1">
+                    <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Quantity</label>
+                    <input
+                      type="text"
+                      value={manualCheckQuantity}
+                      onChange={(event) => setManualCheckQuantity(event.target.value)}
+                      placeholder="0"
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
+                    />
+                  </div>
                   <button
-                    key={item.code}
                     type="button"
-                    onClick={() => addKnownFromSuggestion(item)}
-                    className="block w-full border-b border-slate-100 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 last:border-b-0"
+                    onClick={addStockCheckManualKnownItem}
+                    disabled={!stockDate || newItemName.trim().length === 0 || manualCheckQuantity.trim().length === 0}
+                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {item.official_name} ({item.code})
+                    <Plus className="h-4 w-4" />
+                    Add
                   </button>
-                ))}
+                </div>
+
+                <p className="text-xs text-slate-500">
+                  <span className="font-medium">Keyboard:</span> Use arrow keys + Enter to select from suggestions, or Esc to clear.
+                </p>
               </div>
-            )}
-          </div>
+            </div>
 
-          <button
-            type="button"
-            onClick={addUnknownItem}
-            disabled={newItemName.trim().length === 0}
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <Plus className="h-4 w-4" />
-            Create new Item
-          </button>
-        </div>
-
-        {isMobileViewport && (
-          <div className="mt-3 mb-2 flex items-center justify-between rounded-lg border border-slate-200 bg-white p-2 md:hidden">
-            <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Mobile View</span>
-            <div className="grid grid-cols-2 gap-1 rounded-md bg-slate-100 p-1">
+            <div className="border-t border-slate-200 pt-3 md:border-t-0 md:border-l md:pt-0 md:pl-3">
               <button
                 type="button"
-                onClick={() => setStockMobileView('card')}
-                className={`rounded px-3 py-1.5 text-xs font-semibold ${stockMobileView === 'card' ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-600'}`}
+                onClick={() => setIsItemProfilesExpanded(!isItemProfilesExpanded)}
+                className="mb-2 inline-flex items-center justify-between gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-700 hover:text-brand-700"
               >
-                Card
+                <span>Item Profiles</span>
+                <span className="text-sm">{isItemProfilesExpanded ? '▼' : '▶'}</span>
               </button>
-              <button
-                type="button"
-                onClick={() => setStockMobileView('paper')}
-                className={`rounded px-3 py-1.5 text-xs font-semibold ${stockMobileView === 'paper' ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-600'}`}
-              >
-                Paper
-              </button>
+
+              {isItemProfilesExpanded && (
+                <div className="space-y-2 rounded-lg bg-white p-3">
+                  {activeProfileItem ? (
+                    <>
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Official Name</p>
+                        <p className="mt-1 text-sm font-medium text-slate-800">{activeProfileItem.official_name}</p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Product</p>
+                        <p className="mt-1 text-sm text-slate-700">{activeProfileItem.product || '-'}</p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Category</p>
+                        <p className="mt-1 text-sm text-slate-700">{activeProfileItem.category || '-'}</p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Location</p>
+                        <p className="mt-1 text-sm text-slate-700">{activeProfileItem.location || '-'}</p>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-xs text-slate-500">Choose an item to preview read-only profile details.</p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
 
-        <div className="mb-3 flex items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={expandAllStockCheckSections}
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-          >
-            Expand all
-          </button>
-          <button
-            type="button"
-            onClick={collapseAllStockCheckSections}
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-          >
-            Collapse all
-          </button>
-        </div>
+        {isMobileViewport && (
+          <div className="mt-3 mb-2 rounded-lg border border-slate-200 bg-white p-2 md:hidden">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Mobile View</span>
+              <div className="flex items-center gap-2">
+                <div className="grid grid-cols-2 gap-1 rounded-md bg-slate-100 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setStockMobileView('card')}
+                    className={`rounded px-3 py-1.5 text-xs font-semibold ${stockMobileView === 'card' ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-600'}`}
+                  >
+                    Card
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStockMobileView('paper')}
+                    className={`rounded px-3 py-1.5 text-xs font-semibold ${stockMobileView === 'paper' ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-600'}`}
+                  >
+                    Paper
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={areAllStockCheckSectionsExpanded ? collapseAllStockCheckSections : expandAllStockCheckSections}
+                  className="inline-flex min-h-8 items-center justify-center rounded-md border border-slate-300 bg-white px-3 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+                  aria-label={areAllStockCheckSectionsExpanded ? 'Collapse all stock check sections' : 'Expand all stock check sections'}
+                  title={areAllStockCheckSectionsExpanded ? 'Collapse all stock check sections' : 'Expand all stock check sections'}
+                >
+                  {areAllStockCheckSectionsExpanded ? 'Collapse all' : 'Expand all'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {stockEntryMode === 'photo' && (
           <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white p-3">
@@ -1741,6 +1906,8 @@ export function EmbeddedStockCheckPanel({
                   items={section.items}
                   keyPrefix="stock-check-mobile"
                   getCardClass={getCardHighlightClass}
+                  isCollapsed={isStockCheckSectionCollapsed(section.id)}
+                  onToggleCollapse={() => toggleStockCheckSection(section.id)}
                   onPressRow={(item) => focusAndHighlightRow(item.index)}
                   renderLabelCell={renderLabelCell}
                   renderQuantityCell={renderQuantityCell}
@@ -1840,64 +2007,63 @@ export function EmbeddedStockCheckPanel({
           )}
         </div>
 
-        <div className="mt-5 space-y-3">
-          <div className="space-y-2">
-            <p className="inline-flex rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-700">Primary Actions</p>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-              <button
-                type="button"
-                onClick={compareWithPreviousValidatedStockCheck}
-                disabled={isExporting || isSaving || isParsing}
-                className="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-[13px] font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+        <div className="mt-5 space-y-2">
+          <button
+            type="button"
+            onClick={compareWithPreviousValidatedStockCheck}
+            disabled={isExporting || isSaving || isParsing}
+            className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-100 disabled:text-slate-400 sm:w-auto"
+          >
+            Recheck
+          </button>
+
+          <div className="mobile-sticky-actions grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-center">
+            <button
+              type="button"
+              onClick={saveStockCheck}
+              disabled={!hasPassedRecheck || isExporting || isSaving || isParsing}
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-100 disabled:text-slate-400 sm:w-auto"
+            >
+              {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              {isSaving ? 'Saving...' : isValidated ? 'Saved' : 'Save'}
+            </button>
+
+            <button
+              type="button"
+              onClick={saveToDb}
+              disabled={!isValidated || isExporting || isSaving || isParsing}
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-brand-300 sm:w-auto"
+            >
+              {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Database className="h-4 w-4" />}
+              {isSaving ? 'Loading...' : 'Load'}
+            </button>
+
+            <div className="flex w-full gap-2 sm:w-auto sm:flex-nowrap">
+              <select
+                value={stockExportType}
+                onChange={(event) => setStockExportType(event.target.value as 'csv' | 'photo')}
+                className="min-h-11 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none sm:w-[130px]"
+                aria-label="Choose export format"
               >
-                Recheck
-              </button>
-
-              <button
-                type="button"
-                onClick={saveStockCheck}
-                disabled={!hasPassedRecheck || isExporting || isSaving || isParsing}
-                className="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-[13px] font-medium text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isSaving ? 'Saving...' : isValidated ? 'Saved' : 'Save'}
-              </button>
-
-              <div className="grid grid-cols-[1fr_auto] gap-2">
-                <select
-                  value={stockExportType}
-                  onChange={(event) => setStockExportType(event.target.value as 'csv' | 'photo')}
-                  className="min-h-9 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-[13px] text-slate-700 focus:border-brand-500 focus:outline-none"
-                  aria-label="Choose export format"
-                >
-                  <option value="csv">CSV file</option>
-                  <option value="photo">Photo</option>
-                </select>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (stockExportType === 'csv') {
-                      void exportCsv()
-                      return
-                    }
-
-                    void exportPhoto()
-                  }}
-                  disabled={isExportActionDisabled}
-                  className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[13px] font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <FileImage className="h-4 w-4" />
-                  Export
-                </button>
-              </div>
+                <option value="csv">CSV file</option>
+                <option value="photo">Photo</option>
+              </select>
 
               <button
                 type="button"
-                onClick={saveToDb}
-                disabled={!isValidated || isExporting || isSaving || isParsing}
-                className="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-brand-300 bg-brand-50 px-3 py-1.5 text-[13px] font-medium text-brand-700 hover:bg-brand-100 disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={() => {
+                  if (stockExportType === 'csv') {
+                    void exportCsv()
+                    return
+                  }
+
+                  void exportPhoto()
+                }}
+                disabled={isExportActionDisabled}
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
               >
-                {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                Push to Snowflake Database
+                {stockExportType === 'csv' ? <Download className="h-4 w-4" /> : <FileImage className="h-4 w-4" />}
+                {isExporting ? 'Exporting...' : 'Export'}
               </button>
             </div>
           </div>
