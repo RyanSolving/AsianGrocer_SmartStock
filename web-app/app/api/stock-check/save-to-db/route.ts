@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import snowflake from 'snowflake-sdk'
+import { buildManualEntryRecordName } from '../../../../lib/record-names'
 import { getAuthContext } from '../../../../lib/supabase/route-auth'
 import { createSupabaseServerClient } from '../../../../lib/supabase/server'
 import {
@@ -191,6 +192,7 @@ export async function POST(request: Request) {
     missingCatalogItems: parsed.data.missing_catalog_items,
     forcedValidated: 'yes',
   })
+  const recordName = buildManualEntryRecordName(stockRecord.stock_date)
   const mirrorItemData = toSupabaseMirrorItemData(stockRecord)
 
   const tableName = getQualifiedTableName()
@@ -256,10 +258,11 @@ export async function POST(request: Request) {
       .insert({
         user_id: authContext.user.id,
         date: stockRecord.stock_date,
+        record_name: recordName,
         mode: 'closing_check',
         item_data: mirrorItemData,
       })
-      .select('uid_stock_check, created_at')
+      .select('uid_stock_check, created_at, record_name')
       .single()
 
     if (error) {
@@ -282,6 +285,7 @@ export async function POST(request: Request) {
         success: true,
         uid_stock_check: data.uid_stock_check,
         created_at: data.created_at,
+        record_name: data.record_name ?? recordName,
         message: 'Stock check saved to Snowflake and mirrored to Supabase history.',
         query_id: snowflakeQueryId,
         snowflake_table: tableName,

@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+
 type EntryMode = 'manual' | 'photo'
 
 type EntryMethodToggleProps = {
@@ -8,20 +10,25 @@ type EntryMethodToggleProps = {
   photoLabel?: string
   manualHelpText: string
   photoHelpText: string
+  actionSlot?: ReactNode
 }
 
 export function EntryMethodToggle({
   value,
   onManual,
   onPhoto,
-  manualLabel = 'Manual',
-  photoLabel = 'Parse from Photo',
+  manualLabel = 'Manual Entry',
+  photoLabel = 'Photo Entry',
   manualHelpText,
   photoHelpText,
+  actionSlot,
 }: EntryMethodToggleProps) {
   return (
     <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-      <p className="text-xs font-semibold  tracking-[0.16em] text-slate-500">Entry Method</p>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <p className="pt-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Entry Method</p>
+        {actionSlot ? <div className="shrink-0">{actionSlot}</div> : null}
+      </div>
       <div className="mt-2 grid grid-cols-2 gap-2">
         <button
           type="button"

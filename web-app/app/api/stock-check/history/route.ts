@@ -7,6 +7,7 @@ type StockCheckEvent = {
   uid_stock_check: string
   created_at: string
   date: string
+  record_name?: string | null
   mode: string
   item_data: {
     items?: unknown[]
@@ -19,6 +20,7 @@ type StockCheckHistoryItem = {
   uid_stock_check: string
   timestamp: string
   stock_date: string
+  record_name?: string | null
   mode: string
   validated: boolean
   item_count: number
@@ -307,6 +309,7 @@ async function fetchSnowflakeHistory(): Promise<StockCheckHistoryItem[]> {
         uid_stock_check: String(row.PHOTO_ID ?? ''),
         timestamp: uploadDate,
         stock_date: stockDate,
+        record_name: null,
         mode: String(row.MODE ?? 'closing_check'),
         validated: String(row.VALIDATED ?? '').toLowerCase() === 'yes',
         item_count: itemData.length,
@@ -327,6 +330,7 @@ function mapSupabaseHistory(data: StockCheckEvent[] | null) {
       uid_stock_check: entry.uid_stock_check,
       timestamp: entry.created_at,
       stock_date: entry.date,
+      record_name: entry.record_name ?? null,
       mode: entry.mode,
       validated: normalized.validated,
       item_count: normalized.items.length,
@@ -345,7 +349,7 @@ export async function GET() {
   try {
     const { data, error } = await auth.supabase
       .from('event_stock_check')
-      .select('uid_stock_check, created_at, date, mode, item_data')
+      .select('uid_stock_check, created_at, date, record_name, mode, item_data')
       .eq('user_id', auth.user.id)
       .order('created_at', { ascending: false })
 

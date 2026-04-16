@@ -172,7 +172,10 @@ body {
 
 .stock-qty-input {
 	font-style: italic;
-	font-weight: 700;
+	font-weight: 600;
+	font-size: 10px;
+	line-height: 1.1;
+	text-align: center;
 	color: #1f3a6e;
 }
 

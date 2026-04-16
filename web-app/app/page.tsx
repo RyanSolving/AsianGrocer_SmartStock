@@ -1,10 +1,8 @@
 'use client'
 
-import { useMemo, useState, useEffect, useCallback, useRef } from 'react'
+import { useMemo, useState, useEffect, useCallback, useRef, type KeyboardEvent } from 'react'
 import {
   BarChart3,
-  CheckCircle2,
-  AlertTriangle,
   Database,
   Download,
   Eye,
@@ -129,6 +127,12 @@ type HistoryCardBadge = {
   className: string
 }
 
+type AppToast = {
+  id: number
+  tone: 'success' | 'error'
+  message: string
+}
+
 type SidebarHistoryCardProps = {
   title: string
   timestamp: string
@@ -177,10 +181,22 @@ type IndexedItem = {
 
 type HubSection = 'data-entry' | 'stock-check' | 'catalog'
 type DataEntryMode = 'manual' | 'photo'
+type InlineCreateItemForm = {
+  official_name: string
+  stocklist_name: string
+  product: string
+  category: string
+  location: 'Inside Coolroom' | 'Outside Coolroom'
+  sub_location: string
+  attribute: string
+}
 const DATA_ENTRY_MOBILE_VIEW_KEY = 'smartstock:data-entry-mobile-view'
 const DATA_ENTRY_EXPANDED_SECTIONS_KEY = 'smartstock:data-entry-expanded-sections'
 const OUTSIDE_SECTION_ID = 'outside-coolroom'
 const UNKNOWN_SECTION_ID = 'unclassified-staff-inspection'
+const AUTO_EXPAND_SECTION_ROW_LIMIT = 20
+const INSIDE_SUB_LOCATION_OPTIONS = ['Apples', 'Citrus', 'Asian', 'Melon', 'All Year', 'Seasonal', 'Stonefruit'] as const
+const OUTSIDE_SUB_LOCATION_OPTIONS = ['Outside Coolroom'] as const
 
 function toSectionId(value: string) {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
@@ -249,6 +265,21 @@ function buildManualParsedPayload(
   }
 }
 
+function generateCatalogCode(category: string, product: string, attribute: string) {
+  const cat3 = (category || 'OTH').toUpperCase().slice(0, 3)
+  const prod3 = (product || 'NEW').toUpperCase().slice(0, 3)
+  const attr3 = attribute ? attribute.toUpperCase().slice(0, 3) : 'STD'
+  return `${cat3}-${prod3}-${attr3}`
+}
+
+function parseWholeQuantity(raw: string) {
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  const parsed = Number.parseInt(trimmed, 10)
+  if (!Number.isFinite(parsed)) return null
+  return parsed
+}
+
 function getItemDisplayNameForSort(item: StockItem) {
   return (item.official_name || item.product_raw || '').trim()
 }
@@ -277,38 +308,42 @@ function isIsoDate(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value)
 }
 
-function FeedbackBanner({
-  tone,
-  title,
-  message,
-  detail,
+function ToastStack({
+  toasts,
+  onDismiss,
 }: {
-  tone: 'success' | 'error'
-  title: string
-  message: string
-  detail: string
+  toasts: AppToast[]
+  onDismiss: (id: number) => void
 }) {
-  const isSuccess = tone === 'success'
-  const wrapperClass = isSuccess
-    ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-    : 'border-red-200 bg-red-50 text-red-900'
-  const badgeClass = isSuccess ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
-
   return (
-    <div className={`mt-4 rounded-2xl border px-4 py-4 shadow-sm ${wrapperClass}`}>
-      <div className="flex items-start gap-3">
-        <div className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${badgeClass}`}>
-          {isSuccess ? <CheckCircle2 className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />}
-        </div>
-        <div className="flex-1">
-          <p className={`text-xs font-semibold uppercase tracking-[0.18em] ${isSuccess ? 'text-emerald-700' : 'text-red-700'}`}>
-            {isSuccess ? 'Load successful' : 'Load error'}
-          </p>
-          <h3 className="mt-1 text-base font-semibold">{title}</h3>
-          <p className="mt-1 text-sm leading-6 text-slate-700">{message}</p>
-          <p className="mt-2 text-xs leading-5 text-slate-500">{detail}</p>
-        </div>
-      </div>
+    <div className="pointer-events-none fixed right-4 top-4 z-[70] flex w-[min(92vw,360px)] flex-col gap-2">
+      {toasts.map((toast) => {
+        const toneClass = toast.tone === 'success'
+          ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+          : 'border-red-200 bg-red-50 text-red-900'
+        const tagClass = toast.tone === 'success'
+          ? 'bg-emerald-600 text-white'
+          : 'bg-red-600 text-white'
+
+        return (
+          <div key={toast.id} className={`pointer-events-auto rounded-lg border px-3 py-2 shadow-lg ${toneClass}`}>
+            <div className="flex items-start gap-2">
+              <span className={`mt-0.5 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${tagClass}`}>
+                {toast.tone}
+              </span>
+              <p className="flex-1 text-sm leading-5">{toast.message}</p>
+              <button
+                type="button"
+                onClick={() => onDismiss(toast.id)}
+                aria-label="Dismiss notification"
+                className="rounded p-0.5 text-slate-500 hover:bg-white/70 hover:text-slate-700"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -329,13 +364,16 @@ export default function Home() {
   const [catalogItemCount, setCatalogItemCount] = useState<number | null>(null)
   const [isParsing, setIsParsing] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
+  const [isSavingSupabase, setIsSavingSupabase] = useState(false)
+  const [isLoadingSnowflake, setIsLoadingSnowflake] = useState(false)
   const [isCatalogUploading, setIsCatalogUploading] = useState(false)
   const [session, setSession] = useState<SessionPayload | null>(null)
   const [isAuthLoading, setIsAuthLoading] = useState(true)
   const [latestGenerateUid, setLatestGenerateUid] = useState<string | null>(null)
   const [apiError, setApiError] = useState<string | null>(null)
   const [apiStatus, setApiStatus] = useState<string | null>(null)
+  const [toasts, setToasts] = useState<AppToast[]>([])
+  const toastIdRef = useRef(0)
   const [isHistoryOpen, setIsHistoryOpen] = useState(false)
   const [historyData, setHistoryData] = useState<HistoryEntry[]>([])
   const [isHistoryLoading, setIsHistoryLoading] = useState(false)
@@ -345,8 +383,22 @@ export default function Home() {
   const [dataEntryStatusFilter, setDataEntryStatusFilter] = useState<'all' | 'pending' | 'pushed'>('all')
   const [dataEntryFindTerm, setDataEntryFindTerm] = useState('')
   const [dataEntryNewItemName, setDataEntryNewItemName] = useState('')
+  const [dataEntryAddHighlightIndex, setDataEntryAddHighlightIndex] = useState<number>(-1)
+  const [dataEntrySelectedCatalogCode, setDataEntrySelectedCatalogCode] = useState<string | null>(null)
+  const [manualEntryQuantity, setManualEntryQuantity] = useState('')
   const [dataEntryCreatePrefillName, setDataEntryCreatePrefillName] = useState('')
   const [showCreateDataEntryItemModal, setShowCreateDataEntryItemModal] = useState(false)
+  const [isItemProfilesExpanded, setIsItemProfilesExpanded] = useState(false)
+  const [inlineCreateForm, setInlineCreateForm] = useState<InlineCreateItemForm>({
+    official_name: '',
+    stocklist_name: '',
+    product: '',
+    category: '',
+    location: 'Inside Coolroom',
+    sub_location: 'Apples',
+    attribute: '',
+  })
+  const [isInlineCreateSaving, setIsInlineCreateSaving] = useState(false)
   const [isDataEntryMobileViewport, setIsDataEntryMobileViewport] = useState(false)
   const [dataEntryMobileView, setDataEntryMobileView] = useState<'card' | 'paper'>('card')
   const [dataEntryExpandedSections, setDataEntryExpandedSections] = useState<Set<string>>(new Set())
@@ -361,6 +413,7 @@ export default function Home() {
   const [isValidatedByStaff, setIsValidatedByStaff] = useState(false)
   const dataEntryPaperRef = useRef<HTMLDivElement | null>(null)
   const dataEntryFindContainerRef = useRef<HTMLDivElement | null>(null)
+  const dataEntryAddContainerRef = useRef<HTMLDivElement | null>(null)
   const dataEntryHighlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const isManualEntryMode = dataEntryMode === 'manual'
@@ -382,6 +435,17 @@ export default function Home() {
     const uniqueCategories = new Set(visibleCatalog.map((item) => item.category).filter((item) => item && item.trim().length > 0))
     return Array.from(uniqueCategories).sort()
   }, [visibleCatalog])
+
+  useEffect(() => {
+    setInlineCreateForm((current) => {
+      if (current.category) return current
+      if (dataEntryCreateCategories.length === 0) return current
+      return {
+        ...current,
+        category: dataEntryCreateCategories[0],
+      }
+    })
+  }, [dataEntryCreateCategories])
 
   const toggleCatalogItemVisibility = useCallback(async (code: string, nextVisible: boolean) => {
     const normalizedCode = code.trim().toUpperCase()
@@ -613,6 +677,7 @@ export default function Home() {
 
   useEffect(() => {
     setDataEntryFindTerm('')
+    setDataEntryAddHighlightIndex(-1)
     setHighlightedDataEntryIndex(null)
 
     if (dataEntryHighlightTimeoutRef.current) {
@@ -620,6 +685,34 @@ export default function Home() {
       dataEntryHighlightTimeoutRef.current = null
     }
   }, [activeSection])
+
+  useEffect(() => {
+    if (!apiError) return
+
+    toastIdRef.current += 1
+    const id = toastIdRef.current
+    setToasts((current) => [...current, { id, tone: 'error', message: apiError }])
+    setApiError(null)
+  }, [apiError])
+
+  useEffect(() => {
+    if (!apiStatus) return
+
+    toastIdRef.current += 1
+    const id = toastIdRef.current
+    setToasts((current) => [...current, { id, tone: 'success', message: apiStatus }])
+    setApiStatus(null)
+  }, [apiStatus])
+
+  useEffect(() => {
+    if (toasts.length === 0) return
+
+    const timer = setTimeout(() => {
+      setToasts((current) => current.slice(1))
+    }, 3800)
+
+    return () => clearTimeout(timer)
+  }, [toasts])
 
   useEffect(() => {
     const handleOutsideFindClick = (event: MouseEvent | TouchEvent) => {
@@ -640,6 +733,26 @@ export default function Home() {
       document.removeEventListener('touchstart', handleOutsideFindClick)
     }
   }, [dataEntryFindTerm])
+
+  useEffect(() => {
+    const handleOutsideAddClick = (event: MouseEvent | TouchEvent) => {
+      if (dataEntryNewItemName.trim().length === 0) return
+
+      const targetNode = event.target as Node | null
+      if (!targetNode) return
+
+      if (dataEntryAddContainerRef.current?.contains(targetNode)) return
+      setDataEntryAddHighlightIndex(-1)
+    }
+
+    document.addEventListener('mousedown', handleOutsideAddClick)
+    document.addEventListener('touchstart', handleOutsideAddClick)
+
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideAddClick)
+      document.removeEventListener('touchstart', handleOutsideAddClick)
+    }
+  }, [dataEntryNewItemName])
 
   async function uploadCatalogToDatabase(file: File) {
     setIsCatalogUploading(true)
@@ -679,28 +792,7 @@ export default function Home() {
 
   const indexedItems = useMemo(() => {
     if (!parsedData) {
-      if (visibleCatalog.length === 0) return []
-
-      return visibleCatalog.map((c_item, index) => ({
-        item: {
-          catalog_code: c_item.code,
-          product_raw: c_item.stocklist_name || c_item.official_name,
-          category: c_item.category,
-          location: c_item.location as StockItem['location'],
-          sub_location: c_item.sub_location,
-          product: c_item.product,
-          attribute: c_item.attribute,
-          official_name: c_item.official_name,
-          quantity_raw: c_item.quantity_raw ?? null,
-          quantity: typeof c_item.quantity === 'number' ? c_item.quantity : null,
-          quantity_conflict_flag: Boolean(c_item.quantity_conflict_flag),
-          row_position: c_item.row_position || 'single',
-          confidence: 'high' as const,
-          notes: null,
-        },
-        index,
-        source: 'parsed' as const,
-      }))
+      return []
     }
 
     // Extracted items (matched)
@@ -744,8 +836,12 @@ export default function Home() {
       source: 'unknown' as const
     }))
 
-    return [...allItems, ...missingItems, ...unknownMapped]
-  }, [missingCatalogItems, parsedData, unknownItems, visibleCatalog, visibleCatalogCodes])
+    return [...allItems, ...missingItems, ...unknownMapped].filter((row) => {
+      if (row.item.quantity !== null) return true
+      if (row.item.quantity_conflict_flag) return true
+      return (row.item.quantity_raw ?? '').trim().length > 0
+    })
+  }, [missingCatalogItems, parsedData, unknownItems, visibleCatalogCodes])
 
   const paperSections = useMemo(() => {
     const insideRows = indexedItems.filter((row) => row.item.location === 'Inside Coolroom' && row.source !== 'unknown')
@@ -885,6 +981,22 @@ export default function Home() {
     return Array.from(ids)
   }, [paperSections.leftColumn, paperSections.rightColumn, paperSections.unknownRows.left.length, paperSections.unknownRows.right.length, paperSections.unknownRows.single.length])
 
+  const areAllDataEntrySectionsExpanded = useMemo(() => {
+    if (dataEntrySectionIds.length === 0) return false
+    return dataEntrySectionIds.every((sectionId) => dataEntryExpandedSections.has(sectionId))
+  }, [dataEntryExpandedSections, dataEntrySectionIds])
+
+  useEffect(() => {
+    if (indexedItems.length === 0) {
+      setDataEntryExpandedSections(new Set())
+      return
+    }
+
+    if (indexedItems.length <= AUTO_EXPAND_SECTION_ROW_LIMIT) {
+      setDataEntryExpandedSections(new Set(dataEntrySectionIds))
+    }
+  }, [dataEntrySectionIds, indexedItems.length])
+
   const toggleDataEntrySection = useCallback((sectionId: string) => {
     setDataEntryExpandedSections((current) => {
       const next = new Set(current)
@@ -943,9 +1055,6 @@ export default function Home() {
 
     return visibleCatalog
       .filter((item) => {
-        const code = item.code.trim().toUpperCase()
-        if (existingKnownCodes.has(code)) return false
-
         return (
           item.official_name.toLowerCase().includes(term)
           || item.stocklist_name.toLowerCase().includes(term)
@@ -953,7 +1062,57 @@ export default function Home() {
         )
       })
       .slice(0, 6)
-  }, [dataEntryNewItemName, existingKnownCodes, visibleCatalog])
+  }, [dataEntryNewItemName, visibleCatalog])
+
+  useEffect(() => {
+    if (dataEntryNewItemName.trim().length === 0) {
+      setDataEntryAddHighlightIndex(-1)
+      return
+    }
+
+    if (dataEntryAddSuggestions.length === 0) {
+      setDataEntryAddHighlightIndex(-1)
+      return
+    }
+
+    setDataEntryAddHighlightIndex((current) => {
+      if (current < dataEntryAddSuggestions.length) return current
+      return -1
+    })
+  }, [dataEntryAddSuggestions, dataEntryNewItemName])
+
+  const selectedDataEntryCatalogItem = useMemo(() => {
+    if (!dataEntrySelectedCatalogCode) return null
+    const normalized = dataEntrySelectedCatalogCode.trim().toUpperCase()
+    return visibleCatalog.find((item) => item.code.trim().toUpperCase() === normalized) ?? null
+  }, [dataEntrySelectedCatalogCode, visibleCatalog])
+
+  const syncItemProfilesFromCatalogItem = useCallback((catalogItem: CatalogItem) => {
+    setInlineCreateForm({
+      official_name: catalogItem.official_name ?? '',
+      stocklist_name: catalogItem.stocklist_name ?? catalogItem.official_name ?? '',
+      product: catalogItem.product ?? '',
+      category: catalogItem.category ?? '',
+      location: catalogItem.location === 'Outside Coolroom' ? 'Outside Coolroom' : 'Inside Coolroom',
+      sub_location: catalogItem.sub_location ?? (catalogItem.location === 'Outside Coolroom' ? OUTSIDE_SUB_LOCATION_OPTIONS[0] : INSIDE_SUB_LOCATION_OPTIONS[0]),
+      attribute: catalogItem.attribute ?? '',
+    })
+  }, [])
+
+  useEffect(() => {
+    const term = dataEntryNewItemName.trim()
+    if (!term) return
+    if (dataEntrySelectedCatalogCode) return
+    if (dataEntryAddSuggestions.length > 0) return
+
+    setIsItemProfilesExpanded(true)
+    setInlineCreateForm((current) => ({
+      ...current,
+      official_name: current.official_name.trim().length > 0 ? current.official_name : term,
+      stocklist_name: current.stocklist_name.trim().length > 0 ? current.stocklist_name : term,
+      product: current.product.trim().length > 0 ? current.product : term,
+    }))
+  }, [dataEntryAddSuggestions, dataEntryNewItemName, dataEntrySelectedCatalogCode])
 
   const updateParsedStockDate = useCallback((value: string) => {
     if (!isIsoDate(value)) return
@@ -971,7 +1130,7 @@ export default function Home() {
     setIsValidatedByStaff(false)
   }, [])
 
-  const addKnownDataEntryItem = useCallback((catalogItem: CatalogItem) => {
+  const addKnownDataEntryItem = useCallback((catalogItem: CatalogItem, quantityOverride: number | null = null) => {
     if (!parsedData) {
       setApiError('Please start manual entry or parse a photo before adding items.')
       return
@@ -1003,8 +1162,8 @@ export default function Home() {
             official_name: catalogItem.official_name,
             stocklist_name: catalogItem.stocklist_name,
             navigation_guide: catalogItem.navigation_guide,
-            quantity_raw: null,
-            quantity: null,
+            quantity_raw: quantityOverride === null ? null : String(quantityOverride),
+            quantity: quantityOverride,
             quantity_conflict_flag: false,
             row_position: catalogItem.row_position ?? 'single',
             confidence: 'high',
@@ -1017,12 +1176,195 @@ export default function Home() {
     })
 
     setDataEntryNewItemName('')
+    setDataEntrySelectedCatalogCode(null)
+    setManualEntryQuantity('')
     setHasSavedToSupabase(false)
     setHasLoadedToDb(false)
     setIsValidatedByStaff(false)
     setApiError(null)
-    setApiStatus(`Added ${catalogItem.official_name} from catalog.`)
+    setApiStatus(`${catalogItem.official_name} and its quantity were updated to the table below. Continue and recheck at the table below.`)
   }, [existingKnownCodes, parsedData])
+
+  const selectDataEntryCatalogSuggestion = useCallback((catalogItem: CatalogItem) => {
+    setDataEntrySelectedCatalogCode(catalogItem.code)
+    setDataEntryNewItemName(catalogItem.official_name)
+    syncItemProfilesFromCatalogItem(catalogItem)
+    setDataEntryAddHighlightIndex(-1)
+    setApiError(null)
+  }, [syncItemProfilesFromCatalogItem])
+
+  const handleItemInputKeyDown = useCallback((event: KeyboardEvent<HTMLInputElement>) => {
+    if (dataEntryAddSuggestions.length === 0) return
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      setDataEntryAddHighlightIndex((current) => {
+        const next = current + 1
+        if (next >= dataEntryAddSuggestions.length) return 0
+        return next
+      })
+      return
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      setDataEntryAddHighlightIndex((current) => {
+        if (current <= 0) return dataEntryAddSuggestions.length - 1
+        return current - 1
+      })
+      return
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      setDataEntryAddHighlightIndex(-1)
+      return
+    }
+
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      const indexToUse = dataEntryAddHighlightIndex >= 0 ? dataEntryAddHighlightIndex : 0
+      const selected = dataEntryAddSuggestions[indexToUse]
+      if (selected) {
+        selectDataEntryCatalogSuggestion(selected)
+      }
+    }
+  }, [dataEntryAddHighlightIndex, dataEntryAddSuggestions, selectDataEntryCatalogSuggestion])
+
+  const updateItem = useCallback((index: number, patch: Partial<StockItem>) => {
+    setIsValidatedByStaff(false)
+    setHasSavedToSupabase(false)
+    setHasLoadedToDb(false)
+
+    // Handle missing items (index: -1000, -1001, -1002, ...)
+    if (index <= -1000 && index > -2000) {
+      const pos = -1000 - index
+      setMissingCatalogItems((current) => {
+        if (pos < 0 || pos >= current.length) return current
+        const next = [...current]
+        const item = next[pos]
+        // Update applicable fields from the patch
+        if (patch.official_name !== undefined) item.official_name = patch.official_name
+        if (patch.product !== undefined) item.product = patch.product
+        if (patch.attribute !== undefined) item.attribute = patch.attribute
+        if (patch.quantity !== undefined) item.quantity = patch.quantity
+        if (patch.quantity_raw !== undefined) item.quantity_raw = patch.quantity_raw
+        if (patch.quantity_conflict_flag !== undefined) item.quantity_conflict_flag = patch.quantity_conflict_flag
+        return next
+      })
+      return
+    }
+
+    // Handle unknown items (index: -2000, -2001, -2002, ...)
+    if (index <= -2000) {
+      const pos = -2000 - index
+      setUnknownItems((current) => {
+        if (pos < 0 || pos >= current.length) return current
+        const next = [...current]
+        const item = next[pos]
+        // Update applicable fields from the patch
+        if (patch.official_name !== undefined) item.official_name = patch.official_name
+        if (patch.product_raw !== undefined) item.product_raw = patch.product_raw
+        if (patch.quantity !== undefined) item.quantity = patch.quantity
+        if (patch.quantity_raw !== undefined) item.quantity_raw = patch.quantity_raw
+        if (patch.quantity_conflict_flag !== undefined) item.quantity_conflict_flag = patch.quantity_conflict_flag
+        return next
+      })
+      return
+    }
+
+    // Handle regular parsed items (index >= 0)
+    setParsedData((current) => {
+      if (!current) return current
+      const next = [...current.items]
+      next[index] = { ...next[index], ...patch }
+      return {
+        ...current,
+        items: next,
+        total_items: next.length,
+      }
+    })
+  }, [])
+
+  const addManualKnownItem = useCallback(() => {
+    if (!parsedData) {
+      setApiError('Please start manual entry or parse a photo before adding items.')
+      return
+    }
+
+    if (!parsedData.stock_date || !isIsoDate(parsedData.stock_date)) {
+      setApiError('Please set a valid stock date before adding items.')
+      return
+    }
+
+    const itemName = dataEntryNewItemName.trim()
+    if (!itemName) {
+      setApiError('Enter an item name before adding.')
+      return
+    }
+
+    const quantity = parseWholeQuantity(manualEntryQuantity)
+    if (quantity === null) {
+      setApiError('Enter a whole-number quantity before adding.')
+      return
+    }
+
+    const chosen = selectedDataEntryCatalogItem
+      ?? dataEntryAddSuggestions.find((item) => item.official_name.toLowerCase() === itemName.toLowerCase())
+      ?? visibleCatalog.find((item) => item.official_name.toLowerCase() === itemName.toLowerCase())
+
+    if (!chosen) {
+      setApiError('Choose an existing catalog suggestion or add the item via the Items profile mini form.')
+      return
+    }
+
+    const chosenCode = chosen.code.trim().toUpperCase()
+    const existingParsedIndex = parsedData.items.findIndex((item) => (item.catalog_code ?? '').trim().toUpperCase() === chosenCode)
+    if (existingParsedIndex >= 0) {
+      syncItemProfilesFromCatalogItem(chosen)
+      updateItem(existingParsedIndex, {
+        quantity,
+        quantity_raw: String(quantity),
+        quantity_conflict_flag: false,
+      })
+      setDataEntryNewItemName('')
+      setDataEntrySelectedCatalogCode(null)
+      setManualEntryQuantity('')
+      setApiError(null)
+      setApiStatus(`${chosen.official_name} and its quantity were updated to the table below. Continue and recheck at the table below.`)
+      return
+    }
+
+    const existingMissingIndex = missingCatalogItems.findIndex((item) => item.code.trim().toUpperCase() === chosenCode)
+    if (existingMissingIndex >= 0) {
+      const rowIndex = -1000 - existingMissingIndex
+      syncItemProfilesFromCatalogItem(chosen)
+      updateItem(rowIndex, {
+        quantity,
+        quantity_raw: String(quantity),
+        quantity_conflict_flag: false,
+      })
+      setDataEntryNewItemName('')
+      setDataEntrySelectedCatalogCode(null)
+      setManualEntryQuantity('')
+      setApiError(null)
+      setApiStatus(`${chosen.official_name} and its quantity were updated to the table below. Continue and recheck at the table below.`)
+      return
+    }
+
+    addKnownDataEntryItem(chosen, quantity)
+  }, [
+    addKnownDataEntryItem,
+    dataEntryAddSuggestions,
+    dataEntryNewItemName,
+    manualEntryQuantity,
+    missingCatalogItems,
+    parsedData,
+    selectedDataEntryCatalogItem,
+    syncItemProfilesFromCatalogItem,
+    updateItem,
+    visibleCatalog,
+  ])
 
   const openDataEntryCreateItemModal = useCallback(() => {
     if (!parsedData) {
@@ -1119,6 +1461,67 @@ export default function Home() {
     setApiError(null)
     setApiStatus(`Created and added ${created.official_name} immediately.`)
   }, [existingKnownCodes, parsedData])
+
+  const submitInlineCreateItem = useCallback(async () => {
+    if (!parsedData) {
+      setApiError('Please start manual entry or parse a photo before creating items.')
+      return
+    }
+
+    const officialName = inlineCreateForm.official_name.trim()
+    const stocklistName = inlineCreateForm.stocklist_name.trim() || officialName
+    const product = inlineCreateForm.product.trim() || officialName
+    const category = inlineCreateForm.category.trim()
+
+    if (!officialName || !stocklistName || !product || !category) {
+      setApiError('Items profile mini form requires Official Name, Stocklist Name, Product, and Category.')
+      return
+    }
+
+    const payload: CreateCatalogItemPayload = {
+      code: generateCatalogCode(category, product, inlineCreateForm.attribute.trim()),
+      location: inlineCreateForm.location,
+      sub_location: inlineCreateForm.sub_location,
+      category,
+      product,
+      attribute: inlineCreateForm.attribute.trim(),
+      official_name: officialName,
+      stocklist_name: stocklistName,
+      navigation_guide: '',
+      row_position: 'single',
+      is_visible: true,
+    }
+
+    setIsInlineCreateSaving(true)
+    setApiError(null)
+
+    try {
+      const response = await fetch('/api/catalog/item', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+
+      const responsePayload = await response.json().catch(() => null)
+      if (!response.ok) {
+        const message = typeof responsePayload?.error === 'string' ? responsePayload.error : 'Failed to create catalog item.'
+        throw new Error(message)
+      }
+
+      addCreatedDataEntryItem(payload)
+      setInlineCreateForm((current) => ({
+        ...current,
+        official_name: '',
+        stocklist_name: '',
+        product: '',
+        attribute: '',
+      }))
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : 'Failed to create catalog item.')
+    } finally {
+      setIsInlineCreateSaving(false)
+    }
+  }, [addCreatedDataEntryItem, inlineCreateForm, parsedData])
 
   const startManualEntry = useCallback(() => {
     const manualDraft = buildManualParsedPayload(visibleCatalog, stockMode, today)
@@ -1279,61 +1682,6 @@ export default function Home() {
     }
   }
 
-  function updateItem(index: number, patch: Partial<StockItem>) {
-    setIsValidatedByStaff(false)
-    setHasSavedToSupabase(false)
-    setHasLoadedToDb(false)
-
-    // Handle missing items (index: -1000, -1001, -1002, ...)
-    if (index <= -1000 && index > -2000) {
-      const pos = -1000 - index
-      setMissingCatalogItems((current) => {
-        if (pos < 0 || pos >= current.length) return current
-        const next = [...current]
-        const item = next[pos]
-        // Update applicable fields from the patch
-        if (patch.official_name !== undefined) item.official_name = patch.official_name
-        if (patch.product !== undefined) item.product = patch.product
-        if (patch.attribute !== undefined) item.attribute = patch.attribute
-        if (patch.quantity !== undefined) item.quantity = patch.quantity
-        if (patch.quantity_raw !== undefined) item.quantity_raw = patch.quantity_raw
-        if (patch.quantity_conflict_flag !== undefined) item.quantity_conflict_flag = patch.quantity_conflict_flag
-        return next
-      })
-      return
-    }
-
-    // Handle unknown items (index: -2000, -2001, -2002, ...)
-    if (index <= -2000) {
-      const pos = -2000 - index
-      setUnknownItems((current) => {
-        if (pos < 0 || pos >= current.length) return current
-        const next = [...current]
-        const item = next[pos]
-        // Update applicable fields from the patch
-        if (patch.official_name !== undefined) item.official_name = patch.official_name
-        if (patch.product_raw !== undefined) item.product_raw = patch.product_raw
-        if (patch.quantity !== undefined) item.quantity = patch.quantity
-        if (patch.quantity_raw !== undefined) item.quantity_raw = patch.quantity_raw
-        if (patch.quantity_conflict_flag !== undefined) item.quantity_conflict_flag = patch.quantity_conflict_flag
-        return next
-      })
-      return
-    }
-
-    // Handle regular parsed items (index >= 0)
-    setParsedData((current) => {
-      if (!current) return current
-      const next = [...current.items]
-      next[index] = { ...next[index], ...patch }
-      return {
-        ...current,
-        items: next,
-        total_items: next.length,
-      }
-    })
-  }
-
   function toQuantityPatch(val: string): Partial<StockItem> {
     const trimmed = val.trim()
     if (!trimmed) {
@@ -1413,6 +1761,66 @@ export default function Home() {
     )
   }
 
+  const normalizeAndMarkValidated = useCallback((announceStatus: boolean) => {
+    if (!parsedData) {
+      setApiError('No parsed data to validate yet.')
+      return false
+    }
+
+    // Business rule: blank known quantities are treated as zero at validation time.
+    const normalizedParsedItems = parsedData.items.map((item) => {
+      if (item.quantity === null && !item.quantity_conflict_flag) {
+        return {
+          ...item,
+          quantity: 0,
+          quantity_raw: '0',
+        }
+      }
+
+      return item
+    })
+
+    const normalizedMissingItems = missingCatalogItems.map((item) => {
+      const hasConflict = Boolean(item.quantity_conflict_flag)
+      const hasBlankQuantity = item.quantity === null || item.quantity === undefined
+
+      if (hasBlankQuantity && !hasConflict) {
+        return {
+          ...item,
+          quantity: 0,
+          quantity_raw: '0',
+        }
+      }
+
+      return item
+    })
+
+    const conflictCount = normalizedParsedItems.filter((item) => item.quantity_conflict_flag).length
+      + normalizedMissingItems.filter((item) => Boolean(item.quantity_conflict_flag)).length
+
+    setParsedData((current) => {
+      if (!current) return current
+      return {
+        ...current,
+        items: normalizedParsedItems,
+      }
+    })
+
+    setMissingCatalogItems(normalizedMissingItems)
+    setApiError(null)
+    setIsValidatedByStaff(true)
+
+    if (announceStatus) {
+      if (conflictCount > 0) {
+        setApiStatus(`Validation complete. Blank known quantities were normalized to 0. ${conflictCount} known item(s) are still marked as conflict.`)
+      } else {
+        setApiStatus('Validation complete. Blank known quantities were normalized to 0.')
+      }
+    }
+
+    return true
+  }, [missingCatalogItems, parsedData])
+
   async function exportCsv() {
     if (!parsedData) {
       setApiError('No parsed data to export yet.')
@@ -1420,7 +1828,7 @@ export default function Home() {
     }
 
     if (!isValidatedByStaff) {
-      setApiError('Please click Validate first. Export is only enabled after staff validation.')
+      setApiError('Please Save first. Export is enabled after Save validation completes.')
       return
     }
 
@@ -1474,7 +1882,12 @@ export default function Home() {
       return
     }
 
-    setIsSaving(true)
+    const isValidated = normalizeAndMarkValidated(false)
+    if (!isValidated) {
+      return
+    }
+
+    setIsSavingSupabase(true)
     setApiError(null)
     setApiStatus(null)
 
@@ -1484,7 +1897,7 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           data: parsedData,
-          validated: isValidatedByStaff ? 'yes' : 'no',
+          validated: 'yes',
           unknown_items: unknownItems,
           missing_catalog_items: missingCatalogItems,
           uid_generate: latestGenerateUid ?? undefined,
@@ -1518,7 +1931,7 @@ export default function Home() {
     } catch (error) {
       setApiError(error instanceof Error ? error.message : 'Unexpected Supabase save error.')
     } finally {
-      setIsSaving(false)
+      setIsSavingSupabase(false)
     }
   }
 
@@ -1539,11 +1952,11 @@ export default function Home() {
     }
 
     if (!isValidatedByStaff) {
-      setApiError('Please click Validate first. Load to Snowflake is only enabled after staff validation.')
+      setApiError('Please Save first. Load to Snowflake is enabled after Save validation completes.')
       return
     }
 
-    setIsSaving(true)
+    setIsLoadingSnowflake(true)
     setApiError(null)
     setApiStatus(null)
 
@@ -1553,7 +1966,7 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           data: parsedData,
-          validated: isValidatedByStaff ? 'yes' : 'no',
+          validated: 'yes',
           unknown_items: unknownItems,
           missing_catalog_items: missingCatalogItems,
           uid_generate: latestGenerateUid,
@@ -1583,7 +1996,7 @@ export default function Home() {
     } catch (error) {
       setApiError(error instanceof Error ? error.message : 'Unexpected Snowflake save error.')
     } finally {
-      setIsSaving(false)
+      setIsLoadingSnowflake(false)
     }
   }
 
@@ -1663,64 +2076,14 @@ export default function Home() {
   const isStockCheckTab = activeSection === 'stock-check'
   const showSidebarHistory = activeSection !== 'catalog'
 
-  const validateReviewedData = () => {
-    if (!parsedData) {
-      setApiError('No parsed data to validate yet.')
-      return
-    }
-
-    // Business rule: blank known quantities are treated as zero at validation time.
-    const normalizedParsedItems = parsedData.items.map((item) => {
-      if (item.quantity === null && !item.quantity_conflict_flag) {
-        return {
-          ...item,
-          quantity: 0,
-          quantity_raw: '0',
-        }
-      }
-
-      return item
-    })
-
-    const normalizedMissingItems = missingCatalogItems.map((item) => {
-      const hasConflict = Boolean(item.quantity_conflict_flag)
-      const hasBlankQuantity = item.quantity === null || item.quantity === undefined
-
-      if (hasBlankQuantity && !hasConflict) {
-        return {
-          ...item,
-          quantity: 0,
-          quantity_raw: '0',
-        }
-      }
-
-      return item
-    })
-
-    const conflictCount = normalizedParsedItems.filter((item) => item.quantity_conflict_flag).length
-      + normalizedMissingItems.filter((item) => Boolean(item.quantity_conflict_flag)).length
-
-    setParsedData((current) => {
-      if (!current) return current
-      return {
-        ...current,
-        items: normalizedParsedItems,
-      }
-    })
-
-    setMissingCatalogItems(normalizedMissingItems)
-
-    setApiError(null)
-    if (conflictCount > 0) {
-      setApiStatus(`Validated by staff. Blank known quantities were normalized to 0. ${conflictCount} known item(s) are still marked as conflict, but Export CSV and Load to Snowflake are enabled.`)
-    } else {
-      setApiStatus('Validated by staff. Blank known quantities were normalized to 0. Export CSV and Load to Snowflake are now enabled.')
-    }
-    setIsValidatedByStaff(true)
-  }
-
   return (
     <main className="min-h-screen px-2 py-2 sm:px-3 sm:py-3 md:px-8 md:py-7">
+      <ToastStack
+        toasts={toasts}
+        onDismiss={(id) => {
+          setToasts((current) => current.filter((toast) => toast.id !== id))
+        }}
+      />
       <div className="mx-auto mb-3 flex w-full max-w-7xl flex-col gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between sm:px-4">
         <p className="w-full truncate sm:w-auto">
           {isAuthLoading
@@ -1963,49 +2326,234 @@ export default function Home() {
                     value={isManualEntryMode ? 'manual' : 'photo'}
                     onManual={startManualEntry}
                     onPhoto={startPhotoEntry}
-                    manualHelpText="Manual entry is active. Adjust stock-in quantities directly in the paper view."
-                    photoHelpText="Photo entry is active. Choose a stock-in photo and parse it into the same paper layout."
+                    manualLabel="Manual Entry"
+                    photoLabel="Photo Entry"
+                    manualHelpText="Enter stock values manually and review them in the stocklist viewer."
+                    photoHelpText="Upload a photo, parse it, then review values in the stocklist viewer."
                   />
 
-                  {!isManualEntryMode && (
-                    <div className="rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 p-3 text-center transition hover:border-brand-500 md:p-5">
-                      <p className="text-sm text-slate-500">JPEG / PNG, max 5MB</p>
+                  {isManualEntryMode ? (
+                    <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-2">
+                      <div className="rounded-lg bg-white p-3">
+                        <p className="text-sm font-semibold text-slate-800">Input</p>
+                        <div className="mt-2 space-y-2">
+                          <div className="flex w-full flex-col gap-1">
+                            <label htmlFor="paper-stock-date" className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Date</label>
+                            <input
+                              id="paper-stock-date"
+                              type="date"
+                              value={parsedData?.stock_date ?? ''}
+                              onChange={(event) => updateParsedStockDate(event.target.value)}
+                              disabled={!parsedData}
+                              className="min-h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 focus:border-brand-500 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-100"
+                            />
+                          </div>
 
-                      <p className="mt-3 text-xs text-slate-500">Parse photo, review quantities in the table, then Validate, Save, and Load.</p>
+                          <div ref={dataEntryAddContainerRef} className="relative">
+                            <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Item</label>
+                            <input
+                              type="text"
+                              value={dataEntryNewItemName}
+                              onChange={(event) => {
+                                setDataEntryNewItemName(event.target.value)
+                                setDataEntrySelectedCatalogCode(null)
+                              }}
+                              onKeyDown={handleItemInputKeyDown}
+                              placeholder="Search or type item name"
+                              disabled={!parsedData}
+                              className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base text-slate-700 focus:border-brand-500 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-100"
+                            />
 
-                      <>
-                        <input
-                          id="photo-upload"
-                          type="file"
-                          className="hidden"
-                          accept="image/jpeg,image/png"
-                          onChange={(event) => {
-                            const file = event.target.files?.[0]
-                            setPhotoFile(file ?? null)
-                          }}
-                        />
+                            {dataEntryNewItemName.trim().length > 0 && dataEntryAddSuggestions.length > 0 && parsedData && !dataEntrySelectedCatalogCode && (
+                              <div className="absolute z-20 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg">
+                                {dataEntryAddSuggestions.map((item) => (
+                                  <button
+                                    key={item.code}
+                                    type="button"
+                                    onClick={() => selectDataEntryCatalogSuggestion(item)}
+                                    className={`block w-full border-b border-slate-100 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 last:border-b-0 ${dataEntryAddSuggestions[dataEntryAddHighlightIndex]?.code === item.code ? 'bg-brand-50 text-brand-700' : ''}`}
+                                  >
+                                    {item.official_name} ({item.code})
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                            <p className="mt-1 text-[11px] text-slate-500">Use arrow keys + Enter to select a suggestion.</p>
+                          </div>
 
-                        <label
-                          htmlFor="photo-upload"
-                          className="mt-3 inline-flex min-h-11 w-full cursor-pointer items-center justify-center rounded-lg bg-brand-500 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-brand-600 md:w-auto"
+                          <div>
+                            <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Qty</label>
+                            <input
+                              type="number"
+                              value={manualEntryQuantity}
+                              onChange={(event) => setManualEntryQuantity(event.target.value)}
+                              placeholder="e.g. 6"
+                              disabled={!parsedData}
+                              className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base text-slate-700 focus:border-brand-500 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-100"
+                            />
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={addManualKnownItem}
+                            disabled={!parsedData || !parsedData.stock_date || dataEntryNewItemName.trim().length === 0 || parseWholeQuantity(manualEntryQuantity) === null}
+                            className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+                          >
+                            <Plus className="h-4 w-4" />
+                            Add
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="rounded-lg bg-white p-3">
+                        <button
+                          type="button"
+                          onClick={() => setIsItemProfilesExpanded((current) => !current)}
+                          className="flex w-full items-center justify-between gap-3 rounded-md text-left"
                         >
-                          Choose File
-                        </label>
+                          <div>
+                            <p className="text-sm font-semibold text-slate-800">Item Profiles</p>
+                            <p className="mt-0.5 text-xs text-slate-500">Expand to edit or create item details.</p>
+                          </div>
+                          <span className="rounded-full border border-slate-300 bg-slate-50 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600">
+                            {isItemProfilesExpanded ? 'Collapse' : 'Expand'}
+                          </span>
+                        </button>
 
-                        <p className="mt-3 text-sm text-slate-600">
-                          {photoFile ? `Photo: ${photoFile.name}` : 'No photo selected'}
-                        </p>
+                        {isItemProfilesExpanded && (
+                          <>
+                            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                              <input
+                                type="text"
+                                value={inlineCreateForm.official_name}
+                                onChange={(event) => setInlineCreateForm((current) => ({ ...current, official_name: event.target.value }))}
+                                placeholder="Official Name"
+                                className="min-h-10 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
+                              />
+                              <input
+                                type="text"
+                                value={inlineCreateForm.stocklist_name}
+                                onChange={(event) => setInlineCreateForm((current) => ({ ...current, stocklist_name: event.target.value }))}
+                                placeholder="Name on Stocklist"
+                                className="min-h-10 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
+                              />
+                              <input
+                                type="text"
+                                value={inlineCreateForm.product}
+                                onChange={(event) => setInlineCreateForm((current) => ({ ...current, product: event.target.value }))}
+                                placeholder="Product"
+                                className="min-h-10 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
+                              />
+                              <select
+                                value={inlineCreateForm.category}
+                                onChange={(event) => setInlineCreateForm((current) => ({ ...current, category: event.target.value }))}
+                                className="min-h-10 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
+                              >
+                                <option value="">Select category</option>
+                                {dataEntryCreateCategories.map((category) => (
+                                  <option key={category} value={category}>{category}</option>
+                                ))}
+                              </select>
+                              <select
+                                value={inlineCreateForm.location}
+                                onChange={(event) => {
+                                  const nextLocation = event.target.value as 'Inside Coolroom' | 'Outside Coolroom'
+                                  setInlineCreateForm((current) => ({
+                                    ...current,
+                                    location: nextLocation,
+                                    sub_location: nextLocation === 'Outside Coolroom' ? OUTSIDE_SUB_LOCATION_OPTIONS[0] : INSIDE_SUB_LOCATION_OPTIONS[0],
+                                  }))
+                                }}
+                                className="min-h-10 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
+                              >
+                                <option value="Inside Coolroom">Inside Coolroom</option>
+                                <option value="Outside Coolroom">Outside Coolroom</option>
+                              </select>
+                              <select
+                                value={inlineCreateForm.sub_location}
+                                onChange={(event) => setInlineCreateForm((current) => ({ ...current, sub_location: event.target.value }))}
+                                className="min-h-10 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
+                              >
+                                {(inlineCreateForm.location === 'Outside Coolroom' ? OUTSIDE_SUB_LOCATION_OPTIONS : INSIDE_SUB_LOCATION_OPTIONS).map((subLocation) => (
+                                  <option key={subLocation} value={subLocation}>{subLocation}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                              <input
+                                type="text"
+                                value={inlineCreateForm.attribute}
+                                onChange={(event) => setInlineCreateForm((current) => ({ ...current, attribute: event.target.value }))}
+                                placeholder="Attribute (optional)"
+                                className="min-h-10 flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
+                              />
+                              <button
+                                type="button"
+                                onClick={submitInlineCreateItem}
+                                disabled={isInlineCreateSaving || !parsedData}
+                                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+                              >
+                                {isInlineCreateSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                                {isInlineCreateSaving ? 'Adding...' : 'Add items if new'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={openDataEntryCreateItemModal}
+                                disabled={!parsedData || dataEntryNewItemName.trim().length === 0}
+                                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                Advanced Form
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 md:p-5">
+                      <div className="grid gap-3 md:grid-cols-[220px_1fr_auto] md:items-end">
+                        <div className="flex w-full flex-col gap-1">
+                          <label htmlFor="paper-stock-date" className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Date</label>
+                          <input
+                            id="paper-stock-date"
+                            type="date"
+                            value={parsedData?.stock_date ?? ''}
+                            onChange={(event) => updateParsedStockDate(event.target.value)}
+                            disabled={!parsedData}
+                            className="min-h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 focus:border-brand-500 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-100"
+                          />
+                        </div>
+
+                        <div>
+                          <input
+                            id="photo-upload"
+                            type="file"
+                            className="hidden"
+                            accept="image/jpeg,image/png"
+                            onChange={(event) => {
+                              const file = event.target.files?.[0]
+                              setPhotoFile(file ?? null)
+                            }}
+                          />
+                          <label
+                            htmlFor="photo-upload"
+                            className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center rounded-lg bg-brand-500 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-brand-600"
+                          >
+                            Choose photo
+                          </label>
+                          <p className="mt-2 text-xs text-slate-500">{photoFile ? `Photo: ${photoFile.name}` : 'JPEG / PNG, max 5MB'}</p>
+                        </div>
 
                         <button
                           type="button"
                           onClick={parsePhoto}
                           disabled={isParsing || !photoFile}
-                          className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400 md:w-auto md:min-w-[170px]"
+                          className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400 md:w-auto md:min-w-[170px]"
                         >
                           {isParsing && <Loader2 className="h-4 w-4 animate-spin" />}
                           {isParsing ? 'Parsing...' : 'Parse'}
                         </button>
-                      </>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -2014,67 +2562,18 @@ export default function Home() {
               <section className="card-surface rounded-2xl p-6 md:p-8">
                 <div className="mb-4 grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
                   <h2 className="text-xl font-semibold text-slate-900">Editable Stocklist Layout</h2>
-                  <div className="flex w-full flex-col gap-1 sm:w-auto">
-                    <label htmlFor="paper-stock-date" className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Paper Date</label>
-                    <input
-                      id="paper-stock-date"
-                      type="date"
-                      value={parsedData?.stock_date ?? ''}
-                      onChange={(event) => updateParsedStockDate(event.target.value)}
-                      disabled={!parsedData}
-                      className="min-h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 focus:border-brand-500 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-100 sm:w-[190px]"
-                    />
-                  </div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Search items above the stocklist viewer.</p>
                 </div>
 
                 <div className="mobile-sticky-add mb-4 space-y-3">
-                  <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
-                    <div className="relative">
-                      <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Add Data</label>
-                      <input
-                        type="text"
-                        value={dataEntryNewItemName}
-                        onChange={(event) => setDataEntryNewItemName(event.target.value)}
-                        placeholder="Type to match catalog or add as new"
-                        disabled={!parsedData}
-                        className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base text-slate-700 focus:border-brand-500 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-100"
-                      />
-
-                      {dataEntryNewItemName.trim().length > 0 && dataEntryAddSuggestions.length > 0 && parsedData && (
-                        <div className="absolute z-20 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg">
-                          {dataEntryAddSuggestions.map((item) => (
-                            <button
-                              key={item.code}
-                              type="button"
-                              onClick={() => addKnownDataEntryItem(item)}
-                              className="block w-full border-b border-slate-100 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 last:border-b-0"
-                            >
-                              {item.official_name} ({item.code})
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={openDataEntryCreateItemModal}
-                      disabled={!parsedData || dataEntryNewItemName.trim().length === 0}
-                      className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      <Plus className="h-4 w-4" />
-                      Create new Item
-                    </button>
-                  </div>
-
                   <div ref={dataEntryFindContainerRef} className="relative">
-                    <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Find In Stocklist</label>
+                    <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Search</label>
                     <Search className="pointer-events-none absolute left-3 top-8 h-4 w-4 text-slate-400" />
                     <input
                       type="text"
                       value={dataEntryFindTerm}
                       onChange={(event) => setDataEntryFindTerm(event.target.value)}
-                      placeholder="Search official or stocklist name"
+                      placeholder="Search in stocklist viewer"
                       className="min-h-11 w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-9 pr-10 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
                     />
 
@@ -2119,57 +2618,38 @@ export default function Home() {
                 </div>
 
                 <div className="space-y-6">
-                  <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm md:grid-cols-[1fr_auto] md:items-start">
-                    <p>
-                      <span className="font-semibold text-slate-700">Mode:</span>{' '}
-                      {parsedData ? 'Stock-in' : 'Catalog preview'}
-                    </p>
-                    <details className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600">
-                      <summary className="cursor-pointer select-none font-semibold text-slate-700">Details</summary>
-                      <p className="mt-1.5">
-                        <span className="font-semibold">UID_generate:</span> {latestGenerateUid ?? 'Not generated yet'}
-                      </p>
-                    </details>
-                  </div>
-
                   {isDataEntryMobileViewport && (
                     <div className="mb-3 flex items-center justify-between rounded-lg border border-slate-200 bg-white p-2 md:hidden">
                       <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Mobile View</span>
-                      <div className="grid grid-cols-2 gap-1 rounded-md bg-slate-100 p-1">
+                      <div className="flex items-center gap-2">
+                        <div className="grid grid-cols-2 gap-1 rounded-md bg-slate-100 p-1">
+                          <button
+                            type="button"
+                            onClick={() => setDataEntryMobileView('card')}
+                            className={`rounded px-3 py-1.5 text-xs font-semibold ${dataEntryMobileView === 'card' ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-600'}`}
+                          >
+                            Card
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDataEntryMobileView('paper')}
+                            className={`rounded px-3 py-1.5 text-xs font-semibold ${dataEntryMobileView === 'paper' ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-600'}`}
+                          >
+                            Paper
+                          </button>
+                        </div>
                         <button
                           type="button"
-                          onClick={() => setDataEntryMobileView('card')}
-                          className={`rounded px-3 py-1.5 text-xs font-semibold ${dataEntryMobileView === 'card' ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-600'}`}
+                          onClick={areAllDataEntrySectionsExpanded ? collapseAllDataEntrySections : expandAllDataEntrySections}
+                          className="inline-flex min-h-8 items-center justify-center rounded-md border border-slate-300 bg-white px-3 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+                          aria-label={areAllDataEntrySectionsExpanded ? 'Collapse all review sections' : 'Expand all review sections'}
+                          title={areAllDataEntrySectionsExpanded ? 'Collapse all review sections' : 'Expand all review sections'}
                         >
-                          Card
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setDataEntryMobileView('paper')}
-                          className={`rounded px-3 py-1.5 text-xs font-semibold ${dataEntryMobileView === 'paper' ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-600'}`}
-                        >
-                          Paper
+                          {areAllDataEntrySectionsExpanded ? 'Collapse all' : 'Expand all'}
                         </button>
                       </div>
                     </div>
                   )}
-
-                  <div className="mb-3 flex items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={expandAllDataEntrySections}
-                      className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                    >
-                      Expand all
-                    </button>
-                    <button
-                      type="button"
-                      onClick={collapseAllDataEntrySections}
-                      className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                    >
-                      Collapse all
-                    </button>
-                  </div>
 
                   <div className="stock-paper-wrap overflow-x-auto" ref={dataEntryPaperRef}>
 
@@ -2278,46 +2758,20 @@ export default function Home() {
                   </div>
                 </div>
 
-                {apiError && (
-                  <FeedbackBanner
-                    tone="error"
-                    title="Stock update did not complete"
-                    message={apiError}
-                    detail="Check the current record, save again if needed, and then retry the Snowflake load."
-                  />
-                )}
-
-                {apiStatus && (
-                  <FeedbackBanner
-                    tone="success"
-                    title="Stock record updated"
-                    message={apiStatus}
-                    detail="The current draft was saved and can still be edited before the final Snowflake load."
-                  />
-                )}
-
                 <div className="mobile-sticky-actions mt-5 grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-center">
                   <button
                     type="button"
-                    onClick={validateReviewedData}
-                    disabled={!parsedData || isSaving || isExporting}
-                    className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-100 disabled:text-slate-400 sm:w-auto"
-                  >
-                    {isValidatedByStaff ? 'Validated' : 'Validate'}
-                  </button>
-                  <button
-                    type="button"
                     onClick={saveToSupabase}
-                    disabled={!parsedData || !isValidatedByStaff || isSaving || isExporting}
+                    disabled={!parsedData || isSavingSupabase || isLoadingSnowflake || isExporting}
                     className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-100 disabled:text-slate-400 sm:w-auto"
                   >
-                    {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                    {isSaving ? 'Saving...' : hasSavedToSupabase ? 'Saved to Supabase' : 'Save to Supabase'}
+                    {isSavingSupabase ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    {isSavingSupabase ? 'Saving...' : hasSavedToSupabase ? 'Saved' : 'Save'}
                   </button>
                   <button
                     type="button"
                     onClick={exportCsv}
-                    disabled={!parsedData || !isValidatedByStaff || isExporting || isSaving}
+                    disabled={!parsedData || !isValidatedByStaff || isExporting || isSavingSupabase || isLoadingSnowflake}
                     className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400 sm:w-auto"
                   >
                     {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
@@ -2326,11 +2780,11 @@ export default function Home() {
                   <button
                     type="button"
                     onClick={loadToSnowflake}
-                    disabled={!parsedData || !isValidatedByStaff || !hasSavedToSupabase || isSaving || isExporting}
+                    disabled={!parsedData || !isValidatedByStaff || !hasSavedToSupabase || isSavingSupabase || isLoadingSnowflake || isExporting}
                     className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-brand-300 sm:w-auto"
                   >
-                    {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Database className="h-4 w-4" />}
-                    {isSaving ? 'Loading to Snowflake...' : 'Load to Snowflake'}
+                    {isLoadingSnowflake ? <Loader2 className="h-4 w-4 animate-spin" /> : <Database className="h-4 w-4" />}
+                    {isLoadingSnowflake ? 'Loading...' : 'Load'}
                   </button>
                 </div>
               </section>

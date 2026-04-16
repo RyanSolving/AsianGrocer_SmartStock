@@ -3,6 +3,7 @@ import snowflake from 'snowflake-sdk'
 
 import { logPushToSnowflakeEvent } from '../../../lib/supabase/events'
 import { getAuthContext } from '../../../lib/supabase/route-auth'
+import { buildManualEntryRecordName } from '../../../lib/record-names'
 import {
   buildSnowflakeStagingRecord,
   parsedStockSchema,
@@ -214,6 +215,7 @@ export async function POST(request: Request) {
       unknownItems,
       missingCatalogItems,
     })
+    const recordName = buildManualEntryRecordName(stagedRecord.stock_date)
 
     const persistedFinalOutput = parsedStockSchema.parse({
       photo_id: stagedRecord.photo_id,
@@ -232,6 +234,8 @@ export async function POST(request: Request) {
       const { error: updateGenerateError } = await auth.supabase
         .from('event_generate')
         .update({
+          input_file_name: recordName,
+          record_name: recordName,
           final_output: persistedFinalOutput,
           edited: true,
         })
@@ -252,7 +256,8 @@ export async function POST(request: Request) {
         .from('event_generate')
         .insert({
           user_id: auth.user.id,
-          input_file_name: 'manual-entry',
+          input_file_name: recordName,
+          record_name: recordName,
           catalog_version: 'manual',
           output_from_model: { source: 'manual-entry' },
           final_output: persistedFinalOutput,
@@ -303,6 +308,7 @@ export async function POST(request: Request) {
     unknownItems,
     missingCatalogItems,
   })
+  const recordName = buildManualEntryRecordName(stagedRecord.stock_date)
 
   const persistedFinalOutput = parsedStockSchema.parse({
     photo_id: stagedRecord.photo_id,
@@ -374,6 +380,8 @@ export async function POST(request: Request) {
       const { error: updateGenerateError } = await auth.supabase
         .from('event_generate')
         .update({
+          input_file_name: recordName,
+          record_name: recordName,
           final_output: persistedFinalOutput,
           edited: true,
         })

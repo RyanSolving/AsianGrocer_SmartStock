@@ -91,6 +91,8 @@ describe('Stock check save overwrite integration', () => {
     expect(firstUpsert.date).toBe(secondUpsert.date)
     expect(firstUpsert.mode).toBe(secondUpsert.mode)
     expect(firstUpsert.mode).toBe('closing_check')
+    expect(firstUpsert.record_name).toBe(`stock-check-${stockDate}`)
+    expect(secondUpsert.record_name).toBe(`stock-check-${stockDate}`)
 
     // Edited stock values can differ and should replace previous item_data.
     expect(firstUpsert.item_data.items[0].quantity).toBe(8)

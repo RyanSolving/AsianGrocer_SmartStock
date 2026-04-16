@@ -16,6 +16,7 @@ export async function GET(request: Request) {
         `
         uid_generate,
         input_file_name,
+        record_name,
         log_time,
         final_output,
         stock_mode
@@ -56,7 +57,7 @@ export async function GET(request: Request) {
     const history = (events || []).map((event: any) => ({
       uid_generate: event.uid_generate,
       timestamp: event.log_time,
-      filename: event.input_file_name,
+      filename: event.record_name ?? event.input_file_name,
       transcriptionData: event.final_output,
       stockMode: event.stock_mode,
       isPushed: pushedUids.has(event.uid_generate),
