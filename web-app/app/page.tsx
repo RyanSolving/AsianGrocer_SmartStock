@@ -16,6 +16,7 @@ import {
   Plus
 } from 'lucide-react'
 
+import { DashboardPanel } from './components/DashboardPanel'
 import { CatalogManagementView } from './catalog/CatalogManagementView'
 import { CreateCatalogItemModal, type CreateCatalogItemPayload } from './components/CreateCatalogItemModal'
 import { EmbeddedStockCheckPanel } from './components/EmbeddedStockCheckPanel'
@@ -24,7 +25,28 @@ import { StockPaperCardSection, StockPaperSectionTable, StockPaperThreeColumnTab
 import type { SelectedStockCheckHistoryRecord } from './components/EmbeddedStockCheckPanel'
 import { TranscriptionHistoryDialog } from './components/TranscriptionHistoryDialog'
 import { filterVisibleCatalogItems } from '../lib/catalog-visibility'
+import {
+  clearOfflineDraft,
+  enqueueOfflineRequest,
+  getPendingOfflineCountByFeature,
+  getPendingOfflineCount,
+  hasOfflineDraft,
+  isNetworkRequestError,
+  loadOfflineDraft,
+  saveOfflineDraft,
+  subscribeOfflineDraftUpdates,
+  subscribeOfflineQueueUpdates,
+  syncOfflineQueue,
+} from '../lib/offline/queue'
 import { formatSheetDate, normalizeInsideSectionLabel } from '../lib/stock-paper-utils'
+
+function shouldSilenceOfflineNetworkError(error: unknown) {
+  if (typeof window === 'undefined' || window.navigator.onLine) {
+    return false
+  }
+
+  return isNetworkRequestError(error)
+}
 
 type StockItem = {
   catalog_code: string | null
@@ -133,6 +155,18 @@ type AppToast = {
   message: string
 }
 
+type StockInOfflineDraft = {
+  dataEntryMode: DataEntryMode
+  parsedData: ParsedPayload
+  unknownItems: UnknownItem[]
+  missingCatalogItems: CatalogItem[]
+  latestGenerateUid: string | null
+  editingHistoryUid: string | null
+  isValidatedByStaff: boolean
+  hasSavedToSupabase: boolean
+  hasLoadedToDb: boolean
+}
+
 type SidebarHistoryCardProps = {
   title: string
   timestamp: string
@@ -179,7 +213,7 @@ type IndexedItem = {
   source: 'parsed' | 'missing' | 'unknown'
 }
 
-type HubSection = 'data-entry' | 'stock-check' | 'catalog'
+type HubSection = 'data-entry' | 'stock-check' | 'dashboard' | 'catalog'
 type DataEntryMode = 'manual' | 'photo'
 type InlineCreateItemForm = {
   official_name: string
@@ -308,6 +342,105 @@ function isIsoDate(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value)
 }
 
+function mapHistoryEntryToEditablePayload(entry: HistoryEntry, fallbackDate: string): {
+  parsedData: ParsedPayload
+  unknownItems: UnknownItem[]
+} | null {
+  if (!entry.transcriptionData || typeof entry.transcriptionData !== 'object') {
+    return null
+  }
+
+  const root = entry.transcriptionData as Record<string, unknown>
+  const rawItems = Array.isArray(root.items) ? root.items : []
+
+  const items: StockItem[] = []
+  const unknownItems: UnknownItem[] = []
+
+  rawItems.forEach((raw) => {
+    if (!raw || typeof raw !== 'object') return
+
+    const row = raw as Record<string, unknown>
+    const catalogCode = typeof row.catalog_code === 'string' && row.catalog_code.trim().length > 0
+      ? row.catalog_code.trim()
+      : null
+    const quantity = typeof row.quantity === 'number' && Number.isFinite(row.quantity)
+      ? row.quantity
+      : null
+    const quantityRaw = typeof row.quantity_raw === 'string'
+      ? row.quantity_raw
+      : quantity === null
+        ? null
+        : String(quantity)
+
+    const normalizedRow: StockItem = {
+      catalog_code: catalogCode,
+      product_raw: typeof row.product_raw === 'string' ? row.product_raw : (typeof row.official_name === 'string' ? row.official_name : ''),
+      category: typeof row.category === 'string' ? row.category : 'Unknown',
+      location: typeof row.location === 'string' ? row.location : 'Unknown',
+      sub_location: typeof row.sub_location === 'string' ? row.sub_location : 'Unknown',
+      product: typeof row.product === 'string' ? row.product : (typeof row.official_name === 'string' ? row.official_name : ''),
+      attribute: typeof row.attribute === 'string' ? row.attribute : '',
+      official_name: typeof row.official_name === 'string' ? row.official_name : (typeof row.product_raw === 'string' ? row.product_raw : ''),
+      stocklist_name: typeof row.stocklist_name === 'string' ? row.stocklist_name : undefined,
+      navigation_guide: typeof row.navigation_guide === 'string' ? row.navigation_guide : undefined,
+      quantity_raw: quantityRaw,
+      quantity,
+      quantity_conflict_flag: Boolean(row.quantity_conflict_flag),
+      row_position: row.row_position === 'left' || row.row_position === 'right' || row.row_position === 'single'
+        ? row.row_position
+        : 'single',
+      confidence: row.confidence === 'high' || row.confidence === 'medium' || row.confidence === 'low'
+        ? row.confidence
+        : 'high',
+      catalog_match_status: row.catalog_match_status === 'exact' || row.catalog_match_status === 'fuzzy' || row.catalog_match_status === 'unknown'
+        ? row.catalog_match_status
+        : undefined,
+      notes: typeof row.notes === 'string' ? row.notes : null,
+    }
+
+    items.push(normalizedRow)
+
+    if (!catalogCode) {
+      unknownItems.push({
+        catalog_code: null,
+        product_raw: normalizedRow.product_raw,
+        category: normalizedRow.category,
+        location: normalizedRow.location,
+        sub_location: normalizedRow.sub_location,
+        product: normalizedRow.product,
+        attribute: normalizedRow.attribute,
+        official_name: normalizedRow.official_name,
+        quantity_raw: normalizedRow.quantity_raw,
+        quantity: normalizedRow.quantity,
+        quantity_conflict_flag: normalizedRow.quantity_conflict_flag,
+        row_position: normalizedRow.row_position,
+        confidence: normalizedRow.confidence,
+        catalog_match_status: 'unknown',
+      })
+    }
+  })
+
+  const stockDate = typeof root.stock_date === 'string' && isIsoDate(root.stock_date) ? root.stock_date : fallbackDate
+  const uploadDate = typeof root.upload_date === 'string' ? root.upload_date : new Date().toISOString()
+  const mode: StockMode = root.mode === 'stock-closing' ? 'stock-closing' : 'stock-in'
+
+  return {
+    parsedData: {
+      photo_id: typeof root.photo_id === 'string' && root.photo_id.length > 0 ? root.photo_id : `history-${entry.uid_generate}`,
+      mode,
+      upload_date: uploadDate,
+      stock_date: stockDate,
+      photo_url: typeof root.photo_url === 'string' ? root.photo_url : null,
+      total_items: items.length,
+      confidence_overall: root.confidence_overall === 'high' || root.confidence_overall === 'medium' || root.confidence_overall === 'low'
+        ? root.confidence_overall
+        : 'high',
+      items,
+    },
+    unknownItems,
+  }
+}
+
 function ToastStack({
   toasts,
   onDismiss,
@@ -379,6 +512,12 @@ export default function Home() {
   const [isHistoryLoading, setIsHistoryLoading] = useState(false)
   const [isRepushing, setIsRepushing] = useState(false)
   const [selectedHistoryUid, setSelectedHistoryUid] = useState<string | null>(null)
+  const [editingHistoryUid, setEditingHistoryUid] = useState<string | null>(null)
+  const [isOnline, setIsOnline] = useState(true)
+  const [offlineQueueCount, setOfflineQueueCount] = useState(0)
+  const [stockInQueueCount, setStockInQueueCount] = useState(0)
+  const [isOfflineSyncing, setIsOfflineSyncing] = useState(false)
+  const [hasStockInLocalDraft, setHasStockInLocalDraft] = useState(false)
   const [dataEntrySearchTerm, setDataEntrySearchTerm] = useState('')
   const [dataEntryStatusFilter, setDataEntryStatusFilter] = useState<'all' | 'pending' | 'pushed'>('all')
   const [dataEntryFindTerm, setDataEntryFindTerm] = useState('')
@@ -518,20 +657,28 @@ export default function Home() {
   }, [activeCatalog])
 
   async function loadCatalogFromApi() {
-    const response = await fetch('/api/catalog')
-    const data = await response.json()
+    try {
+      const response = await fetch('/api/catalog')
+      const data = await response.json()
 
-    if (!response.ok) {
-      throw new Error(data?.error ?? 'Failed to load catalog data.')
+      if (!response.ok) {
+        throw new Error(data?.error ?? 'Failed to load catalog data.')
+      }
+
+      const catalog = Array.isArray(data?.catalog) ? data.catalog : []
+      setActiveCatalog(catalog.map((item: CatalogItem) => ({
+        ...item,
+        is_visible: item.is_visible ?? true,
+      })))
+      setCatalogItemCount(catalog.length)
+      setCatalogSource(data?.source === 'database' ? 'uploaded' : 'master')
+    } catch (error) {
+      if (shouldSilenceOfflineNetworkError(error)) {
+        return
+      }
+
+      throw error
     }
-
-    const catalog = Array.isArray(data?.catalog) ? data.catalog : []
-    setActiveCatalog(catalog.map((item: CatalogItem) => ({
-      ...item,
-      is_visible: item.is_visible ?? true,
-    })))
-    setCatalogItemCount(catalog.length)
-    setCatalogSource(data?.source === 'database' ? 'uploaded' : 'master')
   }
 
   const loadTranscriptionHistory = useCallback(async () => {
@@ -549,6 +696,10 @@ export default function Home() {
 
       setHistoryData(Array.isArray(payload.history) ? payload.history : [])
     } catch (error) {
+      if (shouldSilenceOfflineNetworkError(error)) {
+        return
+      }
+
       setApiError(error instanceof Error ? error.message : 'Failed to load history.')
     } finally {
       setIsHistoryLoading(false)
@@ -569,11 +720,137 @@ export default function Home() {
 
       setStockCheckHistory(Array.isArray(payload.history) ? payload.history : [])
     } catch (error) {
+      if (shouldSilenceOfflineNetworkError(error)) {
+        return
+      }
+
       setApiError(error instanceof Error ? error.message : 'Failed to load stock check history.')
     } finally {
       setIsStockCheckHistoryLoading(false)
     }
   }, [])
+
+  const refreshOfflineQueueState = useCallback(() => {
+    if (typeof window === 'undefined') return
+
+    setOfflineQueueCount(getPendingOfflineCount())
+    setStockInQueueCount(getPendingOfflineCountByFeature('stock-in'))
+    setHasStockInLocalDraft(hasOfflineDraft('stock-in'))
+    setIsOnline(window.navigator.onLine)
+  }, [])
+
+  const runOfflineSync = useCallback(async () => {
+    if (typeof window === 'undefined') return
+    if (isOfflineSyncing || !window.navigator.onLine) return
+
+    setIsOfflineSyncing(true)
+
+    try {
+      const result = await syncOfflineQueue()
+      setOfflineQueueCount(result.remaining)
+      setStockInQueueCount(getPendingOfflineCountByFeature('stock-in'))
+
+      if (result.authError) {
+        setApiError('Session expired while syncing offline saves. Please sign in again to finish syncing queued records.')
+        return
+      }
+
+      if (result.processed > 0) {
+        setApiStatus(`Synced ${result.processed} offline save${result.processed > 1 ? 's' : ''}.`)
+        await loadTranscriptionHistory()
+        await loadStockCheckHistory()
+      }
+    } finally {
+      setIsOfflineSyncing(false)
+    }
+  }, [isOfflineSyncing, loadStockCheckHistory, loadTranscriptionHistory])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    refreshOfflineQueueState()
+
+    const unsubscribe = subscribeOfflineQueueUpdates(() => {
+      refreshOfflineQueueState()
+    })
+    const unsubscribeDraft = subscribeOfflineDraftUpdates(() => {
+      refreshOfflineQueueState()
+    })
+
+    const handleOnline = () => {
+      setIsOnline(true)
+      void runOfflineSync()
+    }
+
+    const handleOffline = () => {
+      setIsOnline(false)
+    }
+
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+
+    if (window.navigator.onLine) {
+      void runOfflineSync()
+    }
+
+    return () => {
+      unsubscribe()
+      unsubscribeDraft()
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [refreshOfflineQueueState, runOfflineSync])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const draft = loadOfflineDraft<StockInOfflineDraft>('stock-in')
+    if (!draft || !draft.parsedData) return
+
+    setDataEntryMode(draft.dataEntryMode)
+    setParsedData(draft.parsedData)
+    setUnknownItems(Array.isArray(draft.unknownItems) ? draft.unknownItems : [])
+    setMissingCatalogItems(Array.isArray(draft.missingCatalogItems) ? draft.missingCatalogItems : [])
+    setLatestGenerateUid(draft.latestGenerateUid ?? null)
+    setEditingHistoryUid(draft.editingHistoryUid ?? null)
+    setIsValidatedByStaff(Boolean(draft.isValidatedByStaff))
+    setHasSavedToSupabase(Boolean(draft.hasSavedToSupabase))
+    setHasLoadedToDb(Boolean(draft.hasLoadedToDb))
+    setApiStatus('Recovered local stock-in draft for offline review and editing.')
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    if (!parsedData) {
+      clearOfflineDraft('stock-in')
+      setHasStockInLocalDraft(false)
+      return
+    }
+
+    saveOfflineDraft('stock-in', {
+      dataEntryMode,
+      parsedData,
+      unknownItems,
+      missingCatalogItems,
+      latestGenerateUid,
+      editingHistoryUid,
+      isValidatedByStaff,
+      hasSavedToSupabase,
+      hasLoadedToDb,
+    })
+    setHasStockInLocalDraft(true)
+  }, [
+    dataEntryMode,
+    editingHistoryUid,
+    hasLoadedToDb,
+    hasSavedToSupabase,
+    isValidatedByStaff,
+    latestGenerateUid,
+    missingCatalogItems,
+    parsedData,
+    unknownItems,
+  ])
 
   useEffect(() => {
     fetch('/api/auth/session')
@@ -591,6 +868,10 @@ export default function Home() {
           await loadTranscriptionHistory()
           await loadStockCheckHistory()
         } catch (catalogError) {
+          if (shouldSilenceOfflineNetworkError(catalogError)) {
+            return
+          }
+
           console.error('Failed to load catalog', catalogError)
           setApiError(catalogError instanceof Error ? catalogError.message : 'Failed to load catalog.')
         }
@@ -1314,7 +1595,30 @@ export default function Home() {
       ?? visibleCatalog.find((item) => item.official_name.toLowerCase() === itemName.toLowerCase())
 
     if (!chosen) {
-      setApiError('Choose an existing catalog suggestion or add the item via the Items profile mini form.')
+      setUnknownItems((current) => [
+        ...current,
+        {
+          catalog_code: null,
+          product_raw: itemName,
+          category: 'Unknown',
+          location: 'Unknown',
+          sub_location: 'Unknown',
+          product: itemName,
+          attribute: '',
+          official_name: itemName,
+          quantity_raw: String(quantity),
+          quantity,
+          quantity_conflict_flag: false,
+          row_position: 'single',
+          confidence: 'high',
+          catalog_match_status: 'unknown',
+        },
+      ])
+      setDataEntryNewItemName('')
+      setDataEntrySelectedCatalogCode(null)
+      setManualEntryQuantity('')
+      setApiError(null)
+      setApiStatus(`${itemName} was added as an offline review row. You can save when internet is available.`)
       return
     }
 
@@ -1532,6 +1836,8 @@ export default function Home() {
     setUnknownItems([])
     setMissingCatalogItems([])
     setLatestGenerateUid(null)
+    setEditingHistoryUid(null)
+    setSelectedHistoryUid(null)
     setHasSavedToSupabase(false)
     setHasLoadedToDb(false)
     setIsValidatedByStaff(false)
@@ -1546,6 +1852,8 @@ export default function Home() {
     setUnknownItems([])
     setMissingCatalogItems([])
     setLatestGenerateUid(null)
+    setEditingHistoryUid(null)
+    setSelectedHistoryUid(null)
     setHasSavedToSupabase(false)
     setHasLoadedToDb(false)
     setIsValidatedByStaff(false)
@@ -1610,6 +1918,7 @@ export default function Home() {
     }
 
     setDataEntryMode('photo')
+    setEditingHistoryUid(null)
     setIsParsing(true)
     setHasSavedToSupabase(false)
     setHasLoadedToDb(false)
@@ -1891,18 +2200,32 @@ export default function Home() {
     setApiError(null)
     setApiStatus(null)
 
+    const requestPayload: Record<string, unknown> = {
+      data: parsedData,
+      validated: 'yes',
+      unknown_items: unknownItems,
+      missing_catalog_items: missingCatalogItems,
+      uid_generate: latestGenerateUid ?? undefined,
+      persist_only: true,
+    }
+
+    if (typeof window !== 'undefined' && !window.navigator.onLine) {
+      enqueueOfflineRequest({
+        feature: 'stock-in',
+        endpoint: '/api/save-to-snowflake',
+        payload: requestPayload,
+      })
+      setApiStatus('Offline detected. Save queued and will auto-sync when connection returns.')
+      setHasSavedToSupabase(false)
+      setIsSavingSupabase(false)
+      return
+    }
+
     try {
       const response = await fetch('/api/save-to-snowflake', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          data: parsedData,
-          validated: 'yes',
-          unknown_items: unknownItems,
-          missing_catalog_items: missingCatalogItems,
-          uid_generate: latestGenerateUid ?? undefined,
-          persist_only: true,
-        }),
+        body: JSON.stringify(requestPayload),
       })
 
       const payload = await response.json()
@@ -1926,9 +2249,23 @@ export default function Home() {
       )
       if (typeof payload?.uid_generate === 'string' && payload.uid_generate.length > 0) {
         setLatestGenerateUid(payload.uid_generate)
+        if (editingHistoryUid) {
+          setEditingHistoryUid(payload.uid_generate)
+        }
       }
       setHasSavedToSupabase(true)
     } catch (error) {
+      if (isNetworkRequestError(error)) {
+        enqueueOfflineRequest({
+          feature: 'stock-in',
+          endpoint: '/api/save-to-snowflake',
+          payload: requestPayload,
+        })
+        setApiStatus('Network unavailable. Save queued and will auto-sync when connection returns.')
+        setHasSavedToSupabase(false)
+        return
+      }
+
       setApiError(error instanceof Error ? error.message : 'Unexpected Supabase save error.')
     } finally {
       setIsSavingSupabase(false)
@@ -2035,6 +2372,65 @@ export default function Home() {
     }
   }
 
+  const startNewDraftFromCurrent = useCallback(() => {
+    setEditingHistoryUid(null)
+    setSelectedHistoryUid(null)
+    setLatestGenerateUid(null)
+    setHasSavedToSupabase(false)
+    setHasLoadedToDb(false)
+    setIsValidatedByStaff(false)
+    setApiStatus('Switched to new draft mode. Next Save will create a new history record.')
+  }, [])
+
+  const loadDataEntryHistoryToEditor = useCallback(async (uid: string) => {
+    const applyEntry = (entry: HistoryEntry) => {
+      const mapped = mapHistoryEntryToEditablePayload(entry, today)
+      if (!mapped) {
+        setApiError('This history record could not be loaded into the editor.')
+        return false
+      }
+
+      setActiveSection('data-entry')
+      setDataEntryMode('manual')
+      setParsedData(mapped.parsedData)
+      setUnknownItems(mapped.unknownItems)
+      setMissingCatalogItems([])
+      setLatestGenerateUid(entry.uid_generate)
+      setEditingHistoryUid(entry.uid_generate)
+      setSelectedHistoryUid(entry.uid_generate)
+      setHasSavedToSupabase(true)
+      setHasLoadedToDb(false)
+      setIsValidatedByStaff(true)
+      setApiError(null)
+      setApiStatus(`Loaded history record ${entry.uid_generate} for editing.`)
+      return true
+    }
+
+    const existing = historyData.find((entry) => entry.uid_generate === uid)
+    if (existing) {
+      applyEntry(existing)
+      return
+    }
+
+    await loadTranscriptionHistory()
+
+    try {
+      const response = await fetch('/api/transcription-history')
+      const payload = await response.json()
+      const freshHistory = Array.isArray(payload?.history) ? payload.history as HistoryEntry[] : []
+      const fresh = freshHistory.find((entry) => entry.uid_generate === uid)
+
+      if (!fresh) {
+        setApiError('Unable to find that history record. Please refresh history and try again.')
+        return
+      }
+
+      applyEntry(fresh)
+    } catch {
+      setApiError('Unable to refresh history details. Please try again.')
+    }
+  }, [historyData, loadTranscriptionHistory, today])
+
   const openHistory = async (uid?: string) => {
     setSelectedHistoryUid(uid ?? null)
     setIsHistoryOpen(true)
@@ -2074,7 +2470,7 @@ export default function Home() {
     return statusMatches && searchMatches
   })
   const isStockCheckTab = activeSection === 'stock-check'
-  const showSidebarHistory = activeSection !== 'catalog'
+  const showSidebarHistory = activeSection === 'data-entry' || activeSection === 'stock-check'
 
   return (
     <main className="min-h-screen px-2 py-2 sm:px-3 sm:py-3 md:px-8 md:py-7">
@@ -2111,6 +2507,19 @@ export default function Home() {
           )}
         </div>
       </div>
+      <div className="mx-auto mb-3 flex w-full max-w-7xl flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs sm:px-4">
+        <span className={`rounded-full px-2 py-1 font-semibold ${isOnline ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+          {isOnline ? 'Online' : 'Offline'}
+        </span>
+        <span className="text-slate-600">
+          Pending offline saves: <strong>{offlineQueueCount}</strong>
+        </span>
+        {isOfflineSyncing && (
+          <span className="rounded-full bg-blue-100 px-2 py-1 font-semibold text-blue-700">
+            Syncing queued saves...
+          </span>
+        )}
+      </div>
       <div className="mx-auto flex max-w-7xl flex-col gap-3 md:flex-row md:gap-4">
         <aside className="card-surface rounded-2xl p-3 sm:p-4 md:min-h-[85vh] md:w-72 md:p-6">
           <div className="mb-5 md:mb-8">
@@ -2141,7 +2550,14 @@ export default function Home() {
               <Search className="h-4 w-4" />
               Check Stock
             </button>
-            <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-slate-600 hover:bg-slate-100">
+            <button
+              type="button"
+              onClick={() => setActiveSection('dashboard')}
+              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm ${activeSection === 'dashboard'
+                  ? 'bg-brand-50 font-semibold text-brand-700'
+                  : 'text-slate-600 hover:bg-slate-100'
+                }`}
+            >
               <BarChart3 className="h-4 w-4" />
               Dashboard
             </button>
@@ -2277,7 +2693,7 @@ export default function Home() {
                         timestamp={entry.timestamp}
                         selected={selectedHistoryUid === entry.uid_generate}
                         onClick={() => {
-                          void openHistory(entry.uid_generate)
+                          void loadDataEntryHistoryToEditor(entry.uid_generate)
                         }}
                         badges={[
                           {
@@ -2311,6 +2727,8 @@ export default function Home() {
               historyRecords={stockCheckHistory}
               onToggleCatalogVisibility={toggleCatalogItemVisibility}
             />
+          ) : activeSection === 'dashboard' ? (
+            <DashboardPanel />
           ) : (
             <div className="space-y-4">
               <section className="card-surface rounded-2xl p-6 pb-24 md:p-8 md:pb-8">
@@ -2320,6 +2738,21 @@ export default function Home() {
                     Stock In is for stock-in input. For stock-closing (manual or parse from photo), use Check Stock.
                   </p>
                 </div>
+
+                {editingHistoryUid && (
+                  <div className="mb-4 flex flex-col gap-2 rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-sm text-brand-800 sm:flex-row sm:items-center sm:justify-between">
+                    <p>
+                      Editing history record <strong>{editingHistoryUid}</strong>. Save will overwrite this record.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={startNewDraftFromCurrent}
+                      className="rounded-md border border-brand-300 bg-white px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-100"
+                    >
+                      New Draft
+                    </button>
+                  </div>
+                )}
 
                 <div className="grid gap-4">
                   <EntryMethodToggle
@@ -2561,8 +2994,19 @@ export default function Home() {
 
               <section className="card-surface rounded-2xl p-6 md:p-8">
                 <div className="mb-4 grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
-                  <h2 className="text-xl font-semibold text-slate-900">Editable Stocklist Layout</h2>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Search items above the stocklist viewer.</p>
+                  <div>
+                    <h2 className="text-xl font-semibold text-slate-900">Editable Stocklist Layout</h2>
+                    <p className="mt-1 text-xs text-slate-600">
+                      {stockInQueueCount > 0
+                        ? `${stockInQueueCount} stock-in save${stockInQueueCount > 1 ? 's' : ''} queued for sync.`
+                        : hasStockInLocalDraft
+                          ? 'Local draft is active and visible in review table.'
+                          : 'No local draft yet.'}
+                    </p>
+                  </div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    {!isOnline ? 'Offline mode active.' : isOfflineSyncing ? 'Syncing queued saves...' : 'Search items above the stocklist viewer.'}
+                  </p>
                 </div>
 
                 <div className="mobile-sticky-add mb-4 space-y-3">
@@ -2906,6 +3350,10 @@ export default function Home() {
         onClose={() => setIsHistoryOpen(false)}
         history={historyData}
         isLoading={isHistoryLoading}
+        onLoadToEdit={(uid) => {
+          setIsHistoryOpen(false)
+          void loadDataEntryHistoryToEditor(uid)
+        }}
         onRepush={reopushToSnowflake}
         isRepushing={isRepushing}
         selectedUid={selectedHistoryUid}

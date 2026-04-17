@@ -215,7 +215,7 @@ describe('Data Entry manual save flow', () => {
 
     expect(insertCalls[0]).toMatchObject({
       user_id: 'user-123',
-      input_file_name: 'manual-entry',
+      input_file_name: expect.stringMatching(/^manual-entry-stock-/),
       catalog_version: 'manual',
       edited: true,
       stock_mode: 'arrival_entry',

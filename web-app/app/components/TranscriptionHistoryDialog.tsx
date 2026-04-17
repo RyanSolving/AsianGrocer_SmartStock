@@ -17,6 +17,7 @@ type TranscriptionHistoryDialogProps = {
   onClose: () => void
   history: HistoryEntry[]
   isLoading: boolean
+  onLoadToEdit: (uid: string) => void
   onRepush: (uid: string) => void
   isRepushing: boolean
   selectedUid?: string | null
@@ -28,6 +29,7 @@ export function TranscriptionHistoryDialog({
   onClose,
   history,
   isLoading,
+  onLoadToEdit,
   onRepush,
   isRepushing,
   selectedUid,
@@ -231,14 +233,22 @@ export function TranscriptionHistoryDialog({
                       {getTranscriptionText(entry.transcriptionData)}
                     </p>
                   </div>
-                  <button
-                    onClick={() => onRepush(entry.uid_generate)}
-                    disabled={isRepushing}
-                    className="flex items-center gap-2 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-100 disabled:opacity-50"
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                    Re-push
-                  </button>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <button
+                      onClick={() => onLoadToEdit(entry.uid_generate)}
+                      className="rounded-lg border border-brand-300 bg-brand-50 px-3 py-2 text-sm font-medium text-brand-700 transition hover:bg-brand-100"
+                    >
+                      Load to Edit
+                    </button>
+                    <button
+                      onClick={() => onRepush(entry.uid_generate)}
+                      disabled={isRepushing}
+                      className="flex items-center justify-center gap-2 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-100 disabled:opacity-50"
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                      Re-push
+                    </button>
+                  </div>
                 </div>
 
                 {/* Expandable Details */}

@@ -5,6 +5,17 @@ import { Database, Download, Eye, EyeOff, FileImage, Loader2, Plus, Save, Search
 import { toPng } from 'html-to-image'
 import { normalizeBlankStockCheckQuantities } from '../../lib/stock-check-utils'
 import { filterVisibleCatalogItems } from '../../lib/catalog-visibility'
+import {
+  clearOfflineDraft,
+  enqueueOfflineRequest,
+  getPendingOfflineCountByFeature,
+  hasOfflineDraft,
+  isNetworkRequestError,
+  loadOfflineDraft,
+  saveOfflineDraft,
+  subscribeOfflineDraftUpdates,
+  subscribeOfflineQueueUpdates,
+} from '../../lib/offline/queue'
 import { EntryMethodToggle } from './EntryMethodToggle'
 import { CreateCatalogItemModal, type CreateCatalogItemPayload } from './CreateCatalogItemModal'
 import { StockPaperCardSection, StockPaperSectionTable, StockPaperThreeColumnTable } from './StockPaperTables'
@@ -138,6 +149,14 @@ type ParsedPhotoResponse = {
   review_required_count?: number
   catalog_item_count?: number
   catalog_source?: string | null
+}
+
+type StockCheckOfflineDraft = {
+  stockEntryMode: 'manual' | 'photo'
+  stockDate: string
+  rows: StockCheckRow[]
+  isValidated: boolean
+  hasPassedRecheck: boolean
 }
 
 function splitRows(items: IndexedRow[]): RowColumns {
@@ -410,6 +429,10 @@ export function EmbeddedStockCheckPanel({
   const [isParsing, setIsParsing] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [isOnline, setIsOnline] = useState(true)
+  const [stockCheckQueueCount, setStockCheckQueueCount] = useState(0)
+  const [hasStockCheckLocalDraft, setHasStockCheckLocalDraft] = useState(false)
+  const [hasRestoredOfflineDraft, setHasRestoredOfflineDraft] = useState(false)
   const [newItemName, setNewItemName] = useState('')
   const [createCatalogItemPrefillName, setCreateCatalogItemPrefillName] = useState('')
   const [showCreateCatalogItemModal, setShowCreateCatalogItemModal] = useState(false)
@@ -429,6 +452,7 @@ export function EmbeddedStockCheckPanel({
   const [hasLoadedExpandedSectionPrefs, setHasLoadedExpandedSectionPrefs] = useState(false)
   const [hasInitializedExpandedSections, setHasInitializedExpandedSections] = useState(false)
   const [manualCheckQuantity, setManualCheckQuantity] = useState('')
+  const [manualCheckRedMarked, setManualCheckRedMarked] = useState(false)
   const [manualCheckHighlightIndex, setManualCheckHighlightIndex] = useState(0)
   const [isItemProfilesExpanded, setIsItemProfilesExpanded] = useState(false)
   const [showItemSuggestions, setShowItemSuggestions] = useState(false)
@@ -598,10 +622,84 @@ export function EmbeddedStockCheckPanel({
     })
   }, [visibleCatalogItems])
 
+  const refreshOfflineState = useCallback(() => {
+    if (typeof window === 'undefined') return
+
+    setIsOnline(window.navigator.onLine)
+    setStockCheckQueueCount(getPendingOfflineCountByFeature('stock-check'))
+    setHasStockCheckLocalDraft(hasOfflineDraft('stock-check'))
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    refreshOfflineState()
+
+    const unsubscribeQueue = subscribeOfflineQueueUpdates(refreshOfflineState)
+    const unsubscribeDraft = subscribeOfflineDraftUpdates(refreshOfflineState)
+
+    const handleOnline = () => setIsOnline(true)
+    const handleOffline = () => setIsOnline(false)
+
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+
+    return () => {
+      unsubscribeQueue()
+      unsubscribeDraft()
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [refreshOfflineState])
+
+  useEffect(() => {
+    if (hasRestoredOfflineDraft) return
+
+    if (loadedHistoryUid) {
+      setHasRestoredOfflineDraft(true)
+      return
+    }
+
+    const draft = loadOfflineDraft<StockCheckOfflineDraft>('stock-check')
+    if (!draft || !Array.isArray(draft.rows)) {
+      setHasRestoredOfflineDraft(true)
+      return
+    }
+
+    setStockEntryMode(draft.stockEntryMode ?? 'manual')
+    setStockDate(typeof draft.stockDate === 'string' && draft.stockDate.length > 0 ? draft.stockDate : today)
+    setRows(draft.rows)
+    setIsValidated(Boolean(draft.isValidated))
+    setHasPassedRecheck(Boolean(draft.hasPassedRecheck))
+    setStatus('Recovered local stock-check draft for offline review and editing.')
+    setError(null)
+    setHasRestoredOfflineDraft(true)
+  }, [hasRestoredOfflineDraft, loadedHistoryUid, today])
+
+  useEffect(() => {
+    if (!hasRestoredOfflineDraft) return
+
+    if (rows.length === 0) {
+      clearOfflineDraft('stock-check')
+      setHasStockCheckLocalDraft(false)
+      return
+    }
+
+    saveOfflineDraft('stock-check', {
+      stockEntryMode,
+      stockDate,
+      rows,
+      isValidated,
+      hasPassedRecheck,
+    })
+    setHasStockCheckLocalDraft(true)
+  }, [hasPassedRecheck, hasRestoredOfflineDraft, isValidated, rows, stockDate, stockEntryMode])
+
   const startManualEntry = useCallback(() => {
     setStockEntryMode('manual')
     setStockPhotoFile(null)
     setRows(visibleCatalogItems.map(makeCatalogRow))
+    setManualCheckRedMarked(false)
     setStatus('Manual closing entry is ready.')
     setError(null)
     setIsValidated(false)
@@ -613,6 +711,7 @@ export function EmbeddedStockCheckPanel({
   const startPhotoEntry = useCallback(() => {
     setStockEntryMode('photo')
     setStockPhotoFile(null)
+    setManualCheckRedMarked(false)
     setStatus('Photo closing entry is ready. Choose a photo to parse.')
     setError(null)
   }, [])
@@ -801,18 +900,27 @@ export function EmbeddedStockCheckPanel({
 
   const indexedRows = useMemo(() => rows.map((row, index) => ({ row, index })), [rows])
 
+  const displayedIndexedRows = useMemo(() => {
+    if (stockEntryMode === 'manual') {
+      return indexedRows.filter(
+        (x) => x.row.quantity !== null && x.row.quantity !== 0
+      )
+    }
+    return indexedRows
+  }, [indexedRows, stockEntryMode])
+
   const findSuggestions = useMemo(() => {
     const term = findTerm.trim().toLowerCase()
     if (!term) return []
 
-    return indexedRows
+    return displayedIndexedRows
       .filter(({ row }) => {
         const official = row.official_name.toLowerCase()
         const stocklist = row.stocklist_name.toLowerCase()
         return official.includes(term) || stocklist.includes(term)
       })
       .slice(0, 8)
-  }, [findTerm, indexedRows])
+  }, [findTerm, displayedIndexedRows])
 
   const getHighlightClass = useCallback((index: number | undefined) => {
     if (index === undefined || index !== highlightedRowIndex) {
@@ -886,7 +994,7 @@ export function EmbeddedStockCheckPanel({
   }, [findTerm])
 
   const paperSections = useMemo(() => {
-    const insideRows = indexedRows.filter(
+    const insideRows = displayedIndexedRows.filter(
       (x) => x.row.location === 'Inside Coolroom' && x.row.source !== 'unknown'
     )
 
@@ -915,8 +1023,8 @@ export function EmbeddedStockCheckPanel({
 
     const midpoint = Math.ceil(insideSections.length / 2)
 
-    const outsideRows = sortIndexedRowsByName(indexedRows.filter((x) => x.row.location === 'Outside Coolroom'))
-    const unknownRows = sortIndexedRowsByName(indexedRows.filter((x) => x.row.source === 'unknown'))
+    const outsideRows = sortIndexedRowsByName(displayedIndexedRows.filter((x) => x.row.location === 'Outside Coolroom'))
+    const unknownRows = sortIndexedRowsByName(displayedIndexedRows.filter((x) => x.row.source === 'unknown'))
 
     return {
       leftColumn: insideSections.slice(0, midpoint),
@@ -924,7 +1032,7 @@ export function EmbeddedStockCheckPanel({
       outsideRows: splitRows(outsideRows),
       unknownRows: splitRows(unknownRows),
     }
-  }, [indexedRows])
+  }, [displayedIndexedRows])
 
   const outsideDisplayColumns = useMemo(() => {
     const combinedOutside = [
@@ -1077,11 +1185,25 @@ export function EmbeddedStockCheckPanel({
     updateRow(index, { red_marked: !rows[index].red_marked })
   }
 
-  function addKnownFromSuggestion(item: CatalogItem) {
+  function addKnownFromSuggestion(item: CatalogItem, quantityOverride: number | null = null, redMarked = false) {
     setRows((prev) => {
-      const exists = prev.some((x) => x.code === item.code)
-      if (exists) return prev
-      return [...prev, makeCatalogRow(item)]
+      const existingIndex = prev.findIndex((x) => x.code === item.code)
+      const nextRow = {
+        ...makeCatalogRow(item),
+        quantity: quantityOverride,
+        red_marked: redMarked,
+      }
+
+      if (existingIndex < 0) {
+        return [...prev, nextRow]
+      }
+
+      const next = [...prev]
+      next[existingIndex] = {
+        ...next[existingIndex],
+        ...nextRow,
+      }
+      return next
     })
     setNewItemName('')
     setShowItemSuggestions(false)
@@ -1170,14 +1292,35 @@ export function EmbeddedStockCheckPanel({
 
     const matchedItem = suggestions.length > 0 ? suggestions[manualCheckHighlightIndex] : null
     if (matchedItem) {
-      addKnownFromSuggestion(matchedItem)
+      addKnownFromSuggestion(matchedItem, Number(trimmedQty), manualCheckRedMarked)
     } else {
-      // If no match, treat as unknown or create new
-      setCreateCatalogItemPrefillName(trimmedItem)
-      setShowCreateCatalogItemModal(true)
+      setRows((prev) => [
+        ...prev,
+        {
+          id: `unknown-manual-${crypto.randomUUID()}`,
+          code: null,
+          location: 'Unknown',
+          sub_location: 'Unknown',
+          category: 'Unknown',
+          product: trimmedItem,
+          attribute: '',
+          official_name: trimmedItem,
+          stocklist_name: trimmedItem,
+          navigation_guide: '',
+          row_position: 'single',
+          quantity: Number(trimmedQty),
+          red_marked: manualCheckRedMarked,
+          notes: 'Manual offline entry',
+          source: 'unknown',
+        },
+      ])
+      setStatus(`${trimmedItem} was added as an offline review row. You can save when internet is available.`)
+      setError(null)
     }
 
+    setNewItemName('')
     setManualCheckQuantity('')
+    setManualCheckRedMarked(false)
     setManualCheckHighlightIndex(0)
   }
 
@@ -1361,26 +1504,48 @@ export function EmbeddedStockCheckPanel({
 
   async function saveStockCheck() {
     const normalizedRows = normalizeBlankStockCheckQuantities(rows)
+    const requestEnvelope = buildSnowflakeEnvelopePayload(normalizedRows, true)
 
     applyValidatedState(normalizedRows)
     setIsSaving(true)
     setStatus('Saving stock check...')
     setError(null)
 
+    if (typeof window !== 'undefined' && !window.navigator.onLine) {
+      enqueueOfflineRequest({
+        feature: 'stock-check',
+        endpoint: '/api/stock-check/save-to-supabase',
+        payload: requestEnvelope,
+      })
+      setStatus('Offline detected. Stock check save queued and will auto-sync when network returns.')
+      setIsSaving(false)
+      return
+    }
+
     try {
       const response = await fetch('/api/stock-check/save-to-supabase', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildSnowflakeEnvelopePayload(normalizedRows, true)),
+        body: JSON.stringify(requestEnvelope),
       })
 
-      const payload = await response.json()
+      const responsePayload = await response.json()
       if (!response.ok) {
-        throw new Error(payload?.error ?? 'Save failed.')
+        throw new Error(responsePayload?.error ?? 'Save failed.')
       }
 
-      setStatus(`Saved (UID: ${payload?.uid_stock_check ?? '-'}) to Supabase. Blank quantities were set to 0. Load and export are enabled.`)
+      setStatus(`Saved (UID: ${responsePayload?.uid_stock_check ?? '-'}) to Supabase. Blank quantities were set to 0. Load and export are enabled.`)
     } catch (e) {
+      if (isNetworkRequestError(e)) {
+        enqueueOfflineRequest({
+          feature: 'stock-check',
+          endpoint: '/api/stock-check/save-to-supabase',
+          payload: requestEnvelope,
+        })
+        setStatus('Network unavailable. Stock check save queued and will auto-sync when network returns.')
+        return
+      }
+
       setError(e instanceof Error ? e.message : 'Save failed.')
       setStatus('Blank quantities were set to 0. Save to Supabase failed, please retry Save.')
     } finally {
@@ -1566,26 +1731,31 @@ export function EmbeddedStockCheckPanel({
     )
   }
 
-  if (visibleCatalogItems.length === 0) {
-    return (
-      <section className="card-surface rounded-2xl p-4 pb-24 sm:p-6 md:p-8 md:pb-8">
-        <h1 className="text-2xl font-bold text-slate-900 md:text-3xl">Stock Check</h1>
-        <p className="mt-2 text-sm text-slate-600">Catalog is empty. Upload or manage catalog first, then return to stock check.</p>
-      </section>
-    )
-  }
-
   return (
     <div className="space-y-4">
       <section className="card-surface rounded-2xl p-4 sm:p-6 md:p-8">
         <div className="mb-4">
           <h1 className="text-xl font-bold text-slate-900 sm:text-2xl md:text-3xl">Stock Check</h1>
           <p className="mt-1 text-sm text-slate-600">Paper layout with fixed catalog rows, inline quantity checks, and red reorder markers.</p>
+          <p className="mt-1 text-xs text-slate-600">
+            {stockCheckQueueCount > 0
+              ? `${stockCheckQueueCount} stock-check save${stockCheckQueueCount > 1 ? 's' : ''} queued for sync.`
+              : hasStockCheckLocalDraft
+                ? 'Local draft is active and visible in review table.'
+                : 'No local draft yet.'}
+            {' '}
+            {!isOnline ? 'Offline mode active.' : ''}
+          </p>
           {loadedHistoryUid && (
             <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-brand-200 bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
               <span>Loaded from history</span>
               <span className="font-mono text-[11px]">{loadedHistoryUid}</span>
             </div>
+          )}
+          {visibleCatalogItems.length === 0 && (
+            <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              Catalog is unavailable. You can still type item name and quantity, and rows will appear locally in review table.
+            </p>
           )}
         </div>
 
@@ -1678,6 +1848,16 @@ export function EmbeddedStockCheckPanel({
                     Add
                   </button>
                 </div>
+
+                <label className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={manualCheckRedMarked}
+                    onChange={(event) => setManualCheckRedMarked(event.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-red-600 focus:ring-red-500"
+                  />
+                  Fast Selling (Red Mark)
+                </label>
 
                 <p className="text-xs text-slate-500">
                   <span className="font-medium">Keyboard:</span> Use arrow keys + Enter to select from suggestions, or Esc to clear.

@@ -173,10 +173,16 @@ body {
 .stock-qty-input {
 	font-style: italic;
 	font-weight: 600;
-	font-size: 10px;
+	font-size: 8px;
 	line-height: 1.1;
 	text-align: center;
 	color: #1f3a6e;
+}
+
+@media (min-width: 641px) {
+	.stock-qty-input {
+		font-size: 9px;
+	}
 }
 
 /* Hide spin buttons to prevent width bloat in narrow columns */
@@ -389,7 +395,7 @@ body {
 	}
 
 	.stock-qty-input {
-		font-size: 15px;
+		font-size: 11px;
 		border: 2px dashed #5b9bff;
 		background: #eef6ff;
 		text-align: center;
@@ -410,6 +416,6 @@ body {
 	}
 
 	.stock-mobile-card .stock-qty-input {
-		font-size: 14px;
+		font-size: 10px;
 	}
 }
