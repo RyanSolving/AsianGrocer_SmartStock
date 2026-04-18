@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { X, RefreshCw, Clock, FileImage } from 'lucide-react'
+import { X, RefreshCw, Clock, FileImage, Trash2 } from 'lucide-react'
 
 type HistoryEntry = {
   uid_generate: string
@@ -19,6 +19,8 @@ type TranscriptionHistoryDialogProps = {
   isLoading: boolean
   onLoadToEdit: (uid: string) => void
   onRepush: (uid: string) => void
+  onDeleteHistory: (uid: string) => void
+  deletingUid?: string | null
   isRepushing: boolean
   selectedUid?: string | null
   visibleCatalogCodes?: Set<string>
@@ -31,6 +33,8 @@ export function TranscriptionHistoryDialog({
   isLoading,
   onLoadToEdit,
   onRepush,
+  onDeleteHistory,
+  deletingUid,
   isRepushing,
   selectedUid,
   visibleCatalogCodes,
@@ -247,6 +251,14 @@ export function TranscriptionHistoryDialog({
                     >
                       <RefreshCw className="h-4 w-4" />
                       Re-push
+                    </button>
+                    <button
+                      onClick={() => onDeleteHistory(entry.uid_generate)}
+                      disabled={Boolean(deletingUid)}
+                      className="flex items-center justify-center gap-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:opacity-50"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      {deletingUid === entry.uid_generate ? 'Deleting...' : 'Delete'}
                     </button>
                   </div>
                 </div>

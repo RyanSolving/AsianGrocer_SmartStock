@@ -23,6 +23,7 @@ import { EmbeddedStockCheckPanel } from './components/EmbeddedStockCheckPanel'
 import { EntryMethodToggle } from './components/EntryMethodToggle'
 import { StockPaperCardSection, StockPaperSectionTable, StockPaperThreeColumnTable } from './components/StockPaperTables'
 import type { SelectedStockCheckHistoryRecord } from './components/EmbeddedStockCheckPanel'
+import { StockCheckHistoryDialog } from './components/StockCheckHistoryDialog'
 import { TranscriptionHistoryDialog } from './components/TranscriptionHistoryDialog'
 import { filterVisibleCatalogItems } from '../lib/catalog-visibility'
 import {
@@ -137,6 +138,7 @@ type StockCheckHistoryEntry = {
   uid_stock_check: string
   timestamp: string
   stock_date: string
+  record_name?: string | null
   mode: string
   validated: boolean
   item_count: number
@@ -508,8 +510,11 @@ export default function Home() {
   const [toasts, setToasts] = useState<AppToast[]>([])
   const toastIdRef = useRef(0)
   const [isHistoryOpen, setIsHistoryOpen] = useState(false)
+  const [isStockCheckHistoryOpen, setIsStockCheckHistoryOpen] = useState(false)
   const [historyData, setHistoryData] = useState<HistoryEntry[]>([])
   const [isHistoryLoading, setIsHistoryLoading] = useState(false)
+  const [isDeletingHistoryUid, setIsDeletingHistoryUid] = useState<string | null>(null)
+  const [isDeletingStockCheckHistoryUid, setIsDeletingStockCheckHistoryUid] = useState<string | null>(null)
   const [isRepushing, setIsRepushing] = useState(false)
   const [selectedHistoryUid, setSelectedHistoryUid] = useState<string | null>(null)
   const [editingHistoryUid, setEditingHistoryUid] = useState<string | null>(null)
@@ -686,7 +691,7 @@ export default function Home() {
     setApiError(null)
 
     try {
-      const response = await fetch('/api/transcription-history')
+      const response = await fetch('/api/transcription-history', { cache: 'no-store' })
 
       const payload = await response.json()
 
@@ -2076,54 +2081,17 @@ export default function Home() {
       return false
     }
 
-    // Business rule: blank known quantities are treated as zero at validation time.
-    const normalizedParsedItems = parsedData.items.map((item) => {
-      if (item.quantity === null && !item.quantity_conflict_flag) {
-        return {
-          ...item,
-          quantity: 0,
-          quantity_raw: '0',
-        }
-      }
+    const conflictCount = parsedData.items.filter((item) => item.quantity_conflict_flag).length
+      + missingCatalogItems.filter((item) => Boolean(item.quantity_conflict_flag)).length
 
-      return item
-    })
-
-    const normalizedMissingItems = missingCatalogItems.map((item) => {
-      const hasConflict = Boolean(item.quantity_conflict_flag)
-      const hasBlankQuantity = item.quantity === null || item.quantity === undefined
-
-      if (hasBlankQuantity && !hasConflict) {
-        return {
-          ...item,
-          quantity: 0,
-          quantity_raw: '0',
-        }
-      }
-
-      return item
-    })
-
-    const conflictCount = normalizedParsedItems.filter((item) => item.quantity_conflict_flag).length
-      + normalizedMissingItems.filter((item) => Boolean(item.quantity_conflict_flag)).length
-
-    setParsedData((current) => {
-      if (!current) return current
-      return {
-        ...current,
-        items: normalizedParsedItems,
-      }
-    })
-
-    setMissingCatalogItems(normalizedMissingItems)
     setApiError(null)
     setIsValidatedByStaff(true)
 
     if (announceStatus) {
       if (conflictCount > 0) {
-        setApiStatus(`Validation complete. Blank known quantities were normalized to 0. ${conflictCount} known item(s) are still marked as conflict.`)
+        setApiStatus(`Validation complete. ${conflictCount} known item(s) are still marked as conflict.`)
       } else {
-        setApiStatus('Validation complete. Blank known quantities were normalized to 0.')
+        setApiStatus('Validation complete.')
       }
     }
 
@@ -2372,6 +2340,86 @@ export default function Home() {
     }
   }
 
+  async function deleteTranscriptionHistory(uid: string) {
+    const confirmed = window.confirm('Delete this history record permanently from app history?')
+    if (!confirmed) return
+
+    setIsDeletingHistoryUid(uid)
+    setApiError(null)
+    setApiStatus(null)
+
+    try {
+      const response = await fetch('/api/transcription-history', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid_generate: uid }),
+      })
+
+      const payload = await response.json()
+      if (!response.ok) {
+        throw new Error(payload?.error ?? 'Failed to delete history record.')
+      }
+
+      setHistoryData((prev) => prev.filter((entry) => entry.uid_generate !== uid))
+
+      if (selectedHistoryUid === uid) {
+        setSelectedHistoryUid(null)
+        setParsedData(null)
+        setUnknownItems([])
+        setMissingCatalogItems([])
+      }
+      if (editingHistoryUid === uid) {
+        setEditingHistoryUid(null)
+        setLatestGenerateUid(null)
+        setHasSavedToSupabase(false)
+        setHasLoadedToDb(false)
+        setParsedData(null)
+        setUnknownItems([])
+        setMissingCatalogItems([])
+      }
+
+      setApiStatus('History record deleted from app history.')
+      await loadTranscriptionHistory()
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : 'Failed to delete history record.')
+    } finally {
+      setIsDeletingHistoryUid(null)
+    }
+  }
+
+  async function deleteStockCheckHistory(uid: string) {
+    const confirmed = window.confirm('Delete this stock-check record permanently from app history?')
+    if (!confirmed) return
+
+    setIsDeletingStockCheckHistoryUid(uid)
+    setApiError(null)
+    setApiStatus(null)
+
+    try {
+      const response = await fetch('/api/stock-check/history', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid_stock_check: uid }),
+      })
+
+      const payload = await response.json()
+      if (!response.ok) {
+        throw new Error(payload?.error ?? 'Failed to delete stock-check history record.')
+      }
+
+      if (selectedStockCheckHistoryRecord?.uid_stock_check === uid) {
+        setSelectedStockCheckHistoryRecord(null)
+      }
+
+      setApiStatus('Stock-check history record deleted from app history.')
+      await loadStockCheckHistory()
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : 'Failed to delete stock-check history record.')
+    } finally {
+      setIsDeletingStockCheckHistoryUid(null)
+    }
+  }
+
   const startNewDraftFromCurrent = useCallback(() => {
     setEditingHistoryUid(null)
     setSelectedHistoryUid(null)
@@ -2415,7 +2463,7 @@ export default function Home() {
     await loadTranscriptionHistory()
 
     try {
-      const response = await fetch('/api/transcription-history')
+      const response = await fetch('/api/transcription-history', { cache: 'no-store' })
       const payload = await response.json()
       const freshHistory = Array.isArray(payload?.history) ? payload.history as HistoryEntry[] : []
       const fresh = freshHistory.find((entry) => entry.uid_generate === uid)
@@ -2437,6 +2485,14 @@ export default function Home() {
 
     if (historyData.length === 0) {
       await loadTranscriptionHistory()
+    }
+  }
+
+  const openStockCheckHistory = async () => {
+    setIsStockCheckHistoryOpen(true)
+
+    if (stockCheckHistory.length === 0) {
+      await loadStockCheckHistory()
     }
   }
 
@@ -2586,7 +2642,17 @@ export default function Home() {
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
                   {isStockCheckTab ? 'Stock Check Record' : 'Stock In History'}
                 </p>
-                {!isStockCheckTab && (
+                {isStockCheckTab ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void openStockCheckHistory()
+                    }}
+                    className="text-xs font-semibold text-brand-600 hover:text-brand-700"
+                  >
+                    View all
+                  </button>
+                ) : (
                   <button
                     type="button"
                     onClick={() => {
@@ -3355,9 +3421,28 @@ export default function Home() {
           void loadDataEntryHistoryToEditor(uid)
         }}
         onRepush={reopushToSnowflake}
+        onDeleteHistory={deleteTranscriptionHistory}
+        deletingUid={isDeletingHistoryUid}
         isRepushing={isRepushing}
         selectedUid={selectedHistoryUid}
         visibleCatalogCodes={visibleCatalogCodes}
+      />
+
+      <StockCheckHistoryDialog
+        isOpen={isStockCheckHistoryOpen}
+        onClose={() => setIsStockCheckHistoryOpen(false)}
+        history={stockCheckHistory}
+        isLoading={isStockCheckHistoryLoading}
+        deletingUid={isDeletingStockCheckHistoryUid}
+        selectedUid={selectedStockCheckHistoryRecord?.uid_stock_check ?? null}
+        onLoadToEdit={(uid) => {
+          const entry = stockCheckHistory.find((item) => item.uid_stock_check === uid)
+          if (!entry) return
+          setSelectedStockCheckHistoryRecord(entry)
+          setActiveSection('stock-check')
+          setIsStockCheckHistoryOpen(false)
+        }}
+        onDeleteHistory={deleteStockCheckHistory}
       />
     </main>
   )

@@ -1294,7 +1294,7 @@ export function EmbeddedStockCheckPanel({
       return
     }
     if (!trimmedItem) {
-      setError('Please select or enter an item name.')
+      setError('Please select an item from suggestion or enter an item code.')
       return
     }
     if (!trimmedQty || isNaN(Number(trimmedQty))) {
@@ -1305,26 +1305,16 @@ export function EmbeddedStockCheckPanel({
     const normalizedInput = normalizeCompareKey(trimmedItem)
     let matchedItem: CatalogItem | null = null
 
-    if (selectedProfileItem) {
-      const selectedNames = [
-        selectedProfileItem.official_name,
-        selectedProfileItem.stocklist_name,
-        selectedProfileItem.product,
-      ]
-      const selectedMatchesInput = selectedNames.some((name) => normalizeCompareKey(name) === normalizedInput)
-
-      if (selectedMatchesInput) {
-        matchedItem = selectedProfileItem
-      }
+    if (selectedProfileItem?.code) {
+      const normalizedSelectedCode = normalizeCompareKey(selectedProfileItem.code)
+      matchedItem = visibleCatalogItems.find((item) => {
+        return normalizeCompareKey(item.code) === normalizedSelectedCode
+      }) ?? selectedProfileItem
     }
 
     if (!matchedItem) {
       matchedItem = visibleCatalogItems.find((item) => {
-        return (
-          normalizeCompareKey(item.official_name) === normalizedInput
-          || normalizeCompareKey(item.stocklist_name) === normalizedInput
-          || normalizeCompareKey(item.product) === normalizedInput
-        )
+        return normalizeCompareKey(item.code) === normalizedInput
       }) ?? null
     }
 
@@ -1624,11 +1614,6 @@ export function EmbeddedStockCheckPanel({
   }
 
   async function exportPhoto() {
-    if (!stockPaperRef.current) {
-      setError('Stocklist area is not ready for photo export.')
-      return
-    }
-
     setIsExporting(true)
     setStatus(null)
     setError(null)
@@ -1636,8 +1621,23 @@ export function EmbeddedStockCheckPanel({
     const zoomBeforeExport = currentZoomRef.current
     const needsZoomReset = isMobileViewport && zoomBeforeExport !== 1
     const previousExpandedSections = new Set(stockCheckExpandedSections)
+    const switchedFromCard = isMobileViewport && stockMobileView === 'card'
 
     try {
+      if (switchedFromCard) {
+        setStatus('Switching to paper view for photo export...')
+        setStockMobileView('paper')
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => resolve())
+          })
+        })
+      }
+
+      if (!stockPaperRef.current) {
+        throw new Error('Stocklist area is not ready for photo export.')
+      }
+
       if (needsZoomReset) {
         setPaperZoom(1)
         await new Promise<void>((resolve) => {
@@ -1676,6 +1676,9 @@ export function EmbeddedStockCheckPanel({
       setStockCheckExpandedSections(previousExpandedSections)
       if (needsZoomReset) {
         setPaperZoom(zoomBeforeExport)
+      }
+      if (switchedFromCard) {
+        setStockMobileView('card')
       }
       setIsExporting(false)
     }

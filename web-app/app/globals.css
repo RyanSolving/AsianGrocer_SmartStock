@@ -438,7 +438,7 @@ body {
 
 	.stock-paper-export .stock-export-label-wrap {
 		display: flex;
-		align-items: flex-start;
+		align-items: center;
 		gap: 4px;
 		width: 100%;
 	}

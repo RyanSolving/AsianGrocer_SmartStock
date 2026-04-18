@@ -389,3 +389,55 @@ export async function GET() {
     )
   }
 }
+
+export async function DELETE(request: Request) {
+  const auth = await getAuthContext()
+  if (auth instanceof NextResponse) {
+    return auth
+  }
+
+  let payload: unknown
+
+  try {
+    payload = await request.json()
+  } catch {
+    return NextResponse.json({ error: 'Request body must be valid JSON.' }, { status: 400 })
+  }
+
+  const uidStockCheck =
+    payload && typeof payload === 'object' && typeof (payload as { uid_stock_check?: unknown }).uid_stock_check === 'string'
+      ? (payload as { uid_stock_check: string }).uid_stock_check.trim()
+      : ''
+
+  if (!uidStockCheck) {
+    return NextResponse.json({ error: 'uid_stock_check is required.' }, { status: 400 })
+  }
+
+  try {
+    const { error } = await auth.supabase
+      .from('event_stock_check')
+      .delete()
+      .eq('uid_stock_check', uidStockCheck)
+      .eq('user_id', auth.user.id)
+
+    if (error) {
+      return NextResponse.json(
+        {
+          error: 'Failed to delete stock-check history record.',
+          details: error.message,
+        },
+        { status: 400 },
+      )
+    }
+
+    return NextResponse.json({ success: true, uid_stock_check: uidStockCheck })
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: 'Internal server error.',
+        details: error instanceof Error ? error.message : 'Unknown error',
+      },
+      { status: 500 },
+    )
+  }
+}

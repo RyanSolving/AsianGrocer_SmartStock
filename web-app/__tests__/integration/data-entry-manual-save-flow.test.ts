@@ -19,7 +19,7 @@ jest.mock('snowflake-sdk', () => ({
 
 import { POST } from '../../app/api/save-to-snowflake/route'
 
-function buildPersistOnlyPayload(quantity: number, uidGenerate?: string) {
+function buildPersistOnlyPayload(quantity: number | null, uidGenerate?: string) {
   const payload: Record<string, unknown> = {
     data: {
       photo_id: 'stock-in-photo-001',
@@ -42,7 +42,7 @@ function buildPersistOnlyPayload(quantity: number, uidGenerate?: string) {
           stocklist_name: 'Granny Smith Apples',
           navigation_guide: '',
           row_position: 'single' as const,
-          quantity_raw: String(quantity),
+          quantity_raw: quantity === null ? null : String(quantity),
           quantity,
           quantity_conflict_flag: false,
           confidence: 'high' as const,
@@ -245,6 +245,34 @@ describe('Data Entry manual save flow', () => {
       success: true,
       uid_generate: 'manual-draft-uid',
       message: 'Saved to Supabase. You can keep editing before loading to Snowflake.',
+    })
+  })
+
+  it('preserves null quantity in persist-only saves for untouched items', async () => {
+    const response = await POST(
+      new Request('http://localhost/api/save-to-snowflake', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildPersistOnlyPayload(null, 'uid-data-entry-null-001')),
+      }),
+    )
+
+    expect(response.status).toBe(200)
+    expect(mockSnowflakeCreateConnection).not.toHaveBeenCalled()
+    expect(updateCalls).toHaveLength(1)
+
+    expect(updateCalls[0]).toMatchObject({
+      final_output: {
+        photo_id: 'stock-in-photo-001',
+        mode: 'stock-in',
+        items: [
+          {
+            official_name: 'Granny Smith Apples',
+            quantity: null,
+          },
+        ],
+      },
+      edited: true,
     })
   })
 })

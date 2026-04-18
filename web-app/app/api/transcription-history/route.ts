@@ -63,10 +63,17 @@ export async function GET(request: Request) {
       isPushed: pushedUids.has(event.uid_generate),
     }))
 
-    return NextResponse.json({
-      history,
-      count: history.length,
-    })
+    return NextResponse.json(
+      {
+        history,
+        count: history.length,
+      },
+      {
+        headers: {
+          'Cache-Control': 'no-store, max-age=0',
+        },
+      }
+    )
   } catch (error) {
     return NextResponse.json(
       {
@@ -74,6 +81,58 @@ export async function GET(request: Request) {
         details: error instanceof Error ? error.message : 'Unknown error',
       },
       { status: 500 }
+    )
+  }
+}
+
+export async function DELETE(request: Request) {
+  const auth = await getAuthContext()
+  if (auth instanceof NextResponse) {
+    return auth
+  }
+
+  let payload: unknown
+
+  try {
+    payload = await request.json()
+  } catch {
+    return NextResponse.json({ error: 'Request body must be valid JSON.' }, { status: 400 })
+  }
+
+  const uidGenerate =
+    payload && typeof payload === 'object' && typeof (payload as { uid_generate?: unknown }).uid_generate === 'string'
+      ? (payload as { uid_generate: string }).uid_generate.trim()
+      : ''
+
+  if (!uidGenerate) {
+    return NextResponse.json({ error: 'uid_generate is required.' }, { status: 400 })
+  }
+
+  try {
+    const { error } = await auth.supabase
+      .from('event_generate')
+      .delete()
+      .eq('uid_generate', uidGenerate)
+      .eq('user_id', auth.user.id)
+
+    if (error) {
+      return NextResponse.json(
+        {
+          error: 'Failed to delete transcription history record.',
+          details: error.message,
+        },
+        { status: 400 },
+      )
+    }
+
+    return NextResponse.json({ success: true, uid_generate: uidGenerate })
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: 'Internal server error.',
+        details: error instanceof Error ? error.message : 'Unknown error',
+      },
+      { status: 500 },
     )
   }
 }
