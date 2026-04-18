@@ -84,10 +84,10 @@ export function StockPaperSectionTable<T extends IndexableRow>({
       {isCollapsed ? null : (
       <table className="stock-pt">
         <colgroup>
-          <col style={{ width: '40%' }} />
-          <col style={{ width: '10%' }} />
-          <col style={{ width: '40%' }} />
-          <col style={{ width: '10%' }} />
+          <col style={{ width: '38%' }} />
+          <col style={{ width: '12%' }} />
+          <col style={{ width: '38%' }} />
+          <col style={{ width: '12%' }} />
         </colgroup>
         <tbody>
           {Array.from({ length: maxRows }).map((_, i) => {
@@ -138,8 +138,8 @@ export function StockPaperThreeColumnTable<T extends IndexableRow>({
       <div className="stock-oc-col">
         <table className="stock-pt">
           <colgroup>
-            <col style={{ width: '80%' }} />
-            <col style={{ width: '20%' }} />
+            <col style={{ width: '76%' }} />
+            <col style={{ width: '24%' }} />
           </colgroup>
           <tbody>
             {columns.left.map((item, i) => (
@@ -155,8 +155,8 @@ export function StockPaperThreeColumnTable<T extends IndexableRow>({
       <div className="stock-oc-col">
         <table className="stock-pt">
           <colgroup>
-            <col style={{ width: '80%' }} />
-            <col style={{ width: '20%' }} />
+            <col style={{ width: '76%' }} />
+            <col style={{ width: '24%' }} />
           </colgroup>
           <tbody>
             {columns.middle.map((item, i) => (
@@ -172,8 +172,8 @@ export function StockPaperThreeColumnTable<T extends IndexableRow>({
       <div className="stock-oc-col">
         <table className="stock-pt">
           <colgroup>
-            <col style={{ width: '80%' }} />
-            <col style={{ width: '20%' }} />
+            <col style={{ width: '76%' }} />
+            <col style={{ width: '24%' }} />
           </colgroup>
           <tbody>
             {columns.right.map((item, i) => (

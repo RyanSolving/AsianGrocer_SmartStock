@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Database, Download, Eye, EyeOff, FileImage, Loader2, Plus, Save, Search, X } from 'lucide-react'
 import { toPng } from 'html-to-image'
-import { normalizeBlankStockCheckQuantities } from '../../lib/stock-check-utils'
 import { filterVisibleCatalogItems } from '../../lib/catalog-visibility'
 import {
   clearOfflineDraft,
@@ -215,7 +214,6 @@ function parseNumericQuantity(value: number | null | undefined) {
   return value
 }
 
-export { normalizeBlankStockCheckQuantities }
 const STOCK_CHECK_MOBILE_VIEW_KEY = 'smartstock:stock-check-mobile-view'
 const STOCK_CHECK_EXPANDED_SECTIONS_KEY = 'smartstock:stock-check-expanded-sections'
 const OUTSIDE_SECTION_ID = 'outside-coolroom'
@@ -447,6 +445,7 @@ export function EmbeddedStockCheckPanel({
   const [isMobileViewport, setIsMobileViewport] = useState(false)
   const [stockMobileView, setStockMobileView] = useState<'card' | 'paper'>('card')
   const [stockExportType, setStockExportType] = useState<'csv' | 'photo'>('csv')
+  const [isExportSnapshotMode, setIsExportSnapshotMode] = useState(false)
   const [stockCheckExpandedSections, setStockCheckExpandedSections] = useState<Set<string>>(new Set())
   const [storedExpandedSectionKeys, setStoredExpandedSectionKeys] = useState<string[] | null>(null)
   const [hasLoadedExpandedSectionPrefs, setHasLoadedExpandedSectionPrefs] = useState(false)
@@ -698,15 +697,15 @@ export function EmbeddedStockCheckPanel({
   const startManualEntry = useCallback(() => {
     setStockEntryMode('manual')
     setStockPhotoFile(null)
-    setRows(visibleCatalogItems.map(makeCatalogRow))
+    setRows([])
     setManualCheckRedMarked(false)
-    setStatus('Manual closing entry is ready.')
+    setStatus('Manual closing entry is ready. Add checked items from input.')
     setError(null)
     setIsValidated(false)
     setHasPassedRecheck(false)
     setShowRecheckWarningModal(false)
     setRecheckWarnings([])
-  }, [visibleCatalogItems])
+  }, [])
 
   const startPhotoEntry = useCallback(() => {
     setStockEntryMode('photo')
@@ -785,10 +784,17 @@ export function EmbeddedStockCheckPanel({
     const recordData = selectedHistoryRecord.record_data
     if (!recordData) return
 
-    const nextRows = visibleCatalogItems.map(makeCatalogRow)
-    const codeToIndex = new Map(nextRows.map((row, index) => [row.code.trim().toUpperCase(), index]))
+    const nextRows: StockCheckRow[] = []
+    const codeToIndex = new Map<string, number>()
+    const catalogByCode = new Map(
+      visibleCatalogItems.map((item) => [item.code.trim().toUpperCase(), item]),
+    )
 
     for (const item of recordData.items) {
+      if (item.quantity === null) {
+        continue
+      }
+
       const codeKey = item.code.trim().toUpperCase()
       const existingIndex = codeToIndex.get(codeKey)
 
@@ -809,26 +815,33 @@ export function EmbeddedStockCheckPanel({
         continue
       }
 
+      const catalogMatch = catalogByCode.get(codeKey)
+
       nextRows.push({
         id: `history-known-${selectedHistoryRecord.uid_stock_check}-${item.code}`,
         code: item.code,
-        location: item.location || 'Unknown',
-        sub_location: item.sub_location || 'Unknown',
-        category: item.category || 'Unknown',
-        product: item.product || item.official_name,
-        attribute: '',
-        official_name: item.official_name || item.product,
-        stocklist_name: item.stocklist_name || item.official_name || item.product,
-        navigation_guide: '',
-        row_position: 'single',
+        location: item.location || catalogMatch?.location || 'Unknown',
+        sub_location: item.sub_location || catalogMatch?.sub_location || 'Unknown',
+        category: item.category || catalogMatch?.category || 'Unknown',
+        product: item.product || catalogMatch?.product || item.official_name,
+        attribute: catalogMatch?.attribute ?? '',
+        official_name: item.official_name || catalogMatch?.official_name || item.product,
+        stocklist_name: item.stocklist_name || catalogMatch?.stocklist_name || item.official_name || item.product,
+        navigation_guide: catalogMatch?.navigation_guide ?? '',
+        row_position: catalogMatch?.row_position ?? 'single',
         quantity: item.quantity,
         red_marked: item.red_marked,
         notes: item.notes || '',
-        source: 'unknown',
+        source: 'catalog',
       })
+      codeToIndex.set(codeKey, nextRows.length - 1)
     }
 
     for (const item of recordData.unknown_items) {
+      if (item.quantity === null) {
+        continue
+      }
+
       nextRows.push({
         id: `history-unknown-${selectedHistoryRecord.uid_stock_check}-${item.user_input}`,
         code: null,
@@ -901,12 +914,11 @@ export function EmbeddedStockCheckPanel({
   const indexedRows = useMemo(() => rows.map((row, index) => ({ row, index })), [rows])
 
   const displayedIndexedRows = useMemo(() => {
-    if (stockEntryMode === 'manual') {
-      return indexedRows.filter(
-        (x) => x.row.quantity !== null && x.row.quantity !== 0
-      )
+    if (stockEntryMode !== 'manual') {
+      return indexedRows
     }
-    return indexedRows
+
+    return indexedRows.filter((entry) => entry.row.quantity !== null)
   }, [indexedRows, stockEntryMode])
 
   const findSuggestions = useMemo(() => {
@@ -1290,7 +1302,32 @@ export function EmbeddedStockCheckPanel({
       return
     }
 
-    const matchedItem = suggestions.length > 0 ? suggestions[manualCheckHighlightIndex] : null
+    const normalizedInput = normalizeCompareKey(trimmedItem)
+    let matchedItem: CatalogItem | null = null
+
+    if (selectedProfileItem) {
+      const selectedNames = [
+        selectedProfileItem.official_name,
+        selectedProfileItem.stocklist_name,
+        selectedProfileItem.product,
+      ]
+      const selectedMatchesInput = selectedNames.some((name) => normalizeCompareKey(name) === normalizedInput)
+
+      if (selectedMatchesInput) {
+        matchedItem = selectedProfileItem
+      }
+    }
+
+    if (!matchedItem) {
+      matchedItem = visibleCatalogItems.find((item) => {
+        return (
+          normalizeCompareKey(item.official_name) === normalizedInput
+          || normalizeCompareKey(item.stocklist_name) === normalizedInput
+          || normalizeCompareKey(item.product) === normalizedInput
+        )
+      }) ?? null
+    }
+
     if (matchedItem) {
       addKnownFromSuggestion(matchedItem, Number(trimmedQty), manualCheckRedMarked)
     } else {
@@ -1404,9 +1441,8 @@ export function EmbeddedStockCheckPanel({
     setError(null)
   }
 
-  function applyValidatedState(normalizedRows: StockCheckRow[]) {
+  function applyValidatedState() {
     skipNextRecheckResetRef.current = true
-    setRows(normalizedRows)
     setIsValidated(true)
     setHasPassedRecheck(true)
     setShowRecheckWarningModal(false)
@@ -1503,10 +1539,9 @@ export function EmbeddedStockCheckPanel({
   }
 
   async function saveStockCheck() {
-    const normalizedRows = normalizeBlankStockCheckQuantities(rows)
-    const requestEnvelope = buildSnowflakeEnvelopePayload(normalizedRows, true)
+    const requestEnvelope = buildSnowflakeEnvelopePayload(rows, true)
 
-    applyValidatedState(normalizedRows)
+    applyValidatedState()
     setIsSaving(true)
     setStatus('Saving stock check...')
     setError(null)
@@ -1534,7 +1569,7 @@ export function EmbeddedStockCheckPanel({
         throw new Error(responsePayload?.error ?? 'Save failed.')
       }
 
-      setStatus(`Saved (UID: ${responsePayload?.uid_stock_check ?? '-'}) to Supabase. Blank quantities were set to 0. Load and export are enabled.`)
+      setStatus(`Saved (UID: ${responsePayload?.uid_stock_check ?? '-'}) to Supabase. Load and export are enabled.`)
     } catch (e) {
       if (isNetworkRequestError(e)) {
         enqueueOfflineRequest({
@@ -1547,7 +1582,7 @@ export function EmbeddedStockCheckPanel({
       }
 
       setError(e instanceof Error ? e.message : 'Save failed.')
-      setStatus('Blank quantities were set to 0. Save to Supabase failed, please retry Save.')
+      setStatus('Save to Supabase failed, please retry Save.')
     } finally {
       setIsSaving(false)
     }
@@ -1600,6 +1635,7 @@ export function EmbeddedStockCheckPanel({
 
     const zoomBeforeExport = currentZoomRef.current
     const needsZoomReset = isMobileViewport && zoomBeforeExport !== 1
+    const previousExpandedSections = new Set(stockCheckExpandedSections)
 
     try {
       if (needsZoomReset) {
@@ -1608,6 +1644,16 @@ export function EmbeddedStockCheckPanel({
           requestAnimationFrame(() => resolve())
         })
       }
+
+      setStockCheckExpandedSections(new Set(stockCheckSectionIds))
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve())
+      })
+
+      setIsExportSnapshotMode(true)
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve())
+      })
 
       const dataUrl = await toPng(stockPaperRef.current, {
         cacheBust: true,
@@ -1626,6 +1672,8 @@ export function EmbeddedStockCheckPanel({
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Photo export failed.')
     } finally {
+      setIsExportSnapshotMode(false)
+      setStockCheckExpandedSections(previousExpandedSections)
       if (needsZoomReset) {
         setPaperZoom(zoomBeforeExport)
       }
@@ -1682,6 +1730,24 @@ export function EmbeddedStockCheckPanel({
     const canToggleVisibility = item.row.source === 'catalog' && code.length > 0
     const isVisible = canToggleVisibility ? (rowVisibilityByCode.get(code) ?? true) : true
 
+    if (isExportSnapshotMode) {
+      return (
+        <div className="stock-export-label-wrap">
+          <span
+            aria-hidden="true"
+            className={`h-3.5 w-3.5 shrink-0 rounded-full border ${item.row.red_marked ? 'border-red-600 bg-red-600' : 'border-slate-400 bg-transparent'}`}
+          />
+          <span
+            data-stock-row-index={item.index}
+            className={`stock-export-label ${className} ${item.row.red_marked ? 'text-red-600 font-semibold' : ''}`}
+            title={item.row.official_name}
+          >
+            {item.row.official_name}
+          </span>
+        </div>
+      )
+    }
+
     return (
       <div className="flex items-center gap-1">
         <button
@@ -1719,6 +1785,18 @@ export function EmbeddedStockCheckPanel({
   }
 
   function renderQuantityCell(item: IndexedRow) {
+    if (isExportSnapshotMode) {
+      return (
+        <div
+          data-stock-row-index={item.index}
+          className={`stock-qty-input stock-export-qty ${item.row.red_marked ? 'text-red-600' : ''}`}
+          aria-label={`Quantity for ${item.row.official_name}`}
+        >
+          {item.row.quantity ?? ''}
+        </div>
+      )
+    }
+
     return (
       <input
         type="number"
@@ -1736,7 +1814,7 @@ export function EmbeddedStockCheckPanel({
       <section className="card-surface rounded-2xl p-4 sm:p-6 md:p-8">
         <div className="mb-4">
           <h1 className="text-xl font-bold text-slate-900 sm:text-2xl md:text-3xl">Stock Check</h1>
-          <p className="mt-1 text-sm text-slate-600">Paper layout with fixed catalog rows, inline quantity checks, and red reorder markers.</p>
+          <p className="mt-1 text-sm text-slate-600">Paper layout for manual and photo entry, inline quantity checks, and red reorder markers.</p>
           <p className="mt-1 text-xs text-slate-600">
             {stockCheckQueueCount > 0
               ? `${stockCheckQueueCount} stock-check save${stockCheckQueueCount > 1 ? 's' : ''} queued for sync.`
@@ -2097,7 +2175,7 @@ export function EmbeddedStockCheckPanel({
           ) : (
             <div
               ref={stockPaperRef}
-              className="stock-paper min-w-[700px] sm:min-w-[760px] md:min-w-[820px]"
+              className={`stock-paper min-w-[700px] sm:min-w-[760px] md:min-w-[820px] ${isExportSnapshotMode ? 'stock-paper-export' : ''}`}
               style={isMobileViewport ? { zoom: paperZoom } : undefined}
             >
             <div className="stock-date-row">

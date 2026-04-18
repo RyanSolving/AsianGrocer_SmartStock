@@ -144,4 +144,86 @@ describe('Stock check save overwrite integration', () => {
     expect(itemData.unknown_items[0].red_marked).toBe(true)
     expect(itemData.unknown_items[0].notes).toBe('manual check')
   })
+
+  it('preserves null as untouched and zero as explicit stock-out', () => {
+    const record = buildSnowflakeStagingRecord({
+      parsedData: {
+        photo_id: 'stock-check-null-vs-zero',
+        mode: 'stock-closing',
+        upload_date: '2026-04-12T12:00:00Z',
+        stock_date: '2026-04-12',
+        photo_url: null,
+        total_items: 3,
+        confidence_overall: 'high',
+        items: [
+          {
+            catalog_code: 'APP-GRN-STD',
+            product_raw: 'Granny Smith Apples',
+            location: 'Inside Coolroom',
+            sub_location: 'Apples',
+            category: 'Apples',
+            product: 'Apple',
+            attribute: 'Granny Smith',
+            official_name: 'Granny Smith Apples',
+            stocklist_name: 'Granny Smith Apples',
+            navigation_guide: '',
+            row_position: 'single',
+            quantity_raw: null,
+            quantity: null,
+            quantity_conflict_flag: false,
+            confidence: 'high',
+            catalog_match_status: 'exact',
+            notes: null,
+          },
+          {
+            catalog_code: 'CIT-LEM-STD',
+            product_raw: 'Lemons',
+            location: 'Inside Coolroom',
+            sub_location: 'Citrus',
+            category: 'Citrus',
+            product: 'Lemon',
+            attribute: '',
+            official_name: 'Lemons',
+            stocklist_name: 'Lemons',
+            navigation_guide: '',
+            row_position: 'single',
+            quantity_raw: '0',
+            quantity: 0,
+            quantity_conflict_flag: false,
+            confidence: 'high',
+            catalog_match_status: 'exact',
+            notes: null,
+          },
+          {
+            catalog_code: null,
+            product_raw: 'Mystery Fruit',
+            location: 'Unknown',
+            sub_location: 'Unknown',
+            category: 'Unknown',
+            product: 'Unknown',
+            attribute: '',
+            official_name: 'Mystery Fruit',
+            stocklist_name: 'Mystery Fruit',
+            navigation_guide: '',
+            row_position: 'single',
+            quantity_raw: null,
+            quantity: null,
+            quantity_conflict_flag: false,
+            confidence: 'high',
+            catalog_match_status: 'unknown',
+            notes: null,
+          },
+        ],
+      },
+      forcedValidated: 'yes',
+    })
+
+    const itemData = toSupabaseMirrorItemData(record)
+
+    expect(itemData.items).toHaveLength(2)
+    expect(itemData.items[0].quantity).toBeNull()
+    expect(itemData.items[1].quantity).toBe(0)
+    expect(itemData.unknown_items).toHaveLength(1)
+    expect(itemData.unknown_items[0].quantity).toBeNull()
+  })
 })
