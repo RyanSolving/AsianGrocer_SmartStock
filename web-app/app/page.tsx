@@ -527,7 +527,7 @@ export default function Home() {
   const [isOnline, setIsOnline] = useState(true)
   const [pendingModeSwitch, setPendingModeSwitch] = useState<'manual' | 'photo' | null>(null)
   const [pendingHistoryLoad, setPendingHistoryLoad] = useState<string | null>(null)
-  const [pendingStockCheckHistoryLoad, setPendingStockCheckHistoryLoad] = useState<StockCheckHistoryRecord | null>(null)
+  const [pendingStockCheckHistoryLoad, setPendingStockCheckHistoryLoad] = useState<SelectedStockCheckHistoryRecord | null>(null)
   const [offlineQueueCount, setOfflineQueueCount] = useState(0)
   const [stockInQueueCount, setStockInQueueCount] = useState(0)
   const [isOfflineSyncing, setIsOfflineSyncing] = useState(false)
@@ -2318,7 +2318,7 @@ export default function Home() {
     // Step 5: return to landing
     addToast('success', '✅ All done!')
     setStockInPhase('landing')
-  }, [parsedData, normalizeAndMarkValidated, loadToSnowflake, addToast])
+  }, [parsedData, normalizeAndMarkValidated, loadToSnowflake, addToast, saveToSupabase])
 
   async function loadToSnowflake(overrideUidOrSaved?: string | boolean) {
     if (!parsedData) {
