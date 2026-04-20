@@ -8,6 +8,7 @@ import {
   Eye,
   EyeOff,
   FileImage,
+  History,
   Loader2,
   Save,
   Search,
