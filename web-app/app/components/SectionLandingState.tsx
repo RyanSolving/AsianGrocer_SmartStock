@@ -38,7 +38,7 @@ export function SectionLandingState({
           </div>
           <div className="flex-1">
             <h3 className="font-bold text-slate-900">Start New</h3>
-            <p className="text-sm text-slate-500">Fresh session with today's date.</p>
+            <p className="text-sm text-slate-500">Fresh session with today&apos;s date.</p>
           </div>
           <ArrowRight className="h-5 w-5 text-slate-300 transition-transform group-hover:translate-x-1 group-hover:text-brand-500" />
         </button>
