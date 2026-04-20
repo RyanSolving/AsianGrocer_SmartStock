@@ -255,13 +255,16 @@ export async function POST(request: Request) {
 
     const { data, error } = await supabase
       .from('event_stock_check')
-      .insert({
-        user_id: authContext.user.id,
-        date: stockRecord.stock_date,
-        record_name: recordName,
-        mode: 'closing_check',
-        item_data: mirrorItemData,
-      })
+      .upsert(
+        {
+          user_id: authContext.user.id,
+          date: stockRecord.stock_date,
+          record_name: recordName,
+          mode: 'closing_check',
+          item_data: mirrorItemData,
+        },
+        { onConflict: 'user_id,date,mode' },
+      )
       .select('uid_stock_check, created_at, record_name')
       .single()
 
