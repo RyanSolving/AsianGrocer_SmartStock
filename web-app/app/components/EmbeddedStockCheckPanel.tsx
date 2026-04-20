@@ -19,6 +19,10 @@ import { EntryMethodToggle } from './EntryMethodToggle'
 import { CreateCatalogItemModal, type CreateCatalogItemPayload } from './CreateCatalogItemModal'
 import { StockPaperCardSection, StockPaperSectionTable, StockPaperThreeColumnTable } from './StockPaperTables'
 import { formatSheetDate, normalizeInsideSectionLabel } from '../../lib/stock-paper-utils'
+import { STATUS } from '../../lib/status-messages'
+import { ConfirmDialog } from './ConfirmDialog'
+import { SectionLandingState } from './SectionLandingState'
+import { getOfflineDraftAge } from '../../lib/offline/queue'
 
 type CatalogItem = {
   id?: number
@@ -428,6 +432,8 @@ export function EmbeddedStockCheckPanel({
   const [isExporting, setIsExporting] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isOnline, setIsOnline] = useState(true)
+  const [phase, setPhase] = useState<'landing' | 'editing'>('landing')
+  const [pendingModeSwitch, setPendingModeSwitch] = useState<'manual' | 'photo' | null>(null)
   const [stockCheckQueueCount, setStockCheckQueueCount] = useState(0)
   const [hasStockCheckLocalDraft, setHasStockCheckLocalDraft] = useState(false)
   const [hasRestoredOfflineDraft, setHasRestoredOfflineDraft] = useState(false)
@@ -652,7 +658,7 @@ export function EmbeddedStockCheckPanel({
   }, [refreshOfflineState])
 
   useEffect(() => {
-    if (hasRestoredOfflineDraft) return
+    if (typeof window === 'undefined' || hasRestoredOfflineDraft || phase !== 'editing') return
 
     if (loadedHistoryUid) {
       setHasRestoredOfflineDraft(true)
@@ -670,10 +676,10 @@ export function EmbeddedStockCheckPanel({
     setRows(draft.rows)
     setIsValidated(Boolean(draft.isValidated))
     setHasPassedRecheck(Boolean(draft.hasPassedRecheck))
-    setStatus('Recovered local stock-check draft for offline review and editing.')
+    setStatus(STATUS.DRAFT_RECOVERED)
     setError(null)
     setHasRestoredOfflineDraft(true)
-  }, [hasRestoredOfflineDraft, loadedHistoryUid, today])
+  }, [hasRestoredOfflineDraft, loadedHistoryUid, today, phase])
 
   useEffect(() => {
     if (!hasRestoredOfflineDraft) return
@@ -695,11 +701,15 @@ export function EmbeddedStockCheckPanel({
   }, [hasPassedRecheck, hasRestoredOfflineDraft, isValidated, rows, stockDate, stockEntryMode])
 
   const startManualEntry = useCallback(() => {
+    const freshToday = new Date().toISOString().slice(0, 10)
     setStockEntryMode('manual')
     setStockPhotoFile(null)
     setRows([])
+    setStockDate(freshToday)
+    clearOfflineDraft('stock-check')
+    setHasStockCheckLocalDraft(false)
     setManualCheckRedMarked(false)
-    setStatus('Manual closing entry is ready. Add checked items from input.')
+    setStatus(STATUS.READY_MANUAL)
     setError(null)
     setIsValidated(false)
     setHasPassedRecheck(false)
@@ -707,13 +717,34 @@ export function EmbeddedStockCheckPanel({
     setRecheckWarnings([])
   }, [])
 
+  const confirmStartManualEntry = useCallback(() => {
+    if (rows.length > 0) {
+      setPendingModeSwitch('manual')
+    } else {
+      startManualEntry()
+    }
+  }, [rows.length, startManualEntry])
+
   const startPhotoEntry = useCallback(() => {
+    const freshToday = new Date().toISOString().slice(0, 10)
     setStockEntryMode('photo')
     setStockPhotoFile(null)
+    setRows([])
+    setStockDate(freshToday)
+    clearOfflineDraft('stock-check')
+    setHasStockCheckLocalDraft(false)
     setManualCheckRedMarked(false)
     setStatus('Photo closing entry is ready. Choose a photo to parse.')
     setError(null)
   }, [])
+
+  const confirmStartPhotoEntry = useCallback(() => {
+    if (rows.length > 0) {
+      setPendingModeSwitch('photo')
+    } else {
+      startPhotoEntry()
+    }
+  }, [rows.length, startPhotoEntry])
 
   const parsePhoto = useCallback(async () => {
     if (!stockPhotoFile) {
@@ -869,6 +900,7 @@ export function EmbeddedStockCheckPanel({
     setShowRecheckWarningModal(false)
     setStatus(`Loaded stock check record ${selectedHistoryRecord.uid_stock_check}.`)
     setError(null)
+    setPhase('editing')
   }, [selectedHistoryRecord, today, visibleCatalogItems])
 
   useEffect(() => {
@@ -1560,6 +1592,10 @@ export function EmbeddedStockCheckPanel({
       }
 
       setStatus(`Saved (UID: ${responsePayload?.uid_stock_check ?? '-'}) to Supabase. Load and export are enabled.`)
+      
+      // Clear the local draft so it doesn't get incorrectly restored next time
+      clearOfflineDraft('stock-check')
+      setHasStockCheckLocalDraft(false)
     } catch (e) {
       if (isNetworkRequestError(e)) {
         enqueueOfflineRequest({
@@ -1812,9 +1848,55 @@ export function EmbeddedStockCheckPanel({
     )
   }
 
+  if (phase === 'landing') {
+    return (
+      <SectionLandingState
+        sectionLabel="Count Stock"
+        hasDraft={hasStockCheckLocalDraft}
+        draftAge={getOfflineDraftAge('stock-check')}
+        draftItemCount={rows.filter(r => r.quantity !== null).length}
+        historyCount={historyRecords?.length || 0}
+        onAction={(action) => {
+          if (action === 'new') {
+            setRows([]) // startManualEntry will trigger via effect if needed, but we clear first
+            setPhase('editing')
+            confirmStartManualEntry()
+          } else if (action === 'continue') {
+            setPhase('editing')
+            // draft restore effect will handle it
+          } else if (action === 'history') {
+            // How to open history? It's in the parent's sidebar
+            // We'll just set phase to editing and let them use the sidebar or whatever
+            setPhase('editing')
+          }
+        }}
+      />
+    )
+  }
+
   return (
     <div className="space-y-4">
       <section className="card-surface rounded-2xl p-4 sm:p-6 md:p-8">
+        <div className="mb-4 sticky top-0 z-20 flex items-center justify-between rounded-lg bg-slate-800 px-4 py-2 text-white shadow-lg">
+          <div className="flex items-center gap-2 text-sm">
+            {loadedHistoryUid ? '📂' : '📝'}
+            <span className="font-medium">
+              {loadedHistoryUid
+                ? `Editing ${formatSheetDate(stockDate)} record`
+                : `New · ${formatSheetDate(stockDate || today)}`}
+            </span>
+            <span className="text-slate-400">·</span>
+            <span className="text-slate-300">
+              {rows.filter(r => r.quantity !== null).length} items
+            </span>
+          </div>
+          <button 
+            onClick={() => setPhase('landing')} 
+            className="text-xs text-slate-400 hover:text-white transition-colors"
+          >
+            ✕ Back to Menu
+          </button>
+        </div>
         <div className="mb-4">
           <h1 className="text-xl font-bold text-slate-900 sm:text-2xl md:text-3xl">Stock Check</h1>
           <p className="mt-1 text-sm text-slate-600">Paper layout for manual and photo entry, inline quantity checks, and red reorder markers.</p>
@@ -1843,8 +1925,8 @@ export function EmbeddedStockCheckPanel({
         <div className="mb-4">
           <EntryMethodToggle
             value={stockEntryMode}
-            onManual={startManualEntry}
-            onPhoto={startPhotoEntry}
+            onManual={confirmStartManualEntry}
+            onPhoto={confirmStartPhotoEntry}
             manualHelpText="Manual entry is active. Adjust quantities directly in the paper view."
             photoHelpText="Photo entry is active. Choose a stock-closing image and parse it into the same paper layout."
           />
@@ -2398,6 +2480,20 @@ export function EmbeddedStockCheckPanel({
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={pendingModeSwitch !== null}
+        title="Switch entry mode?"
+        message="This will clear your current entries. You'll start with a blank form."
+        variant="danger"
+        confirmLabel="Clear and switch"
+        onConfirm={() => {
+          if (pendingModeSwitch === 'manual') startManualEntry()
+          else startPhotoEntry()
+          setPendingModeSwitch(null)
+        }}
+        onCancel={() => setPendingModeSwitch(null)}
+      />
     </div>
   )
 }

@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import snowflake from 'snowflake-sdk'
 
+snowflake.configure({ logLevel: 'ERROR' })
+
 import { logPushToSnowflakeEvent } from '../../../lib/supabase/events'
 import { getAuthContext } from '../../../lib/supabase/route-auth'
 import { buildManualEntryRecordName } from '../../../lib/record-names'
@@ -187,6 +189,7 @@ export async function POST(request: Request) {
     }
 
     parsedData = parsed.data
+    validated = 'yes' // Re-push records are always validated (saved via Done pipeline)
   } else {
     const envelope = saveToSnowflakeEnvelopeSchema.safeParse(payload)
     if (!envelope.success) {
@@ -231,7 +234,7 @@ export async function POST(request: Request) {
     let savedUidGenerate = uidGenerate
 
     if (savedUidGenerate) {
-      const { error: updateGenerateError } = await auth.supabase
+      const { data: updatedRows, error: updateGenerateError } = await auth.supabase
         .from('event_generate')
         .update({
           input_file_name: recordName,
@@ -241,6 +244,7 @@ export async function POST(request: Request) {
         })
         .eq('uid_generate', savedUidGenerate)
         .eq('user_id', auth.user.id)
+        .select('uid_generate')
 
       if (updateGenerateError) {
         return NextResponse.json(
@@ -249,6 +253,17 @@ export async function POST(request: Request) {
             details: updateGenerateError.message,
           },
           { status: 500 }
+        )
+      }
+
+      // Detect silent RLS block — Supabase returns no error but updates 0 rows
+      if (!updatedRows || updatedRows.length === 0) {
+        return NextResponse.json(
+          {
+            error: 'Save blocked by database policy. The record may belong to another user, or the UPDATE policy is missing. Run the latest RLS migration in Supabase.',
+            uid_generate: savedUidGenerate,
+          },
+          { status: 403 }
         )
       }
     } else {
@@ -377,7 +392,7 @@ export async function POST(request: Request) {
     let historySyncWarning: string | null = null
 
     if (uidGenerate) {
-      const { error: updateGenerateError } = await auth.supabase
+      const { data: updatedRows, error: updateGenerateError } = await auth.supabase
         .from('event_generate')
         .update({
           input_file_name: recordName,
@@ -387,9 +402,13 @@ export async function POST(request: Request) {
         })
         .eq('uid_generate', uidGenerate)
         .eq('user_id', auth.user.id)
+        .select('uid_generate')
 
       if (updateGenerateError) {
         historySyncWarning = updateGenerateError.message
+      } else if (!updatedRows || updatedRows.length === 0) {
+        // Silent RLS block — update appeared to succeed but wrote 0 rows
+        historySyncWarning = 'UPDATE blocked by RLS policy (0 rows affected). Apply the consolidate_rls_policies migration in Supabase.'
       }
     }
 

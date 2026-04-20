@@ -121,12 +121,23 @@ export function saveOfflineDraft(feature: OfflineDraftFeature, payload: Record<s
   if (!isBrowser()) return
 
   try {
-    window.localStorage.setItem(getDraftStorageKey(feature), JSON.stringify(payload))
+    const withTimestamp = { ...payload, savedAt: new Date().toISOString() }
+    window.localStorage.setItem(getDraftStorageKey(feature), JSON.stringify(withTimestamp))
   } catch {
     // Ignore storage errors.
   }
 
   window.dispatchEvent(new CustomEvent(OFFLINE_DRAFT_EVENT, { detail: { feature } }))
+}
+
+export function getOfflineDraftAge(feature: OfflineDraftFeature): string | null {
+  const draft = loadOfflineDraft<{ savedAt?: string }>(feature)
+  if (!draft?.savedAt) return null
+
+  const ms = Date.now() - new Date(draft.savedAt).getTime()
+  if (ms < 3600000) return 'just now'
+  if (ms < 86400000) return `${Math.floor(ms / 3600000)}h ago`
+  return new Date(draft.savedAt).toLocaleDateString()
 }
 
 export function loadOfflineDraft<T>(feature: OfflineDraftFeature): T | null {

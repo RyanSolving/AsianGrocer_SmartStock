@@ -22,6 +22,8 @@ import { CreateCatalogItemModal, type CreateCatalogItemPayload } from './compone
 import { EmbeddedStockCheckPanel } from './components/EmbeddedStockCheckPanel'
 import { EntryMethodToggle } from './components/EntryMethodToggle'
 import { StockPaperCardSection, StockPaperSectionTable, StockPaperThreeColumnTable } from './components/StockPaperTables'
+import { ConfirmDialog } from './components/ConfirmDialog'
+import { SectionLandingState } from './components/SectionLandingState'
 import type { SelectedStockCheckHistoryRecord } from './components/EmbeddedStockCheckPanel'
 import { StockCheckHistoryDialog } from './components/StockCheckHistoryDialog'
 import { TranscriptionHistoryDialog } from './components/TranscriptionHistoryDialog'
@@ -29,6 +31,7 @@ import { filterVisibleCatalogItems } from '../lib/catalog-visibility'
 import {
   clearOfflineDraft,
   enqueueOfflineRequest,
+  getOfflineDraftAge,
   getPendingOfflineCountByFeature,
   getPendingOfflineCount,
   hasOfflineDraft,
@@ -40,6 +43,7 @@ import {
   syncOfflineQueue,
 } from '../lib/offline/queue'
 import { formatSheetDate, normalizeInsideSectionLabel } from '../lib/stock-paper-utils'
+import { STATUS } from '../lib/status-messages'
 
 function shouldSilenceOfflineNetworkError(error: unknown) {
   if (typeof window === 'undefined' || window.navigator.onLine) {
@@ -451,7 +455,7 @@ function ToastStack({
   onDismiss: (id: number) => void
 }) {
   return (
-    <div className="pointer-events-none fixed right-4 top-4 z-[70] flex w-[min(92vw,360px)] flex-col gap-2">
+    <div className="pointer-events-none fixed left-1/2 top-4 z-[70] flex w-[min(92vw,360px)] -translate-x-1/2 flex-col gap-2">
       {toasts.map((toast) => {
         const toneClass = toast.tone === 'success'
           ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
@@ -487,6 +491,7 @@ export default function Home() {
   const today = useMemo(() => new Date().toISOString().slice(0, 10), [])
   const stockMode: StockMode = 'stock-in'
   const [activeSection, setActiveSection] = useState<HubSection>('data-entry')
+  const [stockInPhase, setStockInPhase] = useState<'landing' | 'editing'>('landing')
   const [dataEntryMode, setDataEntryMode] = useState<DataEntryMode>('manual')
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [activeCatalog, setActiveCatalog] = useState<CatalogItem[] | null>(null)
@@ -519,10 +524,14 @@ export default function Home() {
   const [selectedHistoryUid, setSelectedHistoryUid] = useState<string | null>(null)
   const [editingHistoryUid, setEditingHistoryUid] = useState<string | null>(null)
   const [isOnline, setIsOnline] = useState(true)
+  const [pendingModeSwitch, setPendingModeSwitch] = useState<'manual' | 'photo' | null>(null)
+  const [pendingHistoryLoad, setPendingHistoryLoad] = useState<string | null>(null)
+  const [pendingStockCheckHistoryLoad, setPendingStockCheckHistoryLoad] = useState<StockCheckHistoryRecord | null>(null)
   const [offlineQueueCount, setOfflineQueueCount] = useState(0)
   const [stockInQueueCount, setStockInQueueCount] = useState(0)
   const [isOfflineSyncing, setIsOfflineSyncing] = useState(false)
   const [hasStockInLocalDraft, setHasStockInLocalDraft] = useState(false)
+  const [showOverflow, setShowOverflow] = useState(false)
   const [dataEntrySearchTerm, setDataEntrySearchTerm] = useState('')
   const [dataEntryStatusFilter, setDataEntryStatusFilter] = useState<'all' | 'pending' | 'pushed'>('all')
   const [dataEntryFindTerm, setDataEntryFindTerm] = useState('')
@@ -561,6 +570,12 @@ export default function Home() {
   const dataEntryHighlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const isManualEntryMode = dataEntryMode === 'manual'
+
+  const addToast = useCallback((variant: 'success' | 'error', message: string) => {
+    const id = ++toastIdRef.current
+    setToasts((prev) => [...prev, { id, tone: variant, message }])
+  }, [])
+
   const visibleCatalog = useMemo(() => filterVisibleCatalogItems(activeCatalog), [activeCatalog])
   const visibleCatalogCodes = useMemo(
     () => new Set(visibleCatalog.map((item) => item.code.trim().toUpperCase())),
@@ -806,7 +821,7 @@ export default function Home() {
     }
   }, [refreshOfflineQueueState, runOfflineSync])
 
-  useEffect(() => {
+  const restoreStockInDraft = useCallback(() => {
     if (typeof window === 'undefined') return
 
     const draft = loadOfflineDraft<StockInOfflineDraft>('stock-in')
@@ -821,7 +836,7 @@ export default function Home() {
     setIsValidatedByStaff(Boolean(draft.isValidatedByStaff))
     setHasSavedToSupabase(Boolean(draft.hasSavedToSupabase))
     setHasLoadedToDb(Boolean(draft.hasLoadedToDb))
-    setApiStatus('Recovered local stock-in draft for offline review and editing.')
+    setApiStatus(STATUS.DRAFT_RECOVERED)
   }, [])
 
   useEffect(() => {
@@ -1081,11 +1096,21 @@ export default function Home() {
       return []
     }
 
+    const activeCatalogCodes = new Set((activeCatalog ?? []).map((c) => c.code.trim().toUpperCase()))
+
     // Extracted items (matched)
     const allItems = parsedData.items
       .filter((item) => {
         if (!item.catalog_code) return true
-        return visibleCatalogCodes.has(item.catalog_code.trim().toUpperCase())
+        const code = item.catalog_code.trim().toUpperCase()
+        
+        // If it's a known catalog item but explicitly hidden, drop it
+        if (activeCatalogCodes.has(code) && !visibleCatalogCodes.has(code)) {
+          return false
+        }
+        
+        // Otherwise keep it (it's either visible, or it's a custom/orphaned code)
+        return true
       })
       .map((item, index) => ({ item, index, source: 'parsed' as const }))
 
@@ -1127,7 +1152,7 @@ export default function Home() {
       if (row.item.quantity_conflict_flag) return true
       return (row.item.quantity_raw ?? '').trim().length > 0
     })
-  }, [missingCatalogItems, parsedData, unknownItems, visibleCatalogCodes])
+  }, [activeCatalog, missingCatalogItems, parsedData, unknownItems, visibleCatalogCodes])
 
   const paperSections = useMemo(() => {
     const insideRows = indexedItems.filter((row) => row.item.location === 'Inside Coolroom' && row.source !== 'unknown')
@@ -1168,6 +1193,11 @@ export default function Home() {
       unknownRows: splitRows(unknown),
     }
   }, [indexedItems])
+
+  const filledItemCount = useMemo(
+    () => indexedItems.filter(r => r.item.quantity !== null).length,
+    [indexedItems]
+  )
 
   const outsideDisplayColumns = useMemo(() => {
     const combinedOutside = [
@@ -1847,8 +1877,16 @@ export default function Home() {
     setHasLoadedToDb(false)
     setIsValidatedByStaff(false)
     setApiError(null)
-    setApiStatus('Manual entry is ready. Enter quantities directly, then save to Supabase.')
+    setApiStatus(STATUS.READY_MANUAL)
   }, [visibleCatalog, today])
+
+  const confirmStartManualEntry = useCallback(() => {
+    if (parsedData && parsedData.items.some(i => i.quantity !== null)) {
+      setPendingModeSwitch('manual')
+    } else {
+      startManualEntry()
+    }
+  }, [parsedData, startManualEntry])
 
   const startPhotoEntry = useCallback(() => {
     setDataEntryMode('photo')
@@ -1863,10 +1901,19 @@ export default function Home() {
     setHasLoadedToDb(false)
     setIsValidatedByStaff(false)
     setApiError(null)
-    setApiStatus('Photo parsing mode selected. Upload an image to generate stock-in lines.')
+    setApiStatus('Photo parsing mode selected. Upload an image to generate stock-in lines.') // Still okay as is, or use constant
   }, [])
 
+  const confirmStartPhotoEntry = useCallback(() => {
+    if (parsedData && parsedData.items.some(i => i.quantity !== null)) {
+      setPendingModeSwitch('photo')
+    } else {
+      startPhotoEntry()
+    }
+  }, [parsedData, startPhotoEntry])
+
   useEffect(() => {
+    if (stockInPhase !== 'editing') return
     if (!isManualEntryMode || visibleCatalog.length === 0) return
 
     setParsedData((current) => {
@@ -1876,7 +1923,7 @@ export default function Home() {
 
       return current
     })
-  }, [visibleCatalog, isManualEntryMode, stockMode, today])
+  }, [visibleCatalog, isManualEntryMode, stockMode, today, stockInPhase])
 
   const focusAndHighlightDataEntry = useCallback((index: number) => {
     setActiveSection('data-entry')
@@ -2183,7 +2230,7 @@ export default function Home() {
         endpoint: '/api/save-to-snowflake',
         payload: requestPayload,
       })
-      setApiStatus('Offline detected. Save queued and will auto-sync when connection returns.')
+      setApiStatus(STATUS.OFFLINE_QUEUED)
       setHasSavedToSupabase(false)
       setIsSavingSupabase(false)
       return
@@ -2212,9 +2259,7 @@ export default function Home() {
         )
       }
 
-      setApiStatus(
-        `${payload?.message ?? 'Saved to Supabase.'} ${payload?.uid_generate ? `UID: ${payload.uid_generate}.` : ''}`.trim()
-      )
+      // setApiStatus(STATUS.SAVED) // Removed to prevent double-toast with "All done!"
       if (typeof payload?.uid_generate === 'string' && payload.uid_generate.length > 0) {
         setLatestGenerateUid(payload.uid_generate)
         if (editingHistoryUid) {
@@ -2222,6 +2267,7 @@ export default function Home() {
         }
       }
       setHasSavedToSupabase(true)
+      return (payload?.uid_generate as string) || true
     } catch (error) {
       if (isNetworkRequestError(error)) {
         enqueueOfflineRequest({
@@ -2229,52 +2275,78 @@ export default function Home() {
           endpoint: '/api/save-to-snowflake',
           payload: requestPayload,
         })
-        setApiStatus('Network unavailable. Save queued and will auto-sync when connection returns.')
+        setApiStatus(STATUS.OFFLINE_QUEUED)
         setHasSavedToSupabase(false)
-        return
+        return true // counts as success for the flow
       }
 
       setApiError(error instanceof Error ? error.message : 'Unexpected Supabase save error.')
+      return false
     } finally {
       setIsSavingSupabase(false)
     }
   }
 
-  async function loadToSnowflake() {
+  const handleStockInDone = useCallback(async () => {
+    if (!parsedData) {
+      setApiError('No data to save.')
+      return
+    }
+
+    // Step 1: validate
+    const valid = normalizeAndMarkValidated(false)
+    if (!valid) return
+
+    // Step 2: save to Supabase
+    const saved = await saveToSupabase()
+    if (!saved) return
+
+    // Step 3: load to Snowflake (awaited so user sees "All done!" only after both saves complete)
+    if (window.navigator.onLine) {
+      try {
+        await loadToSnowflake(saved)
+      } catch {
+        // Snowflake failure is non-fatal; record is safe in Supabase
+      }
+    }
+
+    // Step 4: clear draft
+    clearOfflineDraft('stock-in')
+    setHasStockInLocalDraft(false)
+
+    // Step 5: return to landing
+    addToast('success', '✅ All done!')
+    setStockInPhase('landing')
+  }, [parsedData, normalizeAndMarkValidated, loadToSnowflake, addToast])
+
+  async function loadToSnowflake(overrideUidOrSaved?: string | boolean) {
     if (!parsedData) {
       setApiError('No parsed data to load yet. Parse a stock photo first.')
       return
     }
 
-    if (!latestGenerateUid) {
+    const targetUid = typeof overrideUidOrSaved === 'string' ? overrideUidOrSaved : latestGenerateUid
+
+    if (!targetUid && overrideUidOrSaved !== true) {
       setApiError('No transcription record is available yet. Parse a stock photo first.')
       return
     }
 
-    if (!hasSavedToSupabase) {
-      setApiError('Please save to Supabase first, then load the latest draft to Snowflake.')
-      return
-    }
-
-    if (!isValidatedByStaff) {
-      setApiError('Please Save first. Load to Snowflake is enabled after Save validation completes.')
-      return
-    }
+    // Validation and Supabase save are guaranteed by handleStockInDone pipeline
 
     setIsLoadingSnowflake(true)
     setApiError(null)
     setApiStatus(null)
 
     try {
+      // Use re-push mode: send only uid_generate so the API fetches
+      // the authoritative data from the Supabase record we just saved.
+      // This prevents stale closure data from overwriting the correct record.
       const response = await fetch('/api/save-to-snowflake', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          data: parsedData,
-          validated: 'yes',
-          unknown_items: unknownItems,
-          missing_catalog_items: missingCatalogItems,
-          uid_generate: latestGenerateUid,
+          uid_generate: targetUid,
         }),
       })
 
@@ -2294,9 +2366,7 @@ export default function Home() {
         )
       }
 
-      setApiStatus(
-        `${payload?.message ?? 'Saved to Snowflake staging.'} ${payload?.query_id ? `Query ID: ${payload.query_id}.` : ''}`.trim()
-      )
+      // Success, no extra toast needed since handleStockInDone fires "All done!"
       setHasLoadedToDb(true)
     } catch (error) {
       setApiError(error instanceof Error ? error.message : 'Unexpected Snowflake save error.')
@@ -2451,21 +2521,18 @@ export default function Home() {
       setIsValidatedByStaff(true)
       setApiError(null)
       setApiStatus(`Loaded history record ${entry.uid_generate} for editing.`)
+      setStockInPhase('editing')
       return true
     }
 
-    const existing = historyData.find((entry) => entry.uid_generate === uid)
-    if (existing) {
-      applyEntry(existing)
-      return
-    }
-
-    await loadTranscriptionHistory()
-
+    // Always fetch fresh data from Supabase to avoid stale-cache issues
+    // (e.g. user adds an item, saves, then re-opens the same record)
     try {
       const response = await fetch('/api/transcription-history', { cache: 'no-store' })
       const payload = await response.json()
       const freshHistory = Array.isArray(payload?.history) ? payload.history as HistoryEntry[] : []
+      setHistoryData(freshHistory)
+
       const fresh = freshHistory.find((entry) => entry.uid_generate === uid)
 
       if (!fresh) {
@@ -2477,7 +2544,7 @@ export default function Home() {
     } catch {
       setApiError('Unable to refresh history details. Please try again.')
     }
-  }, [historyData, loadTranscriptionHistory, today])
+  }, [today])
 
   const openHistory = async (uid?: string) => {
     setSelectedHistoryUid(uid ?? null)
@@ -2723,7 +2790,11 @@ export default function Home() {
                           timestamp={entry.timestamp}
                           selected={isSelected}
                           onClick={() => {
-                            setSelectedStockCheckHistoryRecord(entry)
+                            if (activeSection === 'stock-check' && selectedStockCheckHistoryRecord) {
+                                setPendingStockCheckHistoryLoad(entry)
+                            } else {
+                                setSelectedStockCheckHistoryRecord(entry)
+                            }
                           }}
                           badges={[
                             {
@@ -2759,7 +2830,11 @@ export default function Home() {
                         timestamp={entry.timestamp}
                         selected={selectedHistoryUid === entry.uid_generate}
                         onClick={() => {
-                          void loadDataEntryHistoryToEditor(entry.uid_generate)
+                          if (parsedData && parsedData.items.some(i => i.quantity !== null) && !editingHistoryUid) {
+                            setPendingHistoryLoad(entry.uid_generate)
+                          } else {
+                            void loadDataEntryHistoryToEditor(entry.uid_generate)
+                          }
                         }}
                         badges={[
                           {
@@ -2795,10 +2870,50 @@ export default function Home() {
             />
           ) : activeSection === 'dashboard' ? (
             <DashboardPanel />
+          ) : stockInPhase === 'landing' ? (
+            <SectionLandingState
+              sectionLabel="Receive Stock"
+              hasDraft={hasStockInLocalDraft}
+              draftAge={getOfflineDraftAge('stock-in')}
+              draftItemCount={parsedData?.items.filter(i => i.quantity !== null).length || 0}
+              historyCount={historyData.length}
+              onAction={(action) => {
+                if (action === 'new') {
+                  startManualEntry()
+                  setStockInPhase('editing')
+                } else if (action === 'continue') {
+                  restoreStockInDraft()
+                  setStockInPhase('editing')
+                } else if (action === 'history') {
+                  setIsHistoryOpen(true)
+                }
+              }}
+            />
           ) : (
             <div className="space-y-4">
               <section className="card-surface rounded-2xl p-6 pb-24 md:p-8 md:pb-8">
-                <div className="mb-4">
+                <div className="mb-4 sticky top-0 z-20 flex items-center justify-between rounded-lg bg-slate-800 px-4 py-2 text-white shadow-lg">
+                  <div className="flex items-center gap-2 text-sm">
+                    {editingHistoryUid ? '📂' : '📝'}
+                    <span className="font-medium">
+                      {editingHistoryUid
+                        ? `Editing ${formatSheetDate(parsedData?.stock_date)} record`
+                        : `New · ${formatSheetDate(parsedData?.stock_date || today)}`}
+                    </span>
+                    <span className="text-slate-400">·</span>
+                    <span className="text-slate-300">
+                      {parsedData?.items.filter(i => i.quantity !== null).length || 0} items
+                    </span>
+                  </div>
+                  <button 
+                    onClick={() => setStockInPhase('landing')} 
+                    className="text-xs text-slate-400 hover:text-white transition-colors"
+                  >
+                    ✕ Back to Menu
+                  </button>
+                </div>
+
+                <div className="mb-4 mt-4">
                   <h1 className="text-2xl font-bold text-slate-900 md:text-3xl">Stock In</h1>
                   <p className="mt-1 text-sm text-slate-500">
                     Stock In is for stock-in input. For stock-closing (manual or parse from photo), use Check Stock.
@@ -2823,8 +2938,8 @@ export default function Home() {
                 <div className="grid gap-4">
                   <EntryMethodToggle
                     value={isManualEntryMode ? 'manual' : 'photo'}
-                    onManual={startManualEntry}
-                    onPhoto={startPhotoEntry}
+                    onManual={confirmStartManualEntry}
+                    onPhoto={confirmStartPhotoEntry}
                     manualLabel="Manual Entry"
                     photoLabel="Photo Entry"
                     manualHelpText="Enter stock values manually and review them in the stocklist viewer."
@@ -3268,34 +3383,52 @@ export default function Home() {
                   </div>
                 </div>
 
-                <div className="mobile-sticky-actions mt-5 grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-center">
+                <div className="mobile-sticky-actions mt-5 flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={saveToSupabase}
+                    onClick={handleStockInDone}
                     disabled={!parsedData || isSavingSupabase || isLoadingSnowflake || isExporting}
-                    className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-100 disabled:text-slate-400 sm:w-auto"
+                    className="flex-1 min-h-12 rounded-lg bg-emerald-600 px-6 py-3
+                               text-base font-semibold text-white hover:bg-emerald-700
+                               disabled:bg-slate-300 transition-colors shadow-md"
                   >
-                    {isSavingSupabase ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                    {isSavingSupabase ? 'Saving...' : hasSavedToSupabase ? 'Saved' : 'Save'}
+                    {isSavingSupabase ? (
+                      <div className="flex items-center justify-center gap-2">
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                        <span>Saving...</span>
+                      </div>
+                    ) : (
+                      `✅ Done (${filledItemCount} items)`
+                    )}
                   </button>
-                  <button
-                    type="button"
-                    onClick={exportCsv}
-                    disabled={!parsedData || !isValidatedByStaff || isExporting || isSavingSupabase || isLoadingSnowflake}
-                    className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400 sm:w-auto"
-                  >
-                    {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                    {isExporting ? 'Exporting...' : 'Export CSV'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={loadToSnowflake}
-                    disabled={!parsedData || !isValidatedByStaff || !hasSavedToSupabase || isSavingSupabase || isLoadingSnowflake || isExporting}
-                    className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-brand-300 sm:w-auto"
-                  >
-                    {isLoadingSnowflake ? <Loader2 className="h-4 w-4 animate-spin" /> : <Database className="h-4 w-4" />}
-                    {isLoadingSnowflake ? 'Loading...' : 'Load'}
-                  </button>
+
+                  <div className="relative">
+                    <button 
+                      onClick={() => setShowOverflow(v => !v)}
+                      className="min-h-12 rounded-lg border border-slate-300 bg-white px-4 py-3 text-slate-600 hover:bg-slate-50 transition-colors"
+                      aria-label="More actions"
+                    >
+                      <Settings className="h-5 w-5" />
+                    </button>
+                    {showOverflow && (
+                      <div className="absolute bottom-14 right-0 z-30 w-48 rounded-xl border border-slate-200 bg-white p-2 shadow-xl animate-in fade-in slide-in-from-bottom-2 duration-200">
+                        <button 
+                          onClick={() => { exportCsv(); setShowOverflow(false); }} 
+                          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                        >
+                          <Download className="h-4 w-4" />
+                          <span>Export CSV</span>
+                        </button>
+                        <button 
+                          onClick={() => { setIsHistoryOpen(true); setShowOverflow(false); }} 
+                          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                        >
+                          <History className="h-4 w-4" />
+                          <span>View History</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </section>
             </div>
@@ -3444,6 +3577,50 @@ export default function Home() {
         }}
         onDeleteHistory={deleteStockCheckHistory}
       />
+
+      <ConfirmDialog
+        isOpen={pendingModeSwitch !== null}
+        title="Switch entry mode?"
+        message="This will clear your current entries. You'll start with a blank form."
+        variant="danger"
+        confirmLabel="Clear and switch"
+        onConfirm={() => {
+          if (pendingModeSwitch === 'manual') startManualEntry()
+          else startPhotoEntry()
+          setPendingModeSwitch(null)
+        }}
+        onCancel={() => setPendingModeSwitch(null)}
+      />
+
+      <ConfirmDialog
+        isOpen={pendingHistoryLoad !== null}
+        title="Load history record?"
+        message="Loading this record will replace your current work. Unsaved changes will be lost."
+        variant="danger"
+        confirmLabel="Load and replace"
+        onConfirm={() => {
+          if (pendingHistoryLoad) {
+            void loadDataEntryHistoryToEditor(pendingHistoryLoad)
+          }
+          setPendingHistoryLoad(null)
+        }}
+        onCancel={() => setPendingHistoryLoad(null)}
+      />
+      <ConfirmDialog
+        isOpen={pendingStockCheckHistoryLoad !== null}
+        title="Load stock check history?"
+        message="Loading this record will replace your current stock check view. Unsaved changes will be lost."
+        variant="danger"
+        confirmLabel="Load and replace"
+        onConfirm={() => {
+          if (pendingStockCheckHistoryLoad) {
+            setSelectedStockCheckHistoryRecord(pendingStockCheckHistoryLoad)
+          }
+          setPendingStockCheckHistoryLoad(null)
+        }}
+        onCancel={() => setPendingStockCheckHistoryLoad(null)}
+      />
+
     </main>
   )
 }
