@@ -194,7 +194,7 @@ function SidebarHistoryCard({ title, timestamp, badges, selected = false, onClic
     <button
       type="button"
       onClick={onClick}
-      className={`w-full rounded-lg border px-2.5 py-2 text-left transition ${selected
+      className={`w-full min-h-11 rounded-lg border px-2.5 py-2 text-left transition ${selected
           ? 'border-brand-500 bg-brand-50'
           : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
         }`}
@@ -456,7 +456,7 @@ function ToastStack({
   onDismiss: (id: number) => void
 }) {
   return (
-    <div className="pointer-events-none fixed left-1/2 top-4 z-[70] flex w-[min(92vw,360px)] -translate-x-1/2 flex-col gap-2">
+    <div role="alert" aria-live="polite" className="pointer-events-none fixed left-1/2 top-4 z-[70] flex w-[min(92vw,360px)] -translate-x-1/2 flex-col gap-2">
       {toasts.map((toast) => {
         const toneClass = toast.tone === 'success'
           ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
@@ -3267,7 +3267,7 @@ export default function Home() {
                         <button
                           type="button"
                           onClick={areAllDataEntrySectionsExpanded ? collapseAllDataEntrySections : expandAllDataEntrySections}
-                          className="inline-flex min-h-8 items-center justify-center rounded-md border border-slate-300 bg-white px-3 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+                          className="inline-flex min-h-11 items-center justify-center rounded-md border border-slate-300 bg-white px-3 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
                           aria-label={areAllDataEntrySectionsExpanded ? 'Collapse all review sections' : 'Expand all review sections'}
                           title={areAllDataEntrySectionsExpanded ? 'Collapse all review sections' : 'Expand all review sections'}
                         >

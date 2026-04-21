@@ -32,9 +32,10 @@ export function EntryMethodToggle({
       <div className="mt-2 grid grid-cols-2 gap-2">
         <button
           type="button"
-          onClick={onManual}
+          onClick={value !== 'manual' ? onManual : undefined}
+          aria-pressed={value === 'manual'}
           className={`rounded-lg px-3 py-2 text-sm font-medium transition ${value === 'manual'
-              ? 'bg-brand-600 text-white shadow-sm'
+              ? 'bg-brand-600 text-white shadow-sm cursor-default'
               : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
             }`}
         >
@@ -42,9 +43,10 @@ export function EntryMethodToggle({
         </button>
         <button
           type="button"
-          onClick={onPhoto}
+          onClick={value !== 'photo' ? onPhoto : undefined}
+          aria-pressed={value === 'photo'}
           className={`rounded-lg px-3 py-2 text-sm font-medium transition ${value === 'photo'
-              ? 'bg-brand-600 text-white shadow-sm'
+              ? 'bg-brand-600 text-white shadow-sm cursor-default'
               : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
             }`}
         >
