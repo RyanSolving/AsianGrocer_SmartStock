@@ -1793,7 +1793,7 @@ export function EmbeddedStockCheckPanel({
           type="button"
           aria-label="Toggle reorder mark"
           onClick={() => toggleRed(item.index)}
-          className={`h-3.5 w-3.5 shrink-0 rounded-full border ${item.row.red_marked ? 'border-red-600 bg-red-600' : 'border-slate-400 bg-transparent'}`}
+          className={`relative h-3.5 w-3.5 shrink-0 rounded-full border p-3 -m-3 ${item.row.red_marked ? 'border-red-600 bg-red-600' : 'border-slate-400 bg-transparent'}`}
           title="Click to mark as selling fast"
         />
         <input
@@ -2092,7 +2092,7 @@ export function EmbeddedStockCheckPanel({
                 <button
                   type="button"
                   onClick={areAllStockCheckSectionsExpanded ? collapseAllStockCheckSections : expandAllStockCheckSections}
-                  className="inline-flex min-h-8 items-center justify-center rounded-md border border-slate-300 bg-white px-3 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+                  className="inline-flex min-h-11 items-center justify-center rounded-md border border-slate-300 bg-white px-3 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
                   aria-label={areAllStockCheckSectionsExpanded ? 'Collapse all stock check sections' : 'Expand all stock check sections'}
                   title={areAllStockCheckSectionsExpanded ? 'Collapse all stock check sections' : 'Expand all stock check sections'}
                 >
