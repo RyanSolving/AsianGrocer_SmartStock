@@ -12,6 +12,27 @@ type StockCheckHistoryEntry = {
   validated: boolean
   item_count: number
   unknown_count: number
+  record_data?: {
+    items: Array<{
+      code: string
+      product: string
+      category: string
+      location: string
+      sub_location: string
+      official_name: string
+      stocklist_name: string
+      quantity: number | null
+      red_marked: boolean
+      notes: string
+    }>
+    unknown_items: Array<{
+      user_input: string
+      quantity: number | null
+      red_marked: boolean
+      notes: string
+    }>
+    validated: boolean
+  }
 }
 
 type StockCheckHistoryDialogProps = {
@@ -65,6 +86,83 @@ export function StockCheckHistoryDialog({
     if (mode === 'closing_check') return 'Closing'
     if (mode === 'arrival_entry') return 'Arrival'
     return mode || 'Unknown'
+  }
+
+  const getPaperGroups = (data?: StockCheckHistoryEntry['record_data']) => {
+    if (!data) return []
+
+    const items = data.items || []
+    const unknownItems = data.unknown_items || []
+    
+    const groups: Record<string, Array<{ name: string; quantity: string }>> = {}
+
+    items.forEach((row) => {
+      const location = row.location?.trim() || 'Unknown'
+      const subLocation = row.sub_location?.trim() || 'General'
+      const groupKey = `${location} / ${subLocation}`
+      const name = row.official_name?.trim() || row.product?.trim() || 'Unnamed item'
+      const quantity = typeof row.quantity === 'number' ? String(row.quantity) : '-'
+
+      if (!groups[groupKey]) {
+        groups[groupKey] = []
+      }
+      groups[groupKey].push({ name, quantity })
+    })
+    
+    unknownItems.forEach((row) => {
+      const groupKey = `Unknown / Unclassified`
+      const name = row.user_input?.trim() || 'Unknown item'
+      const quantity = typeof row.quantity === 'number' ? String(row.quantity) : '-'
+
+      if (!groups[groupKey]) {
+        groups[groupKey] = []
+      }
+      groups[groupKey].push({ name, quantity })
+    })
+
+    return Object.entries(groups)
+  }
+
+  const renderPaperDetails = (entry: StockCheckHistoryEntry) => {
+    const groups = getPaperGroups(entry.record_data)
+
+    if (groups.length === 0) {
+      return <p className="mt-2 text-xs text-slate-500">No item rows found for this record.</p>
+    }
+
+    return (
+      <div className="mt-3 space-y-3">
+        <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+          <span className="font-semibold text-slate-700">Date:</span> {entry.stock_date}
+          <span className="mx-2 text-slate-300">|</span>
+          <span className="font-semibold text-slate-700">Mode:</span> {getModeLabel(entry.mode)}
+        </div>
+
+        {groups.map(([groupName, rows]) => (
+          <div key={groupName} className="rounded-md border border-slate-200 bg-white">
+            <p className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+              {groupName}
+            </p>
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-slate-500">
+                  <th className="px-3 py-2 font-medium">Item</th>
+                  <th className="px-3 py-2 text-right font-medium">Qty</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, idx) => (
+                  <tr key={`${groupName}-${idx}`} className="border-t border-slate-100 text-slate-700">
+                    <td className="px-3 py-2">{row.name}</td>
+                    <td className="px-3 py-2 text-right font-semibold">{row.quantity}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </div>
+    )
   }
 
   return (
@@ -147,9 +245,13 @@ export function StockCheckHistoryDialog({
                   </div>
 
                   {isExpanded && (
-                    <div className="mt-4 border-t border-slate-200 pt-3 text-xs text-slate-600">
-                      <p><span className="font-semibold text-slate-700">Stock date:</span> {entry.stock_date}</p>
-                      <p><span className="font-semibold text-slate-700">UID:</span> {entry.uid_stock_check}</p>
+                    <div className="mt-4 border-t border-slate-200 pt-4">
+                      <div className="rounded-md bg-slate-50 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wider text-slate-600">
+                          Paper Format
+                        </p>
+                        {renderPaperDetails(entry)}
+                      </div>
                     </div>
                   )}
 

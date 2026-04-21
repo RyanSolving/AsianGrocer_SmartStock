@@ -1793,7 +1793,7 @@ export function EmbeddedStockCheckPanel({
           type="button"
           aria-label="Toggle reorder mark"
           onClick={() => toggleRed(item.index)}
-          className={`relative h-3.5 w-3.5 shrink-0 rounded-full border p-3 -m-3 ${item.row.red_marked ? 'border-red-600 bg-red-600' : 'border-slate-400 bg-transparent'}`}
+          className={`relative h-3.5 w-3.5 shrink-0 rounded-full border before:absolute before:-inset-3 before:content-[''] ${item.row.red_marked ? 'border-red-600 bg-red-600' : 'border-slate-400 bg-transparent'}`}
           title="Click to mark as selling fast"
         />
         <input
