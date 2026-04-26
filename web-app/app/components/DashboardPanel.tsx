@@ -1,21 +1,9 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, ArrowDownAZ, ArrowUpAZ, Loader2, RefreshCw, SlidersHorizontal } from 'lucide-react'
+import { AlertTriangle, Loader2, RefreshCw, SlidersHorizontal } from 'lucide-react'
 
-import type { DashboardMetricItem, DashboardResponseFilters, DashboardStockLevelItem } from '../../lib/dashboard-analytics'
-
-type DashboardOverviewResponse = {
-  selected_date: string
-  filters: DashboardResponseFilters
-  summary: {
-    total_products_in_stock: number
-    total_products: number
-    generated_at: string
-  }
-  top_highest: DashboardMetricItem[]
-  top_lowest: DashboardMetricItem[]
-}
+import type { DashboardResponseFilters, DashboardStockLevelItem } from '../../lib/dashboard-analytics'
 
 type DashboardStockLevelResponse = {
   selected_date: string
@@ -24,85 +12,47 @@ type DashboardStockLevelResponse = {
   generated_at: string
 }
 
-type DashboardTab = 'overview' | 'stock-level-manage'
+type DashboardTab = 'powerbi-report' | 'stock-level-manage'
 
 function formatPercent(value: number) {
   return `${value.toFixed(1)}%`
 }
 
-function DashboardStatCard({
-  label,
-  value,
-  hint,
-}: {
-  label: string
-  value: string
-  hint: string
-}) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</p>
-      <p className="mt-2 text-3xl font-bold text-slate-900">{value}</p>
-      <p className="mt-1 text-sm text-slate-500">{hint}</p>
-    </div>
-  )
-}
-
-function MetricList({
-  title,
-  icon: Icon,
-  items,
-  emptyLabel,
-}: {
-  title: string
-  icon: typeof ArrowDownAZ
-  items: DashboardMetricItem[]
-  emptyLabel: string
-}) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="flex items-center gap-2">
-        <Icon className="h-4 w-4 text-brand-600" />
-        <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
-      </div>
-
-      {items.length === 0 ? (
-        <p className="mt-3 text-sm text-slate-500">{emptyLabel}</p>
-      ) : (
-        <div className="mt-3 space-y-2">
-          {items.map((item, index) => (
-            <div key={`${item.product_name}-${index}`} className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2">
-              <div>
-                <p className="text-sm font-semibold text-slate-800">{item.product_name}</p>
-                <p className="text-xs text-slate-500">{item.category}</p>
-              </div>
-              <p className="text-sm font-semibold text-slate-900">{item.quantity}</p>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
+const POWERBI_EMBED_URL =
+  'https://app.powerbi.com/view?r=eyJrIjoiNzhjMDMzMTUtMzMwZS00OWMyLWJkZGYtNDEwYmY1NDVlM2NhIiwidCI6IjJlZmEwMzAzLTllNTItNDQxNC1hOGMzLWY5YTIxMjhiNTFkNSJ9'
 
 export function DashboardPanel() {
   const today = useMemo(() => new Date().toISOString().slice(0, 10), [])
-  const [activeTab, setActiveTab] = useState<DashboardTab>('overview')
+  const [activeTab, setActiveTab] = useState<DashboardTab>('powerbi-report')
   const [selectedDate, setSelectedDate] = useState(today)
   const [selectedLocation, setSelectedLocation] = useState('all')
   const [selectedCategory, setSelectedCategory] = useState('all')
-  const [overview, setOverview] = useState<DashboardOverviewResponse | null>(null)
   const [stockLevels, setStockLevels] = useState<DashboardStockLevelResponse | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [refreshTick, setRefreshTick] = useState(0)
   const requestIdRef = useRef(0)
+  const [isMobile, setIsMobile] = useState(false)
 
-  const activeData = activeTab === 'overview' ? overview : stockLevels
-  const locations = activeData?.filters.locations ?? []
-  const categories = activeData?.filters.categories ?? []
+  // Detect mobile viewport so we can switch the Power BI iframe to portrait mode
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)')
+    setIsMobile(mq.matches)
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [])
+
+  const embedUrl = isMobile
+    ? `${POWERBI_EMBED_URL}&isMobile=true`
+    : POWERBI_EMBED_URL
+
+  const locations = stockLevels?.filters.locations ?? []
+  const categories = stockLevels?.filters.categories ?? []
 
   useEffect(() => {
+    if (activeTab !== 'stock-level-manage') return
+
     let isMounted = true
     const requestId = ++requestIdRef.current
     const controller = new AbortController()
@@ -112,12 +62,11 @@ export function DashboardPanel() {
       setError(null)
 
       try {
-        const endpoint = activeTab === 'overview' ? '/api/dashboard/overview' : '/api/dashboard/stock-level-manage'
         const params = new URLSearchParams({ date: selectedDate })
         if (selectedLocation !== 'all') params.set('location', selectedLocation)
         if (selectedCategory !== 'all') params.set('category', selectedCategory)
 
-        const response = await fetch(`${endpoint}?${params.toString()}`, {
+        const response = await fetch(`/api/dashboard/stock-level-manage?${params.toString()}`, {
           signal: controller.signal,
         })
 
@@ -131,11 +80,7 @@ export function DashboardPanel() {
           return
         }
 
-        if (activeTab === 'overview') {
-          setOverview(payload as DashboardOverviewResponse)
-        } else {
-          setStockLevels(payload as DashboardStockLevelResponse)
-        }
+        setStockLevels(payload as DashboardStockLevelResponse)
       } catch (loadError) {
         if (controller.signal.aborted || requestId !== requestIdRef.current || !isMounted) {
           return
@@ -157,8 +102,6 @@ export function DashboardPanel() {
     }
   }, [activeTab, selectedDate, selectedLocation, selectedCategory, refreshTick])
 
-  const generatedAt = activeTab === 'overview' ? overview?.summary.generated_at : stockLevels?.generated_at
-
   return (
     <section className="card-surface rounded-2xl p-5 md:p-8">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -166,27 +109,30 @@ export function DashboardPanel() {
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-600">Dashboard</p>
           <h1 className="mt-2 text-2xl font-bold text-slate-900 md:text-3xl">Inventory analytics</h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-500">
-            Overview surfaces today&apos;s product standing, while stock level management compares current quantity against arrival quantity and flags items below the 20% sold-out threshold.
+            Interactive Power&nbsp;BI report with mobile-responsive layout, plus stock level management comparing current quantity against arrival quantity.
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setRefreshTick((value) => value + 1)}
-          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-        >
-          {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-          Refresh
-        </button>
+        {activeTab === 'stock-level-manage' && (
+          <button
+            type="button"
+            onClick={() => setRefreshTick((value) => value + 1)}
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            Refresh
+          </button>
+        )}
       </div>
 
+      {/* ── Tab bar ── */}
       <div className="mt-5 flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-2">
         <button
           type="button"
-          onClick={() => setActiveTab('overview')}
-          className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${activeTab === 'overview' ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+          onClick={() => setActiveTab('powerbi-report')}
+          className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${activeTab === 'powerbi-report' ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
         >
-          Overview
+          Power BI Report
         </button>
         <button
           type="button"
@@ -196,39 +142,41 @@ export function DashboardPanel() {
           Stock level manage
         </button>
 
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
-            <SlidersHorizontal className="h-4 w-4 text-slate-400" />
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(event) => setSelectedDate(event.target.value)}
-              className="bg-transparent text-sm text-slate-700 focus:outline-none"
-            />
+        {activeTab === 'stock-level-manage' && (
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+              <SlidersHorizontal className="h-4 w-4 text-slate-400" />
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(event) => setSelectedDate(event.target.value)}
+                className="bg-transparent text-sm text-slate-700 focus:outline-none"
+              />
+            </div>
+
+            <select
+              value={selectedLocation}
+              onChange={(event) => setSelectedLocation(event.target.value)}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
+            >
+              <option value="all">All locations</option>
+              {locations.map((location) => (
+                <option key={location} value={location}>{location}</option>
+              ))}
+            </select>
+
+            <select
+              value={selectedCategory}
+              onChange={(event) => setSelectedCategory(event.target.value)}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
+            >
+              <option value="all">All categories</option>
+              {categories.map((category) => (
+                <option key={category} value={category}>{category}</option>
+              ))}
+            </select>
           </div>
-
-          <select
-            value={selectedLocation}
-            onChange={(event) => setSelectedLocation(event.target.value)}
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
-          >
-            <option value="all">All locations</option>
-            {locations.map((location) => (
-              <option key={location} value={location}>{location}</option>
-            ))}
-          </select>
-
-          <select
-            value={selectedCategory}
-            onChange={(event) => setSelectedCategory(event.target.value)}
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
-          >
-            <option value="all">All categories</option>
-            {categories.map((category) => (
-              <option key={category} value={category}>{category}</option>
-            ))}
-          </select>
-        </div>
+        )}
       </div>
 
       {error ? (
@@ -237,47 +185,27 @@ export function DashboardPanel() {
         </div>
       ) : null}
 
+      {/* ── Tab content ── */}
       <div className="mt-5">
-        {isLoading && !activeData ? (
+        {activeTab === 'powerbi-report' ? (
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div
+              className="relative w-full"
+              style={isMobile ? { height: '85vh' } : { paddingBottom: '59.77%' }}
+            >
+              <iframe
+                title="Power BI Report"
+                src={embedUrl}
+                className="absolute inset-0 h-full w-full border-0"
+                allowFullScreen
+              />
+            </div>
+          </div>
+        ) : isLoading && !stockLevels ? (
           <div className="flex min-h-[240px] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-white">
             <div className="flex items-center gap-2 text-sm text-slate-500">
               <Loader2 className="h-4 w-4 animate-spin" />
               Loading dashboard metrics...
-            </div>
-          </div>
-        ) : activeTab === 'overview' ? (
-          <div className="space-y-5">
-            <div className="grid gap-4 md:grid-cols-3">
-              <DashboardStatCard
-                label="No. of products in stocks"
-                value={overview ? String(overview.summary.total_products_in_stock) : '0'}
-                hint="Products with quantity above zero in the selected date scope."
-              />
-              <DashboardStatCard
-                label="Total products tracked"
-                value={overview ? String(overview.summary.total_products) : '0'}
-                hint="Unique products returned from the selected Snowflake date slice."
-              />
-              <DashboardStatCard
-                label="Last refreshed"
-                value={generatedAt ? new Date(generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}
-                hint={generatedAt ? new Date(generatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No refresh yet'}
-              />
-            </div>
-
-            <div className="grid gap-4 lg:grid-cols-2">
-              <MetricList
-                title="Top 5 products with highest stock"
-                icon={ArrowUpAZ}
-                items={overview?.top_highest ?? []}
-                emptyLabel="No products available for this filter set."
-              />
-              <MetricList
-                title="Top 5 products with lowest stock"
-                icon={ArrowDownAZ}
-                items={overview?.top_lowest ?? []}
-                emptyLabel="No products available for this filter set."
-              />
             </div>
           </div>
         ) : (
