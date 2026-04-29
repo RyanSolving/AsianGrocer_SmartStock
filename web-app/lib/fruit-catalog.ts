@@ -138,7 +138,7 @@ ${catalogText}
       "catalog_code": "<string code from catalog or null>",
       "product_raw": "<exact PRINTED text from form>",
       "quantity_raw": "<quantity string exactly as written, or null>",
-      "quantity": <integer or null>,
+      "quantity": <number or null>,
       "quantity_conflict_flag": <true | false (true if ambiguous or unreadable)>,
       "confidence": "<high | medium | low>",
       "notes": "<sell_marker=true if red circle found, else null>"
