@@ -72,7 +72,7 @@ export const itemSchema = z.object({
   row_position: z.enum(['left', 'right', 'single']).default('single'),
   
   quantity_raw: z.string().nullable().default(null),
-  quantity: z.number().int().nullable().default(null),
+  quantity: z.number().nullable().default(null),
   quantity_conflict_flag: z.boolean().default(false),
   
   confidence: z.enum(['high', 'medium', 'low']).default('medium'),
@@ -86,7 +86,7 @@ export const parsedStockSchema = z.object({
   upload_date: z.string().datetime(),
   stock_date: z.string().date(),
   photo_url: z.string().url().nullable().default(null),
-  total_items: z.number().int().nonnegative(),
+  total_items: z.number().nonnegative(),
   confidence_overall: z.enum(['high', 'medium', 'low']).default('medium'),
   items: z.array(itemSchema),
 })
@@ -98,7 +98,7 @@ export const snowflakeStagingRecordSchema = z.object({
   upload_date: z.string().datetime(),
   stock_date: z.string().date(),
   photo_url: z.string().url().nullable().default(null),
-  total_items: z.number().int().nonnegative(),
+  total_items: z.number().nonnegative(),
   confidence_overall: z.enum(['high', 'medium', 'low']).default('medium'),
   item_data: z.array(itemSchema),
 })

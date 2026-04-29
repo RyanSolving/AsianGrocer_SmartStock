@@ -316,7 +316,7 @@ function generateCatalogCode(category: string, product: string, attribute: strin
 function parseWholeQuantity(raw: string) {
   const trimmed = raw.trim()
   if (!trimmed) return null
-  const parsed = Number.parseInt(trimmed, 10)
+  const parsed = Number.parseFloat(trimmed)
   if (!Number.isFinite(parsed)) return null
   return parsed
 }
@@ -715,7 +715,9 @@ export default function Home() {
         throw new Error(payload?.error ?? 'Failed to load transcription history.')
       }
 
-      setHistoryData(Array.isArray(payload.history) ? payload.history : [])
+      const allHistory = Array.isArray(payload.history) ? payload.history : []
+      // DB stores mode as 'closing_check' or 'arrival_entry' — exclude closing records from Stock In view
+      setHistoryData(allHistory.filter((entry: HistoryEntry) => entry.stockMode !== 'closing_check'))
     } catch (error) {
       if (shouldSilenceOfflineNetworkError(error)) {
         return
@@ -1864,7 +1866,8 @@ export default function Home() {
   }, [addCreatedDataEntryItem, inlineCreateForm, parsedData])
 
   const startManualEntry = useCallback(() => {
-    const manualDraft = buildManualParsedPayload(visibleCatalog, stockMode, today)
+    const freshToday = new Date().toISOString().slice(0, 10)
+    const manualDraft = buildManualParsedPayload(visibleCatalog, stockMode, freshToday)
 
     setDataEntryMode('manual')
     setPhotoFile(null)
@@ -1879,7 +1882,7 @@ export default function Home() {
     setIsValidatedByStaff(false)
     setApiError(null)
     setApiStatus(STATUS.READY_MANUAL)
-  }, [visibleCatalog, today])
+  }, [visibleCatalog])
 
   const confirmStartManualEntry = useCallback(() => {
     if (parsedData && parsedData.items.some(i => i.quantity !== null)) {
@@ -2049,7 +2052,7 @@ export default function Home() {
     if (!trimmed) {
       return { quantity: null, quantity_raw: null, quantity_conflict_flag: false }
     }
-    const num = parseInt(trimmed, 10)
+    const num = parseFloat(trimmed)
     if (isNaN(num)) {
       return { quantity: null, quantity_raw: trimmed, quantity_conflict_flag: true }
     }
@@ -2077,12 +2080,15 @@ export default function Home() {
     const canToggleVisibility = code.length > 0 && catalogVisibilityByCode.has(code)
     const isVisible = canToggleVisibility ? (catalogVisibilityByCode.get(code) ?? true) : true
 
+    const latestCatalogItem = code ? visibleCatalog.find(c => c.code.trim().toUpperCase() === code) : null;
+    const displayName = latestCatalogItem?.official_name ?? row.item.official_name ?? row.item.product_raw ?? '';
+
     return (
       <div className="flex items-center gap-1">
         <input
           data-entry-row-index={row.index}
           className={getClasses(row, className)}
-          value={row.item.official_name ?? row.item.product_raw}
+          value={displayName}
           readOnly
           onChange={(event) =>
             updateItem(row.index, { official_name: event.target.value })
@@ -2112,6 +2118,7 @@ export default function Home() {
     return (
       <input
         type="number"
+        step="any"
         data-entry-row-index={row.index}
         className={getClasses(row, 'stock-qty-input')}
         aria-label={`Quantity for ${row.item.official_name}`}
@@ -2532,9 +2539,10 @@ export default function Home() {
       const response = await fetch('/api/transcription-history', { cache: 'no-store' })
       const payload = await response.json()
       const freshHistory = Array.isArray(payload?.history) ? payload.history as HistoryEntry[] : []
-      setHistoryData(freshHistory)
+      const filteredHistory = freshHistory.filter((entry) => entry.stockMode !== 'closing_check')
+      setHistoryData(filteredHistory)
 
-      const fresh = freshHistory.find((entry) => entry.uid_generate === uid)
+      const fresh = filteredHistory.find((entry) => entry.uid_generate === uid)
 
       if (!fresh) {
         setApiError('Unable to find that history record. Please refresh history and try again.')
@@ -2822,7 +2830,7 @@ export default function Home() {
               ) : (
                 <div className="max-h-48 space-y-2 overflow-y-auto pr-1 md:max-h-72">
                   {sidebarDataEntryHistory.map((entry) => {
-                    const modeLabel = entry.stockMode === 'stock-closing' ? 'Closing' : 'Arrival'
+                    const modeLabel = entry.stockMode === 'closing_check' ? 'Closing' : 'Arrival'
 
                     return (
                       <SidebarHistoryCard
@@ -3000,6 +3008,7 @@ export default function Home() {
                             <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Qty</label>
                             <input
                               type="number"
+                              step="any"
                               value={manualEntryQuantity}
                               onChange={(event) => setManualEntryQuantity(event.target.value)}
                               placeholder="e.g. 6"

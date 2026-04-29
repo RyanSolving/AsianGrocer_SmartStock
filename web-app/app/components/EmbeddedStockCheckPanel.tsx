@@ -1769,6 +1769,9 @@ export function EmbeddedStockCheckPanel({
     const canToggleVisibility = item.row.source === 'catalog' && code.length > 0
     const isVisible = canToggleVisibility ? (rowVisibilityByCode.get(code) ?? true) : true
 
+    const latestCatalogItem = code ? catalogItems.find(c => c.code.trim().toUpperCase() === code) : null;
+    const displayName = latestCatalogItem?.official_name ?? item.row.official_name ?? '';
+
     if (isExportSnapshotMode) {
       return (
         <div className="stock-export-label-wrap">
@@ -1779,9 +1782,9 @@ export function EmbeddedStockCheckPanel({
           <span
             data-stock-row-index={item.index}
             className={`stock-export-label ${className} ${item.row.red_marked ? 'text-red-600 font-semibold' : ''}`}
-            title={item.row.official_name}
+            title={displayName}
           >
-            {item.row.official_name}
+            {displayName}
           </span>
         </div>
       )
@@ -1799,7 +1802,7 @@ export function EmbeddedStockCheckPanel({
         <input
           data-stock-row-index={item.index}
           className={`${className} ${item.row.red_marked ? 'text-red-600 font-semibold' : ''}`}
-          value={item.row.official_name}
+          value={displayName}
           readOnly
           onChange={(event) => updateRow(item.index, { official_name: event.target.value })}
         />
@@ -1839,6 +1842,7 @@ export function EmbeddedStockCheckPanel({
     return (
       <input
         type="number"
+        step="any"
         data-stock-row-index={item.index}
         className={`stock-qty-input ${item.row.red_marked ? 'text-red-600' : ''}`}
         aria-label={`Quantity for ${item.row.official_name}`}
