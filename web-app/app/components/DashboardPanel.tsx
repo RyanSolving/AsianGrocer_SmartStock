@@ -19,7 +19,7 @@ function formatPercent(value: number) {
 }
 
 const POWERBI_EMBED_URL =
-  'https://app.powerbi.com/view?r=eyJrIjoiNzhjMDMzMTUtMzMwZS00OWMyLWJkZGYtNDEwYmY1NDVlM2NhIiwidCI6IjJlZmEwMzAzLTllNTItNDQxNC1hOGMzLWY5YTIxMjhiNTFkNSJ9'
+  'https://app.powerbi.com/view?r=eyJrIjoiZGZmYWZlY2UtMzZhMy00N2Y2LTg3MjktNzQ0ZmRjN2RlNDQxIiwidCI6IjJlZmEwMzAzLTllNTItNDQxNC1hOGMzLWY5YTIxMjhiNTFkNSJ9'
 
 export function DashboardPanel() {
   const today = useMemo(() => new Date().toISOString().slice(0, 10), [])
