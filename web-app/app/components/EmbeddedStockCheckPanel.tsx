@@ -23,6 +23,7 @@ import { STATUS } from '../../lib/status-messages'
 import { ConfirmDialog } from './ConfirmDialog'
 import { SectionLandingState } from './SectionLandingState'
 import { getOfflineDraftAge } from '../../lib/offline/queue'
+import { getLocalTodayDate } from '../../lib/date-utils'
 
 type CatalogItem = {
   id?: number
@@ -419,7 +420,7 @@ export function EmbeddedStockCheckPanel({
   historyRecords?: StockCheckHistoryRecord[]
   onToggleCatalogVisibility?: (code: string, nextVisible: boolean) => Promise<boolean>
 }) {
-  const today = useMemo(() => new Date().toISOString().slice(0, 10), [])
+  const today = useMemo(() => getLocalTodayDate(), [])
   const stockPaperRef = useRef<HTMLDivElement | null>(null)
   const stockPaperAreaRef = useRef<HTMLDivElement | null>(null)
   const stockFindContainerRef = useRef<HTMLDivElement | null>(null)
@@ -701,7 +702,7 @@ export function EmbeddedStockCheckPanel({
   }, [hasPassedRecheck, hasRestoredOfflineDraft, isValidated, rows, stockDate, stockEntryMode])
 
   const startManualEntry = useCallback(() => {
-    const freshToday = new Date().toISOString().slice(0, 10)
+    const freshToday = getLocalTodayDate()
     setStockEntryMode('manual')
     setStockPhotoFile(null)
     setRows([])
@@ -726,7 +727,7 @@ export function EmbeddedStockCheckPanel({
   }, [rows.length, startManualEntry])
 
   const startPhotoEntry = useCallback(() => {
-    const freshToday = new Date().toISOString().slice(0, 10)
+    const freshToday = getLocalTodayDate()
     setStockEntryMode('photo')
     setStockPhotoFile(null)
     setRows([])

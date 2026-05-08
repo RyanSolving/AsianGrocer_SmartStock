@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Loader2, RefreshCw, SlidersHorizontal } from 'lucide-react'
+import { getLocalTodayDate } from '../../lib/date-utils'
 
 import type { DashboardResponseFilters, DashboardStockLevelItem } from '../../lib/dashboard-analytics'
 
@@ -22,7 +23,7 @@ const POWERBI_EMBED_URL =
   'https://app.powerbi.com/view?r=eyJrIjoiZGZmYWZlY2UtMzZhMy00N2Y2LTg3MjktNzQ0ZmRjN2RlNDQxIiwidCI6IjJlZmEwMzAzLTllNTItNDQxNC1hOGMzLWY5YTIxMjhiNTFkNSJ9'
 
 export function DashboardPanel() {
-  const today = useMemo(() => new Date().toISOString().slice(0, 10), [])
+  const today = useMemo(() => getLocalTodayDate(), [])
   const [activeTab, setActiveTab] = useState<DashboardTab>('powerbi-report')
   const [selectedDate, setSelectedDate] = useState(today)
   const [selectedLocation, setSelectedLocation] = useState('all')

@@ -45,6 +45,7 @@ import {
 } from '../lib/offline/queue'
 import { formatSheetDate, normalizeInsideSectionLabel } from '../lib/stock-paper-utils'
 import { STATUS } from '../lib/status-messages'
+import { getLocalTodayDate } from '../lib/date-utils'
 
 function shouldSilenceOfflineNetworkError(error: unknown) {
   if (typeof window === 'undefined' || window.navigator.onLine) {
@@ -489,7 +490,7 @@ function ToastStack({
 }
 
 export default function Home() {
-  const today = useMemo(() => new Date().toISOString().slice(0, 10), [])
+  const today = useMemo(() => getLocalTodayDate(), [])
   const stockMode: StockMode = 'stock-in'
   const [activeSection, setActiveSection] = useState<HubSection>('data-entry')
   const [stockInPhase, setStockInPhase] = useState<'landing' | 'editing'>('landing')
@@ -1066,7 +1067,7 @@ export default function Home() {
       const formData = new FormData()
       formData.append('csv_file', file)
       const baseName = file.name.replace(/\.csv$/i, '')
-      const versionName = `${baseName}-${new Date().toISOString().slice(0, 10)}`
+      const versionName = `${baseName}-${getLocalTodayDate()}`
       formData.append('version_name', versionName)
 
       const response = await fetch('/api/catalog', {
@@ -1866,7 +1867,7 @@ export default function Home() {
   }, [addCreatedDataEntryItem, inlineCreateForm, parsedData])
 
   const startManualEntry = useCallback(() => {
-    const freshToday = new Date().toISOString().slice(0, 10)
+    const freshToday = getLocalTodayDate()
     const manualDraft = buildManualParsedPayload(visibleCatalog, stockMode, freshToday)
 
     setDataEntryMode('manual')
@@ -2499,12 +2500,14 @@ export default function Home() {
   }
 
   const startNewDraftFromCurrent = useCallback(() => {
+    const freshToday = getLocalTodayDate()
     setEditingHistoryUid(null)
     setSelectedHistoryUid(null)
     setLatestGenerateUid(null)
     setHasSavedToSupabase(false)
     setHasLoadedToDb(false)
     setIsValidatedByStaff(false)
+    setParsedData((prev) => prev ? { ...prev, stock_date: freshToday } : prev)
     setApiStatus('Switched to new draft mode. Next Save will create a new history record.')
   }, [])
 
