@@ -3182,68 +3182,89 @@ export default function Home() {
                         {isItemProfilesExpanded && (
                           <>
                             <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                              <input
-                                type="text"
-                                value={inlineCreateForm.official_name}
-                                onChange={(event) => setInlineCreateForm((current) => ({ ...current, official_name: event.target.value }))}
-                                placeholder="Official Name"
-                                className="min-h-10 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
-                              />
-                              <input
-                                type="text"
-                                value={inlineCreateForm.stocklist_name}
-                                onChange={(event) => setInlineCreateForm((current) => ({ ...current, stocklist_name: event.target.value }))}
-                                placeholder="Name on Stocklist"
-                                className="min-h-10 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
-                              />
-                              <input
-                                type="text"
-                                value={inlineCreateForm.product}
-                                onChange={(event) => setInlineCreateForm((current) => ({ ...current, product: event.target.value }))}
-                                placeholder="Product"
-                                className="min-h-10 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
-                              />
-                              <input
-                                type="text"
-                                value={inlineCreateForm.origin}
-                                onChange={(event) => setInlineCreateForm((current) => ({ ...current, origin: event.target.value }))}
-                                placeholder="Origin"
-                                className="min-h-10 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
-                              />
-                              <select
-                                value={inlineCreateForm.category}
-                                onChange={(event) => setInlineCreateForm((current) => ({ ...current, category: event.target.value }))}
-                                className="min-h-10 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
-                              >
-                                <option value="">Select category</option>
-                                {dataEntryCreateCategories.map((category) => (
-                                  <option key={category} value={category}>{category}</option>
-                                ))}
-                              </select>
-                              <select
-                                value={inlineCreateForm.location}
-                                onChange={(event) => {
-                                  const nextLocation = event.target.value as 'Inside Coolroom' | 'Outside Coolroom'
-                                  setInlineCreateForm((current) => ({
-                                    ...current,
-                                    location: nextLocation,
-                                    sub_location: nextLocation === 'Outside Coolroom' ? OUTSIDE_SUB_LOCATION_OPTIONS[0] : INSIDE_SUB_LOCATION_OPTIONS[0],
-                                  }))
-                                }}
-                                className="min-h-10 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
-                              >
-                                <option value="Inside Coolroom">Inside Coolroom</option>
-                                <option value="Outside Coolroom">Outside Coolroom</option>
-                              </select>
-                              <select
-                                value={inlineCreateForm.sub_location}
-                                onChange={(event) => setInlineCreateForm((current) => ({ ...current, sub_location: event.target.value }))}
-                                className="min-h-10 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
-                              >
-                                {(inlineCreateForm.location === 'Outside Coolroom' ? OUTSIDE_SUB_LOCATION_OPTIONS : INSIDE_SUB_LOCATION_OPTIONS).map((subLocation) => (
-                                  <option key={subLocation} value={subLocation}>{subLocation}</option>
-                                ))}
-                              </select>
+                              <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                                Official Name
+                                <input
+                                  type="text"
+                                  value={inlineCreateForm.official_name}
+                                  onChange={(event) => setInlineCreateForm((current) => ({ ...current, official_name: event.target.value }))}
+                                  placeholder="Official Name"
+                                  className="mt-1 min-h-10 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal normal-case tracking-normal text-slate-700 focus:border-brand-500 focus:outline-none"
+                                />
+                              </label>
+                              <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                                Stocklist Name
+                                <input
+                                  type="text"
+                                  value={inlineCreateForm.stocklist_name}
+                                  onChange={(event) => setInlineCreateForm((current) => ({ ...current, stocklist_name: event.target.value }))}
+                                  placeholder="Name on Stocklist"
+                                  className="mt-1 min-h-10 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal normal-case tracking-normal text-slate-700 focus:border-brand-500 focus:outline-none"
+                                />
+                              </label>
+                              <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                                Product
+                                <input
+                                  type="text"
+                                  value={inlineCreateForm.product}
+                                  onChange={(event) => setInlineCreateForm((current) => ({ ...current, product: event.target.value }))}
+                                  placeholder="Product"
+                                  className="mt-1 min-h-10 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal normal-case tracking-normal text-slate-700 focus:border-brand-500 focus:outline-none"
+                                />
+                              </label>
+                              <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                                Origin
+                                <input
+                                  type="text"
+                                  value={inlineCreateForm.origin}
+                                  onChange={(event) => setInlineCreateForm((current) => ({ ...current, origin: event.target.value }))}
+                                  placeholder="Origin"
+                                  className="mt-1 min-h-10 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal normal-case tracking-normal text-slate-700 focus:border-brand-500 focus:outline-none"
+                                />
+                              </label>
+                              <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                                Category
+                                <select
+                                  value={inlineCreateForm.category}
+                                  onChange={(event) => setInlineCreateForm((current) => ({ ...current, category: event.target.value }))}
+                                  className="mt-1 min-h-10 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal normal-case tracking-normal text-slate-700 focus:border-brand-500 focus:outline-none"
+                                >
+                                  <option value="">Select category</option>
+                                  {dataEntryCreateCategories.map((category) => (
+                                    <option key={category} value={category}>{category}</option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                                Location
+                                <select
+                                  value={inlineCreateForm.location}
+                                  onChange={(event) => {
+                                    const nextLocation = event.target.value as 'Inside Coolroom' | 'Outside Coolroom'
+                                    setInlineCreateForm((current) => ({
+                                      ...current,
+                                      location: nextLocation,
+                                      sub_location: nextLocation === 'Outside Coolroom' ? OUTSIDE_SUB_LOCATION_OPTIONS[0] : INSIDE_SUB_LOCATION_OPTIONS[0],
+                                    }))
+                                  }}
+                                  className="mt-1 min-h-10 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal normal-case tracking-normal text-slate-700 focus:border-brand-500 focus:outline-none"
+                                >
+                                  <option value="Inside Coolroom">Inside Coolroom</option>
+                                  <option value="Outside Coolroom">Outside Coolroom</option>
+                                </select>
+                              </label>
+                              <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                                Sub-location
+                                <select
+                                  value={inlineCreateForm.sub_location}
+                                  onChange={(event) => setInlineCreateForm((current) => ({ ...current, sub_location: event.target.value }))}
+                                  className="mt-1 min-h-10 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal normal-case tracking-normal text-slate-700 focus:border-brand-500 focus:outline-none"
+                                >
+                                  {(inlineCreateForm.location === 'Outside Coolroom' ? OUTSIDE_SUB_LOCATION_OPTIONS : INSIDE_SUB_LOCATION_OPTIONS).map((subLocation) => (
+                                    <option key={subLocation} value={subLocation}>{subLocation}</option>
+                                  ))}
+                                </select>
+                              </label>
                             </div>
                             <div className="mt-2 flex flex-wrap items-center gap-2">
                               <label className="min-w-[150px] flex-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
