@@ -1447,6 +1447,19 @@ export default function Home() {
     return visibleCatalog.find((item) => item.code.trim().toUpperCase() === normalized) ?? null
   }, [dataEntrySelectedCatalogCode, visibleCatalog])
 
+  const editableDataEntryCatalogItem = useMemo(() => {
+    if (selectedDataEntryCatalogItem) return selectedDataEntryCatalogItem
+
+    const typedKey = dataEntryNewItemName.trim().toLowerCase()
+    if (!typedKey) return null
+
+    return visibleCatalog.find((item) => {
+      return item.code.trim().toLowerCase() === typedKey
+        || item.official_name.trim().toLowerCase() === typedKey
+        || item.stocklist_name.trim().toLowerCase() === typedKey
+    }) ?? null
+  }, [dataEntryNewItemName, selectedDataEntryCatalogItem, visibleCatalog])
+
   const syncItemProfilesFromCatalogItem = useCallback((catalogItem: CatalogItem) => {
     setInlineCreateForm({
       official_name: catalogItem.official_name ?? '',
@@ -1876,7 +1889,7 @@ export default function Home() {
       return
     }
 
-    const editingCatalogItem = selectedDataEntryCatalogItem
+    const editingCatalogItem = editableDataEntryCatalogItem
     const payload: CreateCatalogItemPayload = {
       code: editingCatalogItem?.code ?? generateCatalogCode(category, product, inlineCreateForm.attribute.trim()),
       location: inlineCreateForm.location,
@@ -1994,7 +2007,7 @@ export default function Home() {
     } finally {
       setIsInlineCreateSaving(false)
     }
-  }, [addCreatedDataEntryItem, inlineCreateForm, parsedData, selectedDataEntryCatalogItem])
+  }, [addCreatedDataEntryItem, editableDataEntryCatalogItem, inlineCreateForm, parsedData])
 
   const startManualEntry = useCallback(() => {
     const freshToday = getLocalTodayDate()
@@ -3171,7 +3184,7 @@ export default function Home() {
                           <div>
                             <p className="text-sm font-semibold text-slate-800">Item Profiles</p>
                             <p className="mt-0.5 text-xs text-slate-500">
-                              {selectedDataEntryCatalogItem ? 'Edit this catalog profile.' : 'Create a catalog profile if it is new.'}
+                              {editableDataEntryCatalogItem ? 'Edit this catalog profile.' : 'Create a catalog profile if it is new.'}
                             </p>
                           </div>
                           <span className="rounded-full border border-slate-300 bg-slate-50 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600">
@@ -3258,7 +3271,7 @@ export default function Home() {
                                 />
                               </label>
                               <label className="w-32 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                                Inside Quantity
+                                Quantity / Weight (items)
                                 <input
                                   type="number"
                                   min="0"
@@ -3287,8 +3300,8 @@ export default function Home() {
                                 disabled={isInlineCreateSaving || !parsedData}
                                 className="inline-flex min-h-10 items-center justify-center gap-2 self-end rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-slate-400"
                               >
-                                {isInlineCreateSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : selectedDataEntryCatalogItem ? <Save className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-                                {isInlineCreateSaving ? 'Saving...' : selectedDataEntryCatalogItem ? 'Save profile' : 'Add item if new'}
+                                {isInlineCreateSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : editableDataEntryCatalogItem ? <Save className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                                {isInlineCreateSaving ? 'Saving...' : editableDataEntryCatalogItem ? 'Save profile' : 'Add item if new'}
                               </button>
                               <button
                                 type="button"
