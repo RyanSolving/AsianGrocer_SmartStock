@@ -1876,8 +1876,9 @@ export default function Home() {
       return
     }
 
+    const editingCatalogItem = selectedDataEntryCatalogItem
     const payload: CreateCatalogItemPayload = {
-      code: generateCatalogCode(category, product, inlineCreateForm.attribute.trim()),
+      code: editingCatalogItem?.code ?? generateCatalogCode(category, product, inlineCreateForm.attribute.trim()),
       location: inlineCreateForm.location,
       sub_location: inlineCreateForm.sub_location,
       category,
@@ -1888,9 +1889,9 @@ export default function Home() {
       inner_unit: inlineCreateForm.inner_unit,
       official_name: officialName,
       stocklist_name: stocklistName,
-      navigation_guide: '',
-      row_position: 'single',
-      is_visible: true,
+      navigation_guide: editingCatalogItem?.navigation_guide ?? '',
+      row_position: editingCatalogItem?.row_position ?? 'single',
+      is_visible: editingCatalogItem?.is_visible ?? true,
     }
 
     setIsInlineCreateSaving(true)
@@ -1909,23 +1910,91 @@ export default function Home() {
         throw new Error(message)
       }
 
-      addCreatedDataEntryItem(payload)
-      setInlineCreateForm((current) => ({
-        ...current,
-        official_name: '',
-        stocklist_name: '',
-        product: '',
-        attribute: '',
-        origin: '',
-        inner_quantity: null,
-        inner_unit: 'box',
-      }))
+      if (editingCatalogItem) {
+        const normalizedCode = editingCatalogItem.code.trim().toUpperCase()
+        const updatedCatalogItem: CatalogItem = {
+          ...editingCatalogItem,
+          ...payload,
+          id: editingCatalogItem.id,
+        }
+
+        setActiveCatalog((current) => {
+          if (!current) return current
+          return current.map((item) => (
+            item.code.trim().toUpperCase() === normalizedCode ? updatedCatalogItem : item
+          ))
+        })
+
+        setParsedData((current) => {
+          if (!current) return current
+          return {
+            ...current,
+            items: current.items.map((item) => (
+              (item.catalog_code ?? '').trim().toUpperCase() === normalizedCode
+                ? {
+                    ...item,
+                    product_raw: payload.stocklist_name || payload.official_name,
+                    location: payload.location,
+                    sub_location: payload.sub_location,
+                    category: payload.category,
+                    product: payload.product,
+                    attribute: payload.attribute,
+                    origin: payload.origin,
+                    inner_quantity: payload.inner_quantity,
+                    inner_unit: payload.inner_unit,
+                    official_name: payload.official_name,
+                    stocklist_name: payload.stocklist_name,
+                    navigation_guide: payload.navigation_guide,
+                    row_position: payload.row_position,
+                  }
+                : item
+            )),
+          }
+        })
+
+        setMissingCatalogItems((current) => current.map((item) => (
+          item.code.trim().toUpperCase() === normalizedCode
+            ? {
+                ...item,
+                location: payload.location,
+                sub_location: payload.sub_location,
+                category: payload.category,
+                product: payload.product,
+                attribute: payload.attribute,
+                origin: payload.origin,
+                inner_quantity: payload.inner_quantity,
+                inner_unit: payload.inner_unit,
+                official_name: payload.official_name,
+                stocklist_name: payload.stocklist_name,
+                navigation_guide: payload.navigation_guide,
+                row_position: payload.row_position,
+              }
+            : item
+        )))
+
+        setHasSavedToSupabase(false)
+        setHasLoadedToDb(false)
+        setIsValidatedByStaff(false)
+        setApiStatus(`Updated catalog profile for ${payload.official_name}.`)
+      } else {
+        addCreatedDataEntryItem(payload)
+        setInlineCreateForm((current) => ({
+          ...current,
+          official_name: '',
+          stocklist_name: '',
+          product: '',
+          attribute: '',
+          origin: '',
+          inner_quantity: null,
+          inner_unit: 'box',
+        }))
+      }
     } catch (error) {
-      setApiError(error instanceof Error ? error.message : 'Failed to create catalog item.')
+      setApiError(error instanceof Error ? error.message : 'Failed to save catalog item.')
     } finally {
       setIsInlineCreateSaving(false)
     }
-  }, [addCreatedDataEntryItem, inlineCreateForm, parsedData])
+  }, [addCreatedDataEntryItem, inlineCreateForm, parsedData, selectedDataEntryCatalogItem])
 
   const startManualEntry = useCallback(() => {
     const freshToday = getLocalTodayDate()
@@ -3101,7 +3170,9 @@ export default function Home() {
                         >
                           <div>
                             <p className="text-sm font-semibold text-slate-800">Item Profiles</p>
-                            <p className="mt-0.5 text-xs text-slate-500">Expand to edit or create item details.</p>
+                            <p className="mt-0.5 text-xs text-slate-500">
+                              {selectedDataEntryCatalogItem ? 'Edit this catalog profile.' : 'Create a catalog profile if it is new.'}
+                            </p>
                           </div>
                           <span className="rounded-full border border-slate-300 bg-slate-50 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600">
                             {isItemProfilesExpanded ? 'Collapse' : 'Expand'}
@@ -3175,45 +3246,54 @@ export default function Home() {
                               </select>
                             </div>
                             <div className="mt-2 flex flex-wrap items-center gap-2">
-                              <input
-                                type="text"
-                                value={inlineCreateForm.attribute}
-                                onChange={(event) => setInlineCreateForm((current) => ({ ...current, attribute: event.target.value }))}
-                                placeholder="Attribute (optional)"
-                                className="min-h-10 flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
-                              />
-                              <input
-                                type="number"
-                                min="0"
-                                step="1"
-                                value={inlineCreateForm.inner_quantity ?? ''}
-                                onChange={(event) => setInlineCreateForm((current) => ({ ...current, inner_quantity: event.target.value === '' ? null : Number(event.target.value) }))}
-                                placeholder="Inner qty"
-                                className="min-h-10 w-28 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
-                              />
-                              <select
-                                value={inlineCreateForm.inner_unit}
-                                onChange={(event) => setInlineCreateForm((current) => ({ ...current, inner_unit: event.target.value as CatalogInnerUnit }))}
-                                className="min-h-10 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
-                              >
-                                {INNER_UNIT_OPTIONS.map((unit) => (
-                                  <option key={unit} value={unit}>{unit}</option>
-                                ))}
-                              </select>
+                              <label className="min-w-[150px] flex-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                                Attribute
+                                <input
+                                  type="text"
+                                  value={inlineCreateForm.attribute}
+                                  onChange={(event) => setInlineCreateForm((current) => ({ ...current, attribute: event.target.value }))}
+                                  placeholder="e.g. Loose"
+                                  className="mt-1 min-h-10 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal normal-case tracking-normal text-slate-700 focus:border-brand-500 focus:outline-none"
+                                />
+                              </label>
+                              <label className="w-32 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                                Value
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="1"
+                                  value={inlineCreateForm.inner_quantity ?? ''}
+                                  onChange={(event) => setInlineCreateForm((current) => ({ ...current, inner_quantity: event.target.value === '' ? null : Number(event.target.value) }))}
+                                  placeholder="e.g. 8"
+                                  className="mt-1 min-h-10 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal normal-case tracking-normal text-slate-700 focus:border-brand-500 focus:outline-none"
+                                />
+                              </label>
+                              <label className="w-32 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                                Unit
+                                <select
+                                  value={inlineCreateForm.inner_unit}
+                                  onChange={(event) => setInlineCreateForm((current) => ({ ...current, inner_unit: event.target.value as CatalogInnerUnit }))}
+                                  className="mt-1 min-h-10 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal normal-case tracking-normal text-slate-700 focus:border-brand-500 focus:outline-none"
+                                >
+                                  {INNER_UNIT_OPTIONS.map((unit) => (
+                                    <option key={unit} value={unit}>{unit}</option>
+                                  ))}
+                                </select>
+                              </label>
                               <button
                                 type="button"
                                 onClick={submitInlineCreateItem}
                                 disabled={isInlineCreateSaving || !parsedData}
-                                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+                                className="inline-flex min-h-10 items-center justify-center gap-2 self-end rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-slate-400"
                               >
-                                {isInlineCreateSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                                {isInlineCreateSaving ? 'Adding...' : 'Add items if new'}
+                                {isInlineCreateSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : selectedDataEntryCatalogItem ? <Save className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                                {isInlineCreateSaving ? 'Saving...' : selectedDataEntryCatalogItem ? 'Save profile' : 'Add item if new'}
                               </button>
                               <button
                                 type="button"
                                 onClick={openDataEntryCreateItemModal}
                                 disabled={!parsedData || dataEntryNewItemName.trim().length === 0}
-                                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                className="inline-flex min-h-10 items-center justify-center gap-2 self-end rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
                               >
                                 Advanced Form
                               </button>
