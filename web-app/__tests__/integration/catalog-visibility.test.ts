@@ -30,5 +30,48 @@ describe('catalog visibility', () => {
     })
 
     expect(parsed.is_visible).toBe(true)
+    expect(parsed.origin).toBe('')
+    expect(parsed.inner_quantity).toBeNull()
+    expect(parsed.inner_unit).toBe('box')
+  })
+
+  it('accepts inner quantity with a fixed inner unit', () => {
+    const parsed = catalogItemSchema.parse({
+      code: 'STR-PUN-STD',
+      location: 'Inside Coolroom',
+      sub_location: 'Seasonal',
+      category: 'Berries',
+      product: 'Strawberry',
+      attribute: '',
+      origin: 'Australia',
+      inner_quantity: 8,
+      inner_unit: 'punnet',
+      official_name: 'Strawberry Punnet',
+      stocklist_name: 'Strawberry',
+      navigation_guide: '',
+      row_position: 'single',
+    })
+
+    expect(parsed.origin).toBe('Australia')
+    expect(parsed.inner_quantity).toBe(8)
+    expect(parsed.inner_unit).toBe('punnet')
+  })
+
+  it('rejects unsupported inner units', () => {
+    expect(() => catalogItemSchema.parse({
+      code: 'STR-PUN-STD',
+      location: 'Inside Coolroom',
+      sub_location: 'Seasonal',
+      category: 'Berries',
+      product: 'Strawberry',
+      attribute: '',
+      origin: 'Australia',
+      inner_quantity: 8,
+      inner_unit: 'crate',
+      official_name: 'Strawberry Punnet',
+      stocklist_name: 'Strawberry',
+      navigation_guide: '',
+      row_position: 'single',
+    })).toThrow()
   })
 })

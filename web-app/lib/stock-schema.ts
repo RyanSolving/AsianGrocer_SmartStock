@@ -8,8 +8,17 @@ export const catalogSubLocationOutsideOptions = ['Outside Coolroom'] as const
 // Note: catalogCategoryOptions is now fetched from the database via category-store.ts
 // The schema validation for category is deferred to API routes where we have access to the database
 export const catalogRowPositionOptions = ['left', 'right', 'single'] as const
+export const catalogInnerUnitOptions = ['box', 'bag', 'punnet', 'piece', 'tray', 'bunch', 'pack'] as const
 
 const catalogTextSchema = z.string().trim()
+const catalogInnerQuantitySchema = z.preprocess((value) => {
+  if (value === null || value === undefined || value === '') return null
+  if (typeof value === 'string') return Number(value)
+  return value
+}, z.number().nonnegative('Inner quantity must be zero or more').nullable())
+const catalogInnerUnitSchema = z.preprocess((value) => (
+  value === null || value === undefined || value === '' ? 'box' : value
+), z.enum(catalogInnerUnitOptions))
 
 export const catalogItemSchema = z.object({
   code: catalogTextSchema.min(1, 'Item code is required'),
@@ -18,6 +27,9 @@ export const catalogItemSchema = z.object({
   category: catalogTextSchema.min(1, 'Category is required').default('Apples'),
   product: catalogTextSchema.default(''),
   attribute: catalogTextSchema.default(''),
+  origin: catalogTextSchema.default(''),
+  inner_quantity: catalogInnerQuantitySchema.default(null),
+  inner_unit: catalogInnerUnitSchema.default('box'),
   official_name: catalogTextSchema.min(1, 'Official name is required'),
   stocklist_name: catalogTextSchema.min(1, 'Name on stocklist is required'),
   navigation_guide: catalogTextSchema.default(''),
@@ -47,6 +59,9 @@ export const catalogEntrySchema = z.object({
   category: z.string(),
   product: z.string(),
   attribute: z.string(),
+  origin: z.string().default(''),
+  inner_quantity: z.number().nullable().default(null),
+  inner_unit: catalogInnerUnitSchema.default('box'),
   official_name: z.string(),
   stocklist_name: z.string(),
   navigation_guide: z.string(),
@@ -65,6 +80,9 @@ export const itemSchema = z.object({
   category: z.string().default('Unknown'),
   product: z.string().default('Unknown'),
   attribute: z.string().default(''),
+  origin: z.string().default(''),
+  inner_quantity: z.number().nullable().default(null),
+  inner_unit: catalogInnerUnitSchema.default('box'),
   official_name: z.string().default('Unknown'),
   stocklist_name: z.string().optional(),
   navigation_guide: z.string().optional(),
@@ -123,6 +141,9 @@ function catalogEntryToStagedItem(entry: CatalogEntry): StockItem {
     category: entry.category,
     product: entry.product,
     attribute: entry.attribute,
+    origin: entry.origin,
+    inner_quantity: entry.inner_quantity,
+    inner_unit: entry.inner_unit,
     official_name: entry.official_name,
     stocklist_name: entry.stocklist_name || null,
     navigation_guide: entry.navigation_guide || null,

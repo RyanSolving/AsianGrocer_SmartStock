@@ -1,10 +1,25 @@
 import fs from 'fs'
 import path from 'path'
 import Papa from 'papaparse'
+import { catalogInnerUnitOptions } from './stock-schema'
 import type { CatalogEntry, StockMode } from './stock-schema'
 
 function normalizeLegacyTypo(value: string) {
   return value.replace(/avocada/gi, 'Avocado')
+}
+
+function parseInnerQuantity(value: string | undefined) {
+  const trimmed = value?.trim() ?? ''
+  if (!trimmed) return null
+  const parsed = Number(trimmed)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function parseInnerUnit(value: string | undefined): CatalogEntry['inner_unit'] {
+  const trimmed = value?.trim() ?? ''
+  return catalogInnerUnitOptions.includes(trimmed as CatalogEntry['inner_unit'])
+    ? trimmed as CatalogEntry['inner_unit']
+    : 'box'
 }
 
 export function normalizeCatalogEntry(entry: CatalogEntry): CatalogEntry {
@@ -13,6 +28,9 @@ export function normalizeCatalogEntry(entry: CatalogEntry): CatalogEntry {
     code: entry.code,
     product: normalizeLegacyTypo(entry.product),
     attribute: normalizeLegacyTypo(entry.attribute),
+    origin: entry.origin ?? '',
+    inner_quantity: entry.inner_quantity ?? null,
+    inner_unit: entry.inner_unit ?? 'box',
     official_name: normalizeLegacyTypo(entry.official_name),
     stocklist_name: normalizeLegacyTypo(entry.stocklist_name),
     is_visible: entry.is_visible ?? true,
@@ -55,6 +73,9 @@ export function parseCSVCatalog(csvText: string): CatalogEntry[] {
       category: row.Category?.trim() || '',
       product: row.Product.trim(),
       attribute: row.Attribute?.trim() || '',
+      origin: row.Origin?.trim() || '',
+      inner_quantity: parseInnerQuantity(row['Inner Quantity']),
+      inner_unit: parseInnerUnit(row['Inner Unit']),
       official_name: row['Official Name'].trim(),
       stocklist_name: row['Name on Stocklist']?.trim() || '',
       navigation_guide: guide.trim(),

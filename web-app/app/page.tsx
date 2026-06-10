@@ -63,6 +63,9 @@ type StockItem = {
   sub_location: string
   product: string
   attribute: string
+  origin: string
+  inner_quantity: number | null
+  inner_unit: CatalogInnerUnit
   official_name: string
   stocklist_name?: string
   navigation_guide?: string
@@ -83,6 +86,9 @@ type UnknownItem = {
   sub_location: string
   product: string
   attribute: string
+  origin: string
+  inner_quantity: number | null
+  inner_unit: CatalogInnerUnit
   official_name: string
   quantity_raw: string | null
   quantity: number | null
@@ -100,6 +106,9 @@ type CatalogItem = {
   category: string
   product: string
   attribute: string
+  origin: string
+  inner_quantity: number | null
+  inner_unit: CatalogInnerUnit
   official_name: string
   stocklist_name: string
   navigation_guide: string
@@ -162,6 +171,8 @@ type AppToast = {
   tone: 'success' | 'error'
   message: string
 }
+
+type CatalogInnerUnit = 'box' | 'bag' | 'punnet' | 'piece' | 'tray' | 'bunch' | 'pack'
 
 type StockInOfflineDraft = {
   dataEntryMode: DataEntryMode
@@ -231,6 +242,9 @@ type InlineCreateItemForm = {
   location: 'Inside Coolroom' | 'Outside Coolroom'
   sub_location: string
   attribute: string
+  origin: string
+  inner_quantity: number | null
+  inner_unit: CatalogInnerUnit
 }
 const DATA_ENTRY_MOBILE_VIEW_KEY = 'smartstock:data-entry-mobile-view'
 const DATA_ENTRY_EXPANDED_SECTIONS_KEY = 'smartstock:data-entry-expanded-sections'
@@ -239,6 +253,7 @@ const UNKNOWN_SECTION_ID = 'unclassified-staff-inspection'
 const AUTO_EXPAND_SECTION_ROW_LIMIT = 20
 const INSIDE_SUB_LOCATION_OPTIONS = ['Apples', 'Citrus', 'Asian', 'Melon', 'All Year', 'Seasonal', 'Stonefruit'] as const
 const OUTSIDE_SUB_LOCATION_OPTIONS = ['Outside Coolroom'] as const
+const INNER_UNIT_OPTIONS: CatalogInnerUnit[] = ['box', 'bag', 'punnet', 'piece', 'tray', 'bunch', 'pack']
 
 function toSectionId(value: string) {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
@@ -283,6 +298,9 @@ function buildManualParsedPayload(
     category: item.category,
     product: item.product,
     attribute: item.attribute,
+    origin: item.origin,
+    inner_quantity: item.inner_quantity,
+    inner_unit: item.inner_unit,
     official_name: item.official_name,
     stocklist_name: item.stocklist_name,
     navigation_guide: item.navigation_guide,
@@ -388,6 +406,13 @@ function mapHistoryEntryToEditablePayload(entry: HistoryEntry, fallbackDate: str
       sub_location: typeof row.sub_location === 'string' ? row.sub_location : 'Unknown',
       product: typeof row.product === 'string' ? row.product : (typeof row.official_name === 'string' ? row.official_name : ''),
       attribute: typeof row.attribute === 'string' ? row.attribute : '',
+      origin: typeof row.origin === 'string' ? row.origin : '',
+      inner_quantity: typeof row.inner_quantity === 'number' && Number.isFinite(row.inner_quantity)
+        ? row.inner_quantity
+        : typeof row.inner_quantity === 'string' && Number.isFinite(Number(row.inner_quantity))
+          ? Number(row.inner_quantity)
+          : null,
+      inner_unit: INNER_UNIT_OPTIONS.includes(row.inner_unit as CatalogInnerUnit) ? row.inner_unit as CatalogInnerUnit : 'box',
       official_name: typeof row.official_name === 'string' ? row.official_name : (typeof row.product_raw === 'string' ? row.product_raw : ''),
       stocklist_name: typeof row.stocklist_name === 'string' ? row.stocklist_name : undefined,
       navigation_guide: typeof row.navigation_guide === 'string' ? row.navigation_guide : undefined,
@@ -417,6 +442,9 @@ function mapHistoryEntryToEditablePayload(entry: HistoryEntry, fallbackDate: str
         sub_location: normalizedRow.sub_location,
         product: normalizedRow.product,
         attribute: normalizedRow.attribute,
+        origin: normalizedRow.origin,
+        inner_quantity: normalizedRow.inner_quantity,
+        inner_unit: normalizedRow.inner_unit,
         official_name: normalizedRow.official_name,
         quantity_raw: normalizedRow.quantity_raw,
         quantity: normalizedRow.quantity,
@@ -552,6 +580,9 @@ export default function Home() {
     location: 'Inside Coolroom',
     sub_location: 'Apples',
     attribute: '',
+    origin: '',
+    inner_quantity: null,
+    inner_unit: 'box',
   })
   const [isInlineCreateSaving, setIsInlineCreateSaving] = useState(false)
   const [isDataEntryMobileViewport, setIsDataEntryMobileViewport] = useState(false)
@@ -691,6 +722,9 @@ export default function Home() {
       setActiveCatalog(catalog.map((item: CatalogItem) => ({
         ...item,
         is_visible: item.is_visible ?? true,
+        origin: item.origin ?? '',
+        inner_quantity: item.inner_quantity ?? null,
+        inner_unit: item.inner_unit ?? 'box',
       })))
       setCatalogItemCount(catalog.length)
       setCatalogSource(data?.source === 'database' ? 'uploaded' : 'master')
@@ -1083,6 +1117,9 @@ export default function Home() {
       setActiveCatalog((Array.isArray(data.catalog) ? data.catalog : []).map((item: CatalogItem) => ({
         ...item,
         is_visible: item.is_visible ?? true,
+        origin: item.origin ?? '',
+        inner_quantity: item.inner_quantity ?? null,
+        inner_unit: item.inner_unit ?? 'box',
       })))
       setCatalogItemCount(Array.isArray(data.catalog) ? data.catalog.length : 0)
       setCatalogSource('uploaded')
@@ -1131,6 +1168,9 @@ export default function Home() {
         sub_location: c_item.sub_location,
         product: c_item.product,
         attribute: c_item.attribute,
+        origin: c_item.origin,
+        inner_quantity: c_item.inner_quantity,
+        inner_unit: c_item.inner_unit,
         official_name: c_item.official_name,
         quantity_raw: c_item.quantity_raw ?? null,
         quantity: typeof c_item.quantity === 'number' ? c_item.quantity : null,
@@ -1416,6 +1456,9 @@ export default function Home() {
       location: catalogItem.location === 'Outside Coolroom' ? 'Outside Coolroom' : 'Inside Coolroom',
       sub_location: catalogItem.sub_location ?? (catalogItem.location === 'Outside Coolroom' ? OUTSIDE_SUB_LOCATION_OPTIONS[0] : INSIDE_SUB_LOCATION_OPTIONS[0]),
       attribute: catalogItem.attribute ?? '',
+      origin: catalogItem.origin ?? '',
+      inner_quantity: catalogItem.inner_quantity ?? null,
+      inner_unit: catalogItem.inner_unit ?? 'box',
     })
   }, [])
 
@@ -1479,6 +1522,9 @@ export default function Home() {
             category: catalogItem.category,
             product: catalogItem.product,
             attribute: catalogItem.attribute,
+            origin: catalogItem.origin,
+            inner_quantity: catalogItem.inner_quantity,
+            inner_unit: catalogItem.inner_unit,
             official_name: catalogItem.official_name,
             stocklist_name: catalogItem.stocklist_name,
             navigation_guide: catalogItem.navigation_guide,
@@ -1644,6 +1690,9 @@ export default function Home() {
           sub_location: 'Unknown',
           product: itemName,
           attribute: '',
+          origin: '',
+          inner_quantity: null,
+          inner_unit: 'box',
           official_name: itemName,
           quantity_raw: String(quantity),
           quantity,
@@ -1748,6 +1797,9 @@ export default function Home() {
       category: created.category,
       product: created.product,
       attribute: created.attribute,
+      origin: created.origin,
+      inner_quantity: created.inner_quantity,
+      inner_unit: created.inner_unit,
       official_name: created.official_name,
       stocklist_name: created.stocklist_name,
       navigation_guide: created.navigation_guide,
@@ -1779,6 +1831,9 @@ export default function Home() {
             category: created.category,
             product: created.product,
             attribute: created.attribute,
+            origin: created.origin,
+            inner_quantity: created.inner_quantity,
+            inner_unit: created.inner_unit,
             official_name: created.official_name,
             stocklist_name: created.stocklist_name,
             navigation_guide: created.navigation_guide,
@@ -1828,6 +1883,9 @@ export default function Home() {
       category,
       product,
       attribute: inlineCreateForm.attribute.trim(),
+      origin: inlineCreateForm.origin.trim(),
+      inner_quantity: inlineCreateForm.inner_quantity,
+      inner_unit: inlineCreateForm.inner_unit,
       official_name: officialName,
       stocklist_name: stocklistName,
       navigation_guide: '',
@@ -1858,6 +1916,9 @@ export default function Home() {
         stocklist_name: '',
         product: '',
         attribute: '',
+        origin: '',
+        inner_quantity: null,
+        inner_unit: 'box',
       }))
     } catch (error) {
       setApiError(error instanceof Error ? error.message : 'Failed to create catalog item.')
@@ -3071,6 +3132,13 @@ export default function Home() {
                                 placeholder="Product"
                                 className="min-h-10 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
                               />
+                              <input
+                                type="text"
+                                value={inlineCreateForm.origin}
+                                onChange={(event) => setInlineCreateForm((current) => ({ ...current, origin: event.target.value }))}
+                                placeholder="Origin"
+                                className="min-h-10 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
+                              />
                               <select
                                 value={inlineCreateForm.category}
                                 onChange={(event) => setInlineCreateForm((current) => ({ ...current, category: event.target.value }))}
@@ -3114,6 +3182,24 @@ export default function Home() {
                                 placeholder="Attribute (optional)"
                                 className="min-h-10 flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
                               />
+                              <input
+                                type="number"
+                                min="0"
+                                step="1"
+                                value={inlineCreateForm.inner_quantity ?? ''}
+                                onChange={(event) => setInlineCreateForm((current) => ({ ...current, inner_quantity: event.target.value === '' ? null : Number(event.target.value) }))}
+                                placeholder="Inner qty"
+                                className="min-h-10 w-28 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
+                              />
+                              <select
+                                value={inlineCreateForm.inner_unit}
+                                onChange={(event) => setInlineCreateForm((current) => ({ ...current, inner_unit: event.target.value as CatalogInnerUnit }))}
+                                className="min-h-10 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
+                              >
+                                {INNER_UNIT_OPTIONS.map((unit) => (
+                                  <option key={unit} value={unit}>{unit}</option>
+                                ))}
+                              </select>
                               <button
                                 type="button"
                                 onClick={submitInlineCreateItem}
@@ -3473,6 +3559,9 @@ export default function Home() {
                     <th className="pb-2 font-medium pl-2">Category</th>
                     <th className="pb-2 font-medium pl-2">Product</th>
                     <th className="pb-2 font-medium pl-2">Attribute</th>
+                    <th className="pb-2 font-medium pl-2">Origin</th>
+                    <th className="pb-2 font-medium pl-2">Inner Qty</th>
+                    <th className="pb-2 font-medium pl-2">Inner Unit</th>
                     <th className="pb-2 font-medium pl-2">Official Name</th>
                     <th className="pb-2 font-medium pl-2">Name on Stocklist</th>
                     <th className="pb-2 font-medium pl-2">Navigation Guide</th>
@@ -3511,6 +3600,19 @@ export default function Home() {
                         <input className="w-full min-w-[110px] rounded border border-transparent bg-transparent px-2 py-1 hover:border-slate-300 focus:border-brand-500 focus:bg-white focus:outline-none" value={item.attribute} onChange={(e) => { const c = [...activeCatalog]; c[index].attribute = e.target.value; setActiveCatalog(c); setCatalogSource('edited') }} />
                       </td>
                       <td className="py-2 pr-2">
+                        <input className="w-full min-w-[110px] rounded border border-transparent bg-transparent px-2 py-1 hover:border-slate-300 focus:border-brand-500 focus:bg-white focus:outline-none" value={item.origin} onChange={(e) => { const c = [...activeCatalog]; c[index].origin = e.target.value; setActiveCatalog(c); setCatalogSource('edited') }} />
+                      </td>
+                      <td className="py-2 pr-2">
+                        <input type="number" min="0" step="1" className="w-full min-w-[90px] rounded border border-transparent bg-transparent px-2 py-1 hover:border-slate-300 focus:border-brand-500 focus:bg-white focus:outline-none" value={item.inner_quantity ?? ''} onChange={(e) => { const c = [...activeCatalog]; c[index].inner_quantity = e.target.value === '' ? null : Number(e.target.value); setActiveCatalog(c); setCatalogSource('edited') }} />
+                      </td>
+                      <td className="py-2 pr-2">
+                        <select className="w-full min-w-[100px] rounded border border-transparent bg-transparent px-2 py-1 hover:border-slate-300 focus:border-brand-500 focus:bg-white focus:outline-none" value={item.inner_unit} onChange={(e) => { const c = [...activeCatalog]; c[index].inner_unit = e.target.value as CatalogInnerUnit; setActiveCatalog(c); setCatalogSource('edited') }}>
+                          {INNER_UNIT_OPTIONS.map((unit) => (
+                            <option key={unit} value={unit}>{unit}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="py-2 pr-2">
                         <input className="w-full min-w-[130px] rounded border border-transparent bg-transparent px-2 py-1 hover:border-slate-300 focus:border-brand-500 focus:bg-white focus:outline-none" value={item.official_name} onChange={(e) => { const c = [...activeCatalog]; c[index].official_name = e.target.value; setActiveCatalog(c); setCatalogSource('edited') }} />
                       </td>
                       <td className="py-2 pr-2">
@@ -3531,7 +3633,7 @@ export default function Home() {
                 const prod3 = 'NEW'
                 const attr3 = 'STD'
                 const newCode = `${cat3}-${prod3}-${attr3}`
-                const newRow = { id: 0, code: newCode, location: '', sub_location: '', category: '', product: '', attribute: '', official_name: '', stocklist_name: '', navigation_guide: '', row_position: 'single' as const, is_visible: true }
+                const newRow = { id: 0, code: newCode, location: '', sub_location: '', category: '', product: '', attribute: '', origin: '', inner_quantity: null, inner_unit: 'box' as const, official_name: '', stocklist_name: '', navigation_guide: '', row_position: 'single' as const, is_visible: true }
                 setActiveCatalog([...activeCatalog, newRow])
                 setCatalogSource('edited')
               }} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2">

@@ -5,6 +5,7 @@ import { Loader2, Save, X } from 'lucide-react'
 
 import {
   catalogItemSchema,
+  catalogInnerUnitOptions,
   catalogLocationOptions,
   catalogRowPositionOptions,
   catalogSubLocationInsideOptions,
@@ -18,6 +19,9 @@ export type CreateCatalogItemPayload = {
   category: string
   product: string
   attribute: string
+  origin: string
+  inner_quantity: number | null
+  inner_unit: 'box' | 'bag' | 'punnet' | 'piece' | 'tray' | 'bunch' | 'pack'
   official_name: string
   stocklist_name: string
   navigation_guide: string
@@ -98,6 +102,9 @@ export function CreateCatalogItemModal({
     category: defaultCategory,
     product: '',
     attribute: '',
+    origin: '',
+    inner_quantity: null,
+    inner_unit: 'box',
     official_name: '',
     stocklist_name: '',
     navigation_guide: '',
@@ -123,6 +130,9 @@ export function CreateCatalogItemModal({
       category: defaultCategory,
       product: initialProduct,
       attribute: '',
+      origin: '',
+      inner_quantity: null,
+      inner_unit: 'box',
       official_name: initialOfficialName,
       stocklist_name: initialStocklistName,
       navigation_guide: '',
@@ -135,7 +145,7 @@ export function CreateCatalogItemModal({
 
   if (!isOpen) return null
 
-  const updateField = (field: keyof CreateCatalogItemPayload, value: string | boolean) => {
+  const updateField = (field: keyof CreateCatalogItemPayload, value: string | boolean | number | null) => {
     setForm((prev) => {
       const next = { ...prev, [field]: value }
 
@@ -181,6 +191,9 @@ export function CreateCatalogItemModal({
       category: parsed.data.category,
       product: parsed.data.product,
       attribute: parsed.data.attribute,
+      origin: parsed.data.origin,
+      inner_quantity: parsed.data.inner_quantity,
+      inner_unit: parsed.data.inner_unit,
       official_name: parsed.data.official_name,
       stocklist_name: parsed.data.stocklist_name,
       navigation_guide: parsed.data.navigation_guide,
@@ -307,6 +320,44 @@ export function CreateCatalogItemModal({
               />
             </div>
             <div>
+              <label className="block text-xs font-semibold text-slate-500">Origin</label>
+              <input
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                value={form.origin}
+                onChange={(event) => updateField('origin', event.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-500">Inner Quantity</label>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm ${errors.inner_quantity ? 'border-red-400' : 'border-slate-300'}`}
+                value={form.inner_quantity ?? ''}
+                onChange={(event) => updateField('inner_quantity', event.target.value === '' ? null : Number(event.target.value))}
+              />
+              {errors.inner_quantity && <p className="mt-1 text-xs text-red-500">{errors.inner_quantity}</p>}
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500">Inner Unit</label>
+              <select
+                className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm ${errors.inner_unit ? 'border-red-400' : 'border-slate-300'}`}
+                value={form.inner_unit}
+                onChange={(event) => updateField('inner_unit', event.target.value)}
+              >
+                {catalogInnerUnitOptions.map((unit) => (
+                  <option key={unit} value={unit}>{unit}</option>
+                ))}
+              </select>
+              {errors.inner_unit && <p className="mt-1 text-xs text-red-500">{errors.inner_unit}</p>}
+            </div>
+          </div>
+
+          <div>
               <label className="block text-xs font-semibold text-slate-500">Row Position</label>
               <select
                 className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
@@ -317,7 +368,6 @@ export function CreateCatalogItemModal({
                   <option key={option} value={option}>{option}</option>
                 ))}
               </select>
-            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">

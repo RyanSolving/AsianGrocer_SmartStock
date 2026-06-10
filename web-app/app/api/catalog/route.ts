@@ -14,6 +14,9 @@ type CatalogRow = {
   category: string
   product: string
   attribute: string
+  origin: string
+  inner_quantity: number | null
+  inner_unit: 'box' | 'bag' | 'punnet' | 'piece' | 'tray' | 'bunch' | 'pack'
   official_name: string
   stocklist_name: string
   navigation_guide: string
@@ -55,6 +58,9 @@ function mapRowsToCatalog(rows: CatalogRow[]) {
     category: entry.category,
     product: entry.product,
     attribute: entry.attribute,
+    origin: entry.origin ?? '',
+    inner_quantity: entry.inner_quantity ?? null,
+    inner_unit: entry.inner_unit ?? 'box',
     official_name: entry.official_name,
     stocklist_name: entry.stocklist_name,
     navigation_guide: entry.navigation_guide,
@@ -66,7 +72,7 @@ function mapRowsToCatalog(rows: CatalogRow[]) {
 async function loadCatalogFromSingleTable(supabase: any) {
   const result = await supabase
     .from('catalog_items')
-    .select('code, location, sub_location, category, product, attribute, official_name, stocklist_name, navigation_guide, row_position, is_visible')
+    .select('code, location, sub_location, category, product, attribute, origin, inner_quantity, inner_unit, official_name, stocklist_name, navigation_guide, row_position, is_visible')
     .order('code', { ascending: true })
 
   if (result.error) {
@@ -84,6 +90,9 @@ async function loadCatalogFromSingleTable(supabase: any) {
     category: entry.category,
     product: entry.product,
     attribute: entry.attribute,
+    origin: entry.origin ?? '',
+    inner_quantity: entry.inner_quantity == null ? null : Number(entry.inner_quantity),
+    inner_unit: entry.inner_unit ?? 'box',
     official_name: entry.official_name,
     stocklist_name: entry.stocklist_name,
     navigation_guide: entry.navigation_guide,
@@ -144,6 +153,9 @@ async function loadCatalogFromLegacyTables(supabase: any) {
     category: entry.category,
     product: entry.product,
     attribute: entry.attribute,
+    origin: '',
+    inner_quantity: null,
+    inner_unit: 'box',
     official_name: entry.official_name,
     stocklist_name: entry.stocklist_name,
     navigation_guide: entry.navigation_guide,
@@ -166,6 +178,9 @@ function mapCatalogEntriesForInsert(entries: ReturnType<typeof parseCSVCatalog>)
     category: entry.category,
     product: entry.product,
     attribute: entry.attribute,
+    origin: entry.origin,
+    inner_quantity: entry.inner_quantity,
+    inner_unit: entry.inner_unit,
     official_name: entry.official_name,
     stocklist_name: entry.stocklist_name,
     navigation_guide: entry.navigation_guide,
@@ -301,7 +316,7 @@ export async function POST(request: Request) {
   // Fetch the updated catalog
   const result = await auth.supabase
     .from('catalog_items')
-    .select('code, location, sub_location, category, product, attribute, official_name, stocklist_name, navigation_guide, row_position, is_visible')
+    .select('code, location, sub_location, category, product, attribute, origin, inner_quantity, inner_unit, official_name, stocklist_name, navigation_guide, row_position, is_visible')
     .order('code', { ascending: true })
 
   const catalog = (result.data ?? []).map((entry) => normalizeCatalogEntry({
@@ -312,6 +327,9 @@ export async function POST(request: Request) {
     category: entry.category,
     product: entry.product,
     attribute: entry.attribute,
+    origin: entry.origin ?? '',
+    inner_quantity: entry.inner_quantity == null ? null : Number(entry.inner_quantity),
+    inner_unit: entry.inner_unit ?? 'box',
     official_name: entry.official_name,
     stocklist_name: entry.stocklist_name,
     navigation_guide: entry.navigation_guide,

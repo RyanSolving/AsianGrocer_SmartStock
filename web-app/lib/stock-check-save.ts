@@ -8,6 +8,9 @@ export type SupabaseStockCheckRecordData = {
     category: string
     location: string
     sub_location: string
+    origin: string
+    inner_quantity: number | null
+    inner_unit: string
     official_name: string
     stocklist_name: string
     quantity: number | null
@@ -40,6 +43,9 @@ export function toSupabaseMirrorItemData(stagedRecord: SnowflakeStagingRecord): 
       category: item.category,
       location: item.location,
       sub_location: item.sub_location,
+      origin: item.origin,
+      inner_quantity: item.inner_quantity,
+      inner_unit: item.inner_unit,
       official_name: item.official_name,
       stocklist_name: item.stocklist_name ?? item.official_name,
       quantity: item.quantity,

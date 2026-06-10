@@ -16,6 +16,7 @@ import {
 
 import {
   catalogItemSchema,
+  catalogInnerUnitOptions,
   catalogLocationOptions,
   catalogRowPositionOptions,
   catalogSubLocationInsideOptions,
@@ -56,6 +57,9 @@ const emptyItem = (defaultCategory: string = 'Apples'): CatalogItem => ({
   category: defaultCategory,
   product: '',
   attribute: '',
+  origin: '',
+  inner_quantity: null,
+  inner_unit: 'box',
   official_name: '',
   stocklist_name: '',
   navigation_guide: '',
@@ -138,7 +142,7 @@ function ItemModal({
 
   if (!isOpen) return null
 
-  const updateField = (field: keyof CatalogItem, value: string | boolean) => {
+  const updateField = (field: keyof CatalogItem, value: string | boolean | number | null) => {
     setForm((prev) => {
       const next = { ...prev, [field]: value }
 
@@ -262,14 +266,55 @@ function ItemModal({
           </div>
 
           {/* Attribute */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-500">Attribute</label>
-            <input
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              value={form.attribute}
-              onChange={(e) => updateField('attribute', e.target.value)}
-              placeholder="e.g. Medium, Large, 12kg"
-            />
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-500">Attribute</label>
+              <input
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                value={form.attribute}
+                onChange={(e) => updateField('attribute', e.target.value)}
+                placeholder="e.g. Medium, Large, 12kg"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500">Origin</label>
+              <input
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                value={form.origin}
+                onChange={(e) => updateField('origin', e.target.value)}
+                placeholder="e.g. Australia, Vietnam"
+              />
+            </div>
+          </div>
+
+          {/* Inner pack */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-500">Inner Quantity</label>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                className={`mt-1 w-full rounded-lg border ${errors.inner_quantity ? 'border-red-400' : 'border-slate-300'} px-3 py-2 text-sm`}
+                value={form.inner_quantity ?? ''}
+                onChange={(e) => updateField('inner_quantity', e.target.value === '' ? null : Number(e.target.value))}
+                placeholder="e.g. 8"
+              />
+              {errors.inner_quantity && <p className="mt-1 text-xs text-red-500">{errors.inner_quantity}</p>}
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500">Inner Unit</label>
+              <select
+                className={`mt-1 w-full rounded-lg border ${errors.inner_unit ? 'border-red-400' : 'border-slate-300'} px-3 py-2 text-sm`}
+                value={form.inner_unit}
+                onChange={(e) => updateField('inner_unit', e.target.value)}
+              >
+                {catalogInnerUnitOptions.map((unit) => (
+                  <option key={unit} value={unit}>{unit}</option>
+                ))}
+              </select>
+              {errors.inner_unit && <p className="mt-1 text-xs text-red-500">{errors.inner_unit}</p>}
+            </div>
           </div>
 
           {/* Official Name & Stocklist Name */}
@@ -403,6 +448,9 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
             category: entry?.category ?? 'Apples',
             product: entry?.product ?? '',
             attribute: entry?.attribute ?? '',
+            origin: entry?.origin ?? '',
+            inner_quantity: entry?.inner_quantity == null ? null : Number(entry.inner_quantity),
+            inner_unit: entry?.inner_unit ?? 'box',
             official_name: entry?.official_name ?? '',
             stocklist_name: entry?.stocklist_name ?? '',
             navigation_guide: entry?.navigation_guide ?? '',
@@ -457,7 +505,9 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
         item.official_name.toLowerCase().includes(term) ||
         item.stocklist_name.toLowerCase().includes(term) ||
         item.product.toLowerCase().includes(term) ||
-        item.category.toLowerCase().includes(term)
+        item.category.toLowerCase().includes(term) ||
+        item.origin.toLowerCase().includes(term) ||
+        item.inner_unit.toLowerCase().includes(term)
 
       const matchesLocation = locationFilter === 'all' || item.location === locationFilter
 
@@ -668,6 +718,8 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
                   <th className="px-4 py-3 font-semibold">Official Name</th>
                   <th className="px-4 py-3 font-semibold">Stocklist Name</th>
                   <th className="px-4 py-3 font-semibold">Category</th>
+                  <th className="px-4 py-3 font-semibold">Origin</th>
+                  <th className="px-4 py-3 font-semibold">Inner Pack</th>
                   <th className="px-4 py-3 font-semibold">Location</th>
                   <th className="px-4 py-3 font-semibold">Row</th>
                   <th className="px-4 py-3 font-semibold">Visibility</th>
@@ -677,14 +729,14 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
               <tbody className="divide-y divide-slate-100">
                 {isLoading ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-10 text-center text-slate-400">
+                    <td colSpan={10} className="px-4 py-10 text-center text-slate-400">
                       <RefreshCw className="mx-auto h-5 w-5 animate-spin" />
                       <p className="mt-2 text-xs">Loading catalog...</p>
                     </td>
                   </tr>
                 ) : filteredItems.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-10 text-center text-slate-400">
+                    <td colSpan={10} className="px-4 py-10 text-center text-slate-400">
                       {searchTerm || locationFilter !== 'all'
                         ? 'No items match your filters.'
                         : 'No catalog items yet. Click "Add Item" to get started.'}
@@ -700,6 +752,10 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
                         <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
                           {item.category}
                         </span>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-slate-500">{item.origin || '-'}</td>
+                      <td className="px-4 py-3 text-xs text-slate-500">
+                        {item.inner_quantity == null ? '-' : `${item.inner_quantity} ${item.inner_unit}`}
                       </td>
                       <td className="px-4 py-3 text-xs text-slate-500">
                         {item.location} / {item.sub_location}

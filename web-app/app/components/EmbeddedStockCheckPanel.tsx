@@ -25,6 +25,8 @@ import { SectionLandingState } from './SectionLandingState'
 import { getOfflineDraftAge } from '../../lib/offline/queue'
 import { getLocalTodayDate } from '../../lib/date-utils'
 
+type CatalogInnerUnit = 'box' | 'bag' | 'punnet' | 'piece' | 'tray' | 'bunch' | 'pack'
+
 type CatalogItem = {
   id?: number
   code: string
@@ -33,6 +35,9 @@ type CatalogItem = {
   category: string
   product: string
   attribute: string
+  origin: string
+  inner_quantity: number | null
+  inner_unit: CatalogInnerUnit
   official_name: string
   stocklist_name: string
   navigation_guide: string
@@ -48,6 +53,9 @@ type StockCheckRow = {
   category: string
   product: string
   attribute: string
+  origin: string
+  inner_quantity: number | null
+  inner_unit: CatalogInnerUnit
   official_name: string
   stocklist_name: string
   navigation_guide: string
@@ -76,6 +84,9 @@ type StockCheckRecordData = {
     category: string
     location: string
     sub_location: string
+    origin?: string
+    inner_quantity?: number | null
+    inner_unit?: CatalogInnerUnit
     official_name: string
     stocklist_name: string
     quantity: number | null
@@ -122,6 +133,9 @@ type ParsedPhotoItem = {
   category?: string | null
   product?: string | null
   attribute?: string | null
+  origin?: string | null
+  inner_quantity?: number | null
+  inner_unit?: CatalogInnerUnit | null
   official_name?: string | null
   stocklist_name?: string | null
   navigation_guide?: string | null
@@ -142,6 +156,9 @@ type ParsedPhotoResponse = {
     category?: string | null
     product?: string | null
     attribute?: string | null
+    origin?: string | null
+    inner_quantity?: number | null
+    inner_unit?: CatalogInnerUnit | null
     official_name?: string | null
     stocklist_name?: string | null
     navigation_guide?: string | null
@@ -241,6 +258,9 @@ function makeCatalogRow(item: CatalogItem): StockCheckRow {
     category: item.category,
     product: item.product,
     attribute: item.attribute,
+    origin: item.origin,
+    inner_quantity: item.inner_quantity,
+    inner_unit: item.inner_unit,
     official_name: item.official_name,
     stocklist_name: item.stocklist_name,
     navigation_guide: item.navigation_guide,
@@ -291,6 +311,9 @@ function buildRowsFromParsedPhoto(items: CatalogItem[], response: ParsedPhotoRes
       category: normalizeTextValue(item.category, 'Unknown'),
       product: normalizeTextValue(item.product, normalizeTextValue(item.official_name, normalizeTextValue(item.product_raw, 'Unknown'))),
       attribute: normalizeTextValue(item.attribute, ''),
+      origin: normalizeTextValue(item.origin, ''),
+      inner_quantity: typeof item.inner_quantity === 'number' ? item.inner_quantity : null,
+      inner_unit: item.inner_unit ?? 'box',
       official_name: normalizeTextValue(item.official_name, normalizeTextValue(item.product_raw, 'Unknown')),
       stocklist_name: normalizeTextValue(item.stocklist_name, normalizeTextValue(item.official_name, normalizeTextValue(item.product_raw, 'Unknown'))),
       navigation_guide: normalizeTextValue(item.navigation_guide, ''),
@@ -318,6 +341,9 @@ function buildRowsFromParsedPhoto(items: CatalogItem[], response: ParsedPhotoRes
       category: baseRow.category,
       product: baseRow.product,
       attribute: baseRow.attribute,
+      origin: baseRow.origin,
+      inner_quantity: baseRow.inner_quantity,
+      inner_unit: baseRow.inner_unit,
       official_name: baseRow.official_name,
       stocklist_name: baseRow.stocklist_name,
       navigation_guide: baseRow.navigation_guide,
@@ -340,6 +366,9 @@ function buildRowsFromParsedPhoto(items: CatalogItem[], response: ParsedPhotoRes
       category: normalizeTextValue(item.category, 'Unknown'),
       product: normalizeTextValue(item.product, normalizeTextValue(item.official_name, 'Unknown')),
       attribute: normalizeTextValue(item.attribute, ''),
+      origin: normalizeTextValue(item.origin, ''),
+      inner_quantity: typeof item.inner_quantity === 'number' ? item.inner_quantity : null,
+      inner_unit: item.inner_unit ?? 'box',
       official_name: normalizeTextValue(item.official_name, normalizeTextValue(item.product, 'Unknown')),
       stocklist_name: normalizeTextValue(item.stocklist_name, normalizeTextValue(item.official_name, normalizeTextValue(item.product, 'Unknown'))),
       navigation_guide: normalizeTextValue(item.navigation_guide, ''),
@@ -361,6 +390,9 @@ function buildRowsFromParsedPhoto(items: CatalogItem[], response: ParsedPhotoRes
       category: baseRow.category,
       product: baseRow.product,
       attribute: baseRow.attribute,
+      origin: baseRow.origin,
+      inner_quantity: baseRow.inner_quantity,
+      inner_unit: baseRow.inner_unit,
       official_name: baseRow.official_name,
       stocklist_name: baseRow.stocklist_name,
       navigation_guide: baseRow.navigation_guide,
@@ -380,6 +412,9 @@ function buildRowsFromParsedPhoto(items: CatalogItem[], response: ParsedPhotoRes
       category: normalizeTextValue(item.category, 'Unknown'),
       product: normalizeTextValue(item.product, normalizeTextValue(item.official_name, normalizeTextValue(item.product_raw, 'Unknown'))),
       attribute: normalizeTextValue(item.attribute, ''),
+      origin: normalizeTextValue(item.origin, ''),
+      inner_quantity: typeof item.inner_quantity === 'number' ? item.inner_quantity : null,
+      inner_unit: item.inner_unit ?? 'box',
       official_name: normalizeTextValue(item.official_name, normalizeTextValue(item.product_raw, 'Unknown')),
       stocklist_name: normalizeTextValue(item.stocklist_name, normalizeTextValue(item.official_name, normalizeTextValue(item.product_raw, 'Unknown'))),
       navigation_guide: normalizeTextValue(item.navigation_guide, ''),
@@ -838,6 +873,9 @@ export function EmbeddedStockCheckPanel({
           sub_location: item.sub_location || current.sub_location,
           category: item.category || current.category,
           product: item.product || current.product,
+          origin: item.origin || current.origin,
+          inner_quantity: item.inner_quantity ?? current.inner_quantity,
+          inner_unit: item.inner_unit ?? current.inner_unit,
           official_name: item.official_name || current.official_name,
           stocklist_name: item.stocklist_name || current.stocklist_name,
           quantity: item.quantity,
@@ -857,6 +895,9 @@ export function EmbeddedStockCheckPanel({
         category: item.category || catalogMatch?.category || 'Unknown',
         product: item.product || catalogMatch?.product || item.official_name,
         attribute: catalogMatch?.attribute ?? '',
+        origin: item.origin || catalogMatch?.origin || '',
+        inner_quantity: item.inner_quantity ?? catalogMatch?.inner_quantity ?? null,
+        inner_unit: item.inner_unit ?? catalogMatch?.inner_unit ?? 'box',
         official_name: item.official_name || catalogMatch?.official_name || item.product,
         stocklist_name: item.stocklist_name || catalogMatch?.stocklist_name || item.official_name || item.product,
         navigation_guide: catalogMatch?.navigation_guide ?? '',
@@ -882,6 +923,9 @@ export function EmbeddedStockCheckPanel({
         category: 'Unknown',
         product: item.user_input,
         attribute: '',
+        origin: '',
+        inner_quantity: null,
+        inner_unit: 'box',
         official_name: item.user_input,
         stocklist_name: item.user_input,
         navigation_guide: '',
@@ -1364,6 +1408,9 @@ export function EmbeddedStockCheckPanel({
           category: 'Unknown',
           product: trimmedItem,
           attribute: '',
+          origin: '',
+          inner_quantity: null,
+          inner_unit: 'box',
           official_name: trimmedItem,
           stocklist_name: trimmedItem,
           navigation_guide: '',
@@ -1483,6 +1530,9 @@ export function EmbeddedStockCheckPanel({
         category: x.category,
         location: x.location,
         sub_location: x.sub_location,
+        origin: x.origin,
+        inner_quantity: x.inner_quantity,
+        inner_unit: x.inner_unit,
         official_name: x.official_name,
         stocklist_name: x.stocklist_name,
         quantity: x.quantity,
@@ -1512,6 +1562,9 @@ export function EmbeddedStockCheckPanel({
       category: x.category,
       product: x.product,
       attribute: x.attribute,
+      origin: x.origin,
+      inner_quantity: x.inner_quantity,
+      inner_unit: x.inner_unit,
       official_name: x.official_name,
       stocklist_name: x.stocklist_name,
       navigation_guide: x.navigation_guide,
@@ -1532,6 +1585,9 @@ export function EmbeddedStockCheckPanel({
       category: 'Unknown',
       product: x.product || x.official_name,
       attribute: '',
+      origin: '',
+      inner_quantity: null,
+      inner_unit: 'box' as const,
       official_name: x.official_name,
       stocklist_name: x.stocklist_name || x.official_name,
       navigation_guide: '',

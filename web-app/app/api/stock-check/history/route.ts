@@ -32,6 +32,9 @@ type StockCheckHistoryItem = {
       category: string
       location: string
       sub_location: string
+      origin: string
+      inner_quantity: number | null
+      inner_unit: string
       official_name: string
       stocklist_name: string
       quantity: number | null
@@ -82,6 +85,9 @@ function toSupabaseRecordData(itemData: StockCheckEvent['item_data']) {
           category: String(row.category ?? ''),
           location: String(row.location ?? 'Unknown'),
           sub_location: String(row.sub_location ?? 'Unknown'),
+          origin: String(row.origin ?? ''),
+          inner_quantity: parseQuantity(row.inner_quantity),
+          inner_unit: String(row.inner_unit ?? 'box'),
           official_name: String(row.official_name ?? row.product ?? ''),
           stocklist_name: String(row.stocklist_name ?? row.official_name ?? row.product ?? ''),
           quantity: parseQuantity(row.quantity),
@@ -139,6 +145,9 @@ function toSnowflakeRecordData(itemData: unknown[], validated: boolean) {
       category: String(row.category ?? ''),
       location: String(row.location ?? 'Unknown'),
       sub_location: String(row.sub_location ?? 'Unknown'),
+      origin: String(row.origin ?? ''),
+      inner_quantity: parseQuantity(row.inner_quantity),
+      inner_unit: String(row.inner_unit ?? 'box'),
       official_name: String(row.official_name ?? row.product_raw ?? row.product ?? ''),
       stocklist_name: String(row.stocklist_name ?? row.official_name ?? row.product_raw ?? row.product ?? ''),
       quantity: parseQuantity(row.quantity),
