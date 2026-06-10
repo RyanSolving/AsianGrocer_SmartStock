@@ -1871,8 +1871,8 @@ export default function Home() {
     const product = inlineCreateForm.product.trim() || officialName
     const category = inlineCreateForm.category.trim()
 
-    if (!officialName || !stocklistName || !product || !category) {
-      setApiError('Items profile mini form requires Official Name, Stocklist Name, Product, and Category.')
+    if (!officialName || !category) {
+      setApiError('Items profile mini form requires Official Name and Category.')
       return
     }
 
@@ -3193,26 +3193,6 @@ export default function Home() {
                                 />
                               </label>
                               <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                                Stocklist Name
-                                <input
-                                  type="text"
-                                  value={inlineCreateForm.stocklist_name}
-                                  onChange={(event) => setInlineCreateForm((current) => ({ ...current, stocklist_name: event.target.value }))}
-                                  placeholder="Name on Stocklist"
-                                  className="mt-1 min-h-10 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal normal-case tracking-normal text-slate-700 focus:border-brand-500 focus:outline-none"
-                                />
-                              </label>
-                              <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                                Product
-                                <input
-                                  type="text"
-                                  value={inlineCreateForm.product}
-                                  onChange={(event) => setInlineCreateForm((current) => ({ ...current, product: event.target.value }))}
-                                  placeholder="Product"
-                                  className="mt-1 min-h-10 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal normal-case tracking-normal text-slate-700 focus:border-brand-500 focus:outline-none"
-                                />
-                              </label>
-                              <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
                                 Origin
                                 <input
                                   type="text"
@@ -3278,7 +3258,7 @@ export default function Home() {
                                 />
                               </label>
                               <label className="w-32 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                                Value
+                                Inside Quantity
                                 <input
                                   type="number"
                                   min="0"
