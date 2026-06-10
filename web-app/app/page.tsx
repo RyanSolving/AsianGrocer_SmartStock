@@ -172,7 +172,7 @@ type AppToast = {
   message: string
 }
 
-type CatalogInnerUnit = 'box' | 'bag' | 'punnet' | 'piece' | 'tray' | 'bunch' | 'pack'
+type CatalogInnerUnit = 'box' | 'bag' | 'punnet' | 'piece' | 'tray' | 'bunch' | 'pack' | 'kg' | 'g'
 
 type StockInOfflineDraft = {
   dataEntryMode: DataEntryMode
@@ -253,7 +253,7 @@ const UNKNOWN_SECTION_ID = 'unclassified-staff-inspection'
 const AUTO_EXPAND_SECTION_ROW_LIMIT = 20
 const INSIDE_SUB_LOCATION_OPTIONS = ['Apples', 'Citrus', 'Asian', 'Melon', 'All Year', 'Seasonal', 'Stonefruit'] as const
 const OUTSIDE_SUB_LOCATION_OPTIONS = ['Outside Coolroom'] as const
-const INNER_UNIT_OPTIONS: CatalogInnerUnit[] = ['box', 'bag', 'punnet', 'piece', 'tray', 'bunch', 'pack']
+const INNER_UNIT_OPTIONS: CatalogInnerUnit[] = ['box', 'bag', 'punnet', 'piece', 'tray', 'bunch', 'pack', 'kg', 'g']
 
 function toSectionId(value: string) {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')

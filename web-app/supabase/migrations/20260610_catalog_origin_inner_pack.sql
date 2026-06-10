@@ -29,6 +29,6 @@ begin
   ) then
     alter table public.catalog_items
       add constraint catalog_items_inner_unit_check
-      check (inner_unit in ('box', 'bag', 'punnet', 'piece', 'tray', 'bunch', 'pack'));
+      check (inner_unit in ('box', 'bag', 'punnet', 'piece', 'tray', 'bunch', 'pack', 'kg', 'g'));
   end if;
 end $$;

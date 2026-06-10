@@ -8,7 +8,7 @@ import { getAuthContext } from '../../../lib/supabase/route-auth'
 import { catalogEntrySchema, parsedStockSchema, stockModeSchema } from '../../../lib/stock-schema'
 import type { CatalogEntry, StockMode } from '../../../lib/stock-schema'
 
-const allowedUnits = new Set(['kg', 'box', 'punnet', 'pack'])
+const allowedUnits = new Set(['kg', 'g', 'box', 'punnet', 'pack'])
 
 const ocrExtractionSchema = z.object({
   mode: z.union([stockModeSchema, z.string()]).optional(),

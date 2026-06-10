@@ -21,7 +21,7 @@ export type CreateCatalogItemPayload = {
   attribute: string
   origin: string
   inner_quantity: number | null
-  inner_unit: 'box' | 'bag' | 'punnet' | 'piece' | 'tray' | 'bunch' | 'pack'
+  inner_unit: 'box' | 'bag' | 'punnet' | 'piece' | 'tray' | 'bunch' | 'pack' | 'kg' | 'g'
   official_name: string
   stocklist_name: string
   navigation_guide: string

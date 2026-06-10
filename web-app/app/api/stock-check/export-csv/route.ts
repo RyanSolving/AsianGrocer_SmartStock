@@ -13,7 +13,7 @@ const stockCheckPayloadSchema = z.object({
       sub_location: z.string(),
       origin: z.string().default(''),
       inner_quantity: z.number().nullable().default(null),
-      inner_unit: z.enum(['box', 'bag', 'punnet', 'piece', 'tray', 'bunch', 'pack']).default('box'),
+      inner_unit: z.enum(['box', 'bag', 'punnet', 'piece', 'tray', 'bunch', 'pack', 'kg', 'g']).default('box'),
       official_name: z.string(),
       stocklist_name: z.string(),
       quantity: z.number().nullable(),

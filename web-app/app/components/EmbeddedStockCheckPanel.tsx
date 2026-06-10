@@ -25,7 +25,7 @@ import { SectionLandingState } from './SectionLandingState'
 import { getOfflineDraftAge } from '../../lib/offline/queue'
 import { getLocalTodayDate } from '../../lib/date-utils'
 
-type CatalogInnerUnit = 'box' | 'bag' | 'punnet' | 'piece' | 'tray' | 'bunch' | 'pack'
+type CatalogInnerUnit = 'box' | 'bag' | 'punnet' | 'piece' | 'tray' | 'bunch' | 'pack' | 'kg' | 'g'
 
 type CatalogItem = {
   id?: number

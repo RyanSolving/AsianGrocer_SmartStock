@@ -8,7 +8,7 @@ export const catalogSubLocationOutsideOptions = ['Outside Coolroom'] as const
 // Note: catalogCategoryOptions is now fetched from the database via category-store.ts
 // The schema validation for category is deferred to API routes where we have access to the database
 export const catalogRowPositionOptions = ['left', 'right', 'single'] as const
-export const catalogInnerUnitOptions = ['box', 'bag', 'punnet', 'piece', 'tray', 'bunch', 'pack'] as const
+export const catalogInnerUnitOptions = ['box', 'bag', 'punnet', 'piece', 'tray', 'bunch', 'pack', 'kg', 'g'] as const
 
 const catalogTextSchema = z.string().trim()
 const catalogInnerQuantitySchema = z.preprocess((value) => {
