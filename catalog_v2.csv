@@ -1,6 +1,6 @@
 ID,Code,Location,Sub-location,Category,Product,Attribute,Origin,Inner Quantity,Inner Unit,Official Name,Name on Stocklist,Nagivation Guide
 1,APP-FUJ-MED,Inside Coolroom,Apples,Apple,Fuji,"Medium, 12kg",,,,Fuji Small,Fuji Med (12kg),Apples section - Left - Printed
-2,APP-FUJ-LAR,Inside Coolroom,Apples,Apple,Fuji,Large,,,,Fuji Large,Large,Apples section - Right side in Fuji Med (12kg) row  - Printed 
+2,APP-FUJ-LAR,Inside Coolroom,Apples,Apple,Fuji,Large,,,,Fuji Large,Large,Apples section - Right side in Fuji Med (12kg) row  - Printed
 3,APP-ROY-MED,Inside Coolroom,Apples,Apple,Royal Gala,"Medium, 12kg",,,,Royal Gala Small,R. Gala Med (12kg),Apples section - Left - Printed
 4,APP-ROY-LAR,Inside Coolroom,Apples,Apple,Royal Gala,Large,,,,Royal Gala Large,Large,Apples section - Right side in R.Gala Med (12kg) row - Printed
 5,APP-GRA,Inside Coolroom,Apples,Apple,Granny Smith,12kg,,,,Granny Smith,Granny Smith (12kg),Apples section - Left - Printed
