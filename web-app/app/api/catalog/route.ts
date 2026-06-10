@@ -36,6 +36,12 @@ function isPermissionDeniedError(error: SupabaseErrorLike | null | undefined) {
   return /permission denied|row-level security/i.test(error.message ?? '')
 }
 
+function isMissingColumnError(error: SupabaseErrorLike | null | undefined) {
+  if (!error) return false
+  if (error.code === '42703') return true
+  return /column .* does not exist/i.test(error.message ?? '')
+}
+
 function fallbackCatalogResponse(reason: string) {
   const defaultCatalog = loadDefaultCatalog()
   return NextResponse.json(
@@ -70,10 +76,17 @@ function mapRowsToCatalog(rows: CatalogRow[]) {
 }
 
 async function loadCatalogFromSingleTable(supabase: any) {
-  const result = await supabase
+  let result: any = await supabase
     .from('catalog_items')
     .select('code, location, sub_location, category, product, attribute, origin, inner_quantity, inner_unit, official_name, stocklist_name, navigation_guide, row_position, is_visible')
     .order('code', { ascending: true })
+
+  if (isMissingColumnError(result.error as SupabaseErrorLike)) {
+    result = await supabase
+      .from('catalog_items')
+      .select('code, location, sub_location, category, product, attribute, official_name, stocklist_name, navigation_guide, row_position, is_visible')
+      .order('code', { ascending: true })
+  }
 
   if (result.error) {
     return {
@@ -304,6 +317,17 @@ export async function POST(request: Request) {
       )
     }
 
+    if (isMissingColumnError(upsertResult.error)) {
+      return NextResponse.json(
+        {
+          error: 'Catalog write requires the origin and inner pack schema.',
+          details: upsertResult.error.message,
+          hint: 'Run migration 20260610_catalog_origin_inner_pack.sql to add origin, inner_quantity, and inner_unit to public.catalog_items.',
+        },
+        { status: 409 }
+      )
+    }
+
     return NextResponse.json(
       {
         error: 'Failed to save catalog items.',
@@ -314,10 +338,17 @@ export async function POST(request: Request) {
   }
 
   // Fetch the updated catalog
-  const result = await auth.supabase
+  let result: any = await auth.supabase
     .from('catalog_items')
     .select('code, location, sub_location, category, product, attribute, origin, inner_quantity, inner_unit, official_name, stocklist_name, navigation_guide, row_position, is_visible')
     .order('code', { ascending: true })
+
+  if (isMissingColumnError(result.error as SupabaseErrorLike)) {
+    result = await auth.supabase
+      .from('catalog_items')
+      .select('code, location, sub_location, category, product, attribute, official_name, stocklist_name, navigation_guide, row_position, is_visible')
+      .order('code', { ascending: true })
+  }
 
   const catalog = (result.data ?? []).map((entry) => normalizeCatalogEntry({
     id: 0,

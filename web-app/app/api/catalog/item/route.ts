@@ -10,6 +10,12 @@ function isMissingRelationError(error: { code?: string | null; message?: string 
   return /relation .* does not exist/i.test(error.message ?? '')
 }
 
+function isMissingColumnError(error: { code?: string | null; message?: string | null } | null | undefined) {
+  if (!error) return false
+  if (error.code === '42703') return true
+  return /column .* does not exist/i.test(error.message ?? '')
+}
+
 // PUT: Update or insert a single catalog item
 export async function PUT(request: Request) {
   const auth = await getAuthContext()
@@ -76,6 +82,17 @@ export async function PUT(request: Request) {
           error: 'Catalog write requires the new single-table schema.',
           details: result.error.message,
           hint: 'Run migration 20260409_catalog_items_single_table.sql to create public.catalog_items.',
+        },
+        { status: 409 }
+      )
+    }
+
+    if (isMissingColumnError(result.error)) {
+      return NextResponse.json(
+        {
+          error: 'Catalog write requires the origin and inner pack schema.',
+          details: result.error.message,
+          hint: 'Run migration 20260610_catalog_origin_inner_pack.sql to add origin, inner_quantity, and inner_unit to public.catalog_items.',
         },
         { status: 409 }
       )
