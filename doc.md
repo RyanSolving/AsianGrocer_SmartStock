@@ -80,7 +80,7 @@ Photo / Manual Input
 
 | Layer | Tool |
 |---|---|
-| Data Warehouse | Snowflake / Supabase |
+| Data Warehouse | BigQuery / Supabase |
 | OCR / AI Extraction | OpenAI API (Vision) |
 | Visualisation | Power BI |
 | Project Management | Jira (PJM) |

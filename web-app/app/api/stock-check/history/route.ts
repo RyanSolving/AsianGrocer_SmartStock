@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server'
-import snowflake from 'snowflake-sdk'
 
+import {
+  getMissingBigQueryEnvKeys,
+  getRawStockTableName,
+  queryBigQueryRows,
+} from '../../../../lib/bigquery/warehouse'
 import { getAuthContext } from '../../../../lib/supabase/route-auth'
 
 type StockCheckEvent = {
@@ -113,7 +117,7 @@ function toSupabaseRecordData(itemData: StockCheckEvent['item_data']) {
   }
 }
 
-function toSnowflakeRecordData(itemData: unknown[], validated: boolean) {
+function toWarehouseRecordData(itemData: unknown[], validated: boolean) {
   const items: StockCheckHistoryItem['record_data']['items'] = []
   const unknownItems: StockCheckHistoryItem['record_data']['unknown_items'] = []
 
@@ -163,90 +167,25 @@ function toSnowflakeRecordData(itemData: unknown[], validated: boolean) {
   }
 }
 
-function getMissingSnowflakeEnvKeys() {
-  const missing: string[] = []
-
-  if (!process.env.SNOWFLAKE_ACCOUNT) missing.push('SNOWFLAKE_ACCOUNT')
-  if (!process.env.SNOWFLAKE_USER) missing.push('SNOWFLAKE_USER')
-  if (!process.env.SNOWFLAKE_PASSWORD) missing.push('SNOWFLAKE_PASSWORD')
-  if (!process.env.SNOWFLAKE_WAREHOUSE) missing.push('SNOWFLAKE_WAREHOUSE')
-  if (!process.env.SNOWFLAKE_DB && !process.env.SNOWFLAKE_DATABASE) missing.push('SNOWFLAKE_DB or SNOWFLAKE_DATABASE')
-  if (!process.env.SNOWFLAKE_SCHEMA) missing.push('SNOWFLAKE_SCHEMA')
-
-  return missing
-}
-
-function sanitizeIdentifier(value: string) {
-  const trimmed = value.trim()
-  if (!trimmed) {
-    throw new Error('Snowflake identifier cannot be empty.')
+function unwrapBigQueryValue(value: unknown) {
+  if (value && typeof value === 'object' && 'value' in value) {
+    return (value as { value: unknown }).value
   }
 
-  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
-    return trimmed
-  }
-
-  return `"${trimmed.toUpperCase().replaceAll('"', '""')}"`
+  return value
 }
 
-function getQualifiedTableName() {
-  const database = process.env.SNOWFLAKE_DB ?? process.env.SNOWFLAKE_DATABASE
-  const schema = process.env.SNOWFLAKE_SCHEMA
-  const table = process.env.SNOWFLAKE_TABLE ?? 'stock_photos_raw'
-
-  if (!database || !schema) {
-    throw new Error('Snowflake database and schema are required.')
-  }
-
-  return [database, schema, table].map(sanitizeIdentifier).join('.')
+function rowValue(row: Record<string, unknown>, key: string) {
+  return unwrapBigQueryValue(row[key] ?? row[key.toUpperCase()])
 }
 
-function connectSnowflake(connection: ReturnType<typeof snowflake.createConnection>) {
-  return new Promise<void>((resolve, reject) => {
-    connection.connect((error) => {
-      if (error) {
-        reject(error)
-        return
-      }
+function parseWarehouseItemData(raw: unknown) {
+  const value = unwrapBigQueryValue(raw)
+  if (Array.isArray(value)) return value
 
-      resolve()
-    })
-  })
-}
-
-function querySnowflakeRows(
-  connection: ReturnType<typeof snowflake.createConnection>,
-  sqlText: string,
-  binds: Array<string | number | null>,
-) {
-  return new Promise<Record<string, unknown>[]>((resolve, reject) => {
-    connection.execute({
-      sqlText,
-      binds,
-      complete(error, _statement, rows) {
-        if (error) {
-          reject(error)
-          return
-        }
-
-        resolve((rows ?? []) as Record<string, unknown>[])
-      },
-    })
-  })
-}
-
-function closeSnowflakeConnection(connection: ReturnType<typeof snowflake.createConnection>) {
-  return new Promise<void>((resolve) => {
-    connection.destroy(() => resolve())
-  })
-}
-
-function parseSnowflakeItemData(raw: unknown) {
-  if (Array.isArray(raw)) return raw
-
-  if (typeof raw === 'string') {
+  if (typeof value === 'string') {
     try {
-      const parsed = JSON.parse(raw)
+      const parsed = JSON.parse(value)
       return Array.isArray(parsed) ? parsed : []
     } catch {
       return []
@@ -256,79 +195,69 @@ function parseSnowflakeItemData(raw: unknown) {
   return []
 }
 
-async function fetchSnowflakeHistory(): Promise<StockCheckHistoryItem[]> {
-  const missingEnv = getMissingSnowflakeEnvKeys()
+function formatBigQueryDate(value: unknown) {
+  const unwrapped = unwrapBigQueryValue(value)
+  if (typeof unwrapped === 'string') return unwrapped.slice(0, 10)
+  if (unwrapped instanceof Date) return unwrapped.toISOString().slice(0, 10)
+  return ''
+}
+
+function formatBigQueryTimestamp(value: unknown) {
+  const unwrapped = unwrapBigQueryValue(value)
+  if (typeof unwrapped === 'string') return unwrapped
+  if (unwrapped instanceof Date) return unwrapped.toISOString()
+  return new Date().toISOString()
+}
+
+async function fetchBigQueryHistory(): Promise<StockCheckHistoryItem[]> {
+  const missingEnv = getMissingBigQueryEnvKeys()
   if (missingEnv.length > 0) {
     return []
   }
 
-  const tableName = getQualifiedTableName()
-  const connection = snowflake.createConnection({
-    account: process.env.SNOWFLAKE_ACCOUNT,
-    username: process.env.SNOWFLAKE_USER,
-    password: process.env.SNOWFLAKE_PASSWORD,
-    warehouse: process.env.SNOWFLAKE_WAREHOUSE,
-    database: process.env.SNOWFLAKE_DB ?? process.env.SNOWFLAKE_DATABASE,
-    schema: process.env.SNOWFLAKE_SCHEMA,
-    role: process.env.SNOWFLAKE_ROLE,
-  })
+  const tableName = getRawStockTableName()
+  const rows = await queryBigQueryRows(
+    `
+      SELECT
+        photo_id,
+        upload_date,
+        stock_date,
+        mode,
+        validated,
+        item_data
+      FROM ${tableName}
+      WHERE mode = @mode
+        AND STARTS_WITH(photo_id, @photo_prefix)
+      ORDER BY upload_date DESC
+      LIMIT 200
+    `,
+    {
+      mode: 'stock-closing',
+      photo_prefix: 'stock-check-',
+    },
+  )
 
-  try {
-    await connectSnowflake(connection)
+  return rows.map((row) => {
+    const itemData = parseWarehouseItemData(rowValue(row, 'item_data'))
+    const unknownCount = itemData.filter((item) => {
+      if (!item || typeof item !== 'object') return false
+      return (item as { catalog_code?: unknown }).catalog_code === null
+    }).length
 
-    const rows = await querySnowflakeRows(
-      connection,
-      `
-        SELECT
-          photo_id,
-          upload_date,
-          stock_date,
-          mode,
-          validated,
-          item_data
-        FROM ${tableName}
-        WHERE mode = ?
-          AND photo_id LIKE ?
-        ORDER BY upload_date DESC
-        LIMIT 200
-      `,
-      ['stock-closing', 'stock-check-%'],
-    )
+    const validated = String(rowValue(row, 'validated') ?? '').toLowerCase() === 'yes'
 
-    return rows.map((row) => {
-      const itemData = parseSnowflakeItemData(row.ITEM_DATA)
-      const unknownCount = itemData.filter((item) => {
-        if (!item || typeof item !== 'object') return false
-        return (item as { catalog_code?: unknown }).catalog_code === null
-      }).length
-
-      const uploadDate = typeof row.UPLOAD_DATE === 'string'
-        ? row.UPLOAD_DATE
-        : row.UPLOAD_DATE instanceof Date
-          ? row.UPLOAD_DATE.toISOString()
-          : new Date().toISOString()
-
-      const stockDate = typeof row.STOCK_DATE === 'string'
-        ? row.STOCK_DATE
-        : row.STOCK_DATE instanceof Date
-          ? row.STOCK_DATE.toISOString().slice(0, 10)
-          : ''
-
-      return {
-        uid_stock_check: String(row.PHOTO_ID ?? ''),
-        timestamp: uploadDate,
-        stock_date: stockDate,
-        record_name: null,
-        mode: String(row.MODE ?? 'closing_check'),
-        validated: String(row.VALIDATED ?? '').toLowerCase() === 'yes',
-        item_count: itemData.length,
-        unknown_count: unknownCount,
-        record_data: toSnowflakeRecordData(itemData, String(row.VALIDATED ?? '').toLowerCase() === 'yes'),
-      }
-    }).filter((entry) => entry.uid_stock_check.length > 0)
-  } finally {
-    await closeSnowflakeConnection(connection)
-  }
+    return {
+      uid_stock_check: String(rowValue(row, 'photo_id') ?? ''),
+      timestamp: formatBigQueryTimestamp(rowValue(row, 'upload_date')),
+      stock_date: formatBigQueryDate(rowValue(row, 'stock_date')),
+      record_name: null,
+      mode: String(rowValue(row, 'mode') ?? 'closing_check'),
+      validated,
+      item_count: itemData.length,
+      unknown_count: unknownCount,
+      record_data: toWarehouseRecordData(itemData, validated),
+    }
+  }).filter((entry) => entry.uid_stock_check.length > 0)
 }
 
 function mapSupabaseHistory(data: StockCheckEvent[] | null) {
@@ -363,11 +292,11 @@ export async function GET() {
       .order('created_at', { ascending: false })
 
     if (error) {
-      const snowflakeHistory = await fetchSnowflakeHistory()
+      const bigQueryHistory = await fetchBigQueryHistory()
       return NextResponse.json({
-        history: snowflakeHistory,
-        count: snowflakeHistory.length,
-        source: 'snowflake-fallback',
+        history: bigQueryHistory,
+        count: bigQueryHistory.length,
+        source: 'bigquery-fallback',
         warning: `Supabase history unavailable: ${error.message}`,
       })
     }
@@ -381,12 +310,12 @@ export async function GET() {
       })
     }
 
-    const snowflakeHistory = await fetchSnowflakeHistory()
+    const bigQueryHistory = await fetchBigQueryHistory()
 
     return NextResponse.json({
-      history: snowflakeHistory,
-      count: snowflakeHistory.length,
-      source: 'snowflake-fallback',
+      history: bigQueryHistory,
+      count: bigQueryHistory.length,
+      source: 'bigquery-fallback',
     })
   } catch (error) {
     return NextResponse.json(
@@ -394,7 +323,7 @@ export async function GET() {
         error: 'Internal server error.',
         details: error instanceof Error ? error.message : 'Unknown error',
       },
-      { status: 500 }
+      { status: 500 },
     )
   }
 }

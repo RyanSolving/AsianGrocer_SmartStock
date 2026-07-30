@@ -4,8 +4,8 @@ import { getAuthContext } from '../../../../lib/supabase/route-auth'
 import { createSupabaseServerClient } from '../../../../lib/supabase/server'
 import { buildSupabaseStockCheckUpsertRow, toSupabaseMirrorItemData } from '../../../../lib/stock-check-save'
 import {
-  buildSnowflakeStagingRecord,
-  saveToSnowflakeEnvelopeSchema,
+  buildWarehouseStagingRecord,
+  saveToWarehouseEnvelopeSchema,
 } from '../../../../lib/stock-schema'
 
 export const runtime = 'nodejs'
@@ -24,7 +24,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Request body must be valid JSON.' }, { status: 400 })
   }
 
-  const parsed = saveToSnowflakeEnvelopeSchema.safeParse(payload)
+  const parsed = saveToWarehouseEnvelopeSchema.safeParse(payload)
   if (!parsed.success) {
     return NextResponse.json(
       {
@@ -35,7 +35,7 @@ export async function POST(request: Request) {
     )
   }
 
-  const stockRecord = buildSnowflakeStagingRecord({
+  const stockRecord = buildWarehouseStagingRecord({
     parsedData: parsed.data.data,
     validated: parsed.data.validated,
     unknownItems: parsed.data.unknown_items,

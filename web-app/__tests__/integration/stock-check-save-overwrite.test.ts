@@ -1,4 +1,4 @@
-import { buildSnowflakeStagingRecord } from '../../lib/stock-schema'
+import { buildWarehouseStagingRecord } from '../../lib/stock-schema'
 import { buildSupabaseStockCheckUpsertRow, toSupabaseMirrorItemData } from '../../lib/stock-check-save'
 
 describe('Stock check save overwrite integration', () => {
@@ -6,7 +6,7 @@ describe('Stock check save overwrite integration', () => {
     const userId = 'user-123'
     const stockDate = '2026-04-12'
 
-    const firstRecord = buildSnowflakeStagingRecord({
+    const firstRecord = buildWarehouseStagingRecord({
       parsedData: {
         photo_id: 'stock-check-a',
         mode: 'stock-closing',
@@ -40,7 +40,7 @@ describe('Stock check save overwrite integration', () => {
       forcedValidated: 'yes',
     })
 
-    const secondRecord = buildSnowflakeStagingRecord({
+    const secondRecord = buildWarehouseStagingRecord({
       parsedData: {
         photo_id: 'stock-check-b',
         mode: 'stock-closing',
@@ -101,7 +101,7 @@ describe('Stock check save overwrite integration', () => {
   })
 
   it('maps unknown items and red_marked notes correctly for Supabase', () => {
-    const record = buildSnowflakeStagingRecord({
+    const record = buildWarehouseStagingRecord({
       parsedData: {
         photo_id: 'stock-check-unknown',
         mode: 'stock-closing',
@@ -146,7 +146,7 @@ describe('Stock check save overwrite integration', () => {
   })
 
   it('preserves null as untouched and zero as explicit stock-out', () => {
-    const record = buildSnowflakeStagingRecord({
+    const record = buildWarehouseStagingRecord({
       parsedData: {
         photo_id: 'stock-check-null-vs-zero',
         mode: 'stock-closing',

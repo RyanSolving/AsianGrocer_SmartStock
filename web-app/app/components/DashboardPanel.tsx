@@ -214,7 +214,7 @@ export function DashboardPanel() {
             <div className="border-b border-slate-200 px-4 py-3">
               <h2 className="text-sm font-semibold text-slate-900">Stock level management</h2>
               <p className="mt-1 text-sm text-slate-500">
-                Current quantity, arrival total quantity, and sold-out percentage are calculated from the selected Snowflake snapshot.
+                Current quantity, arrival total quantity, and sold-out percentage are calculated from the selected BigQuery snapshot.
               </p>
             </div>
 

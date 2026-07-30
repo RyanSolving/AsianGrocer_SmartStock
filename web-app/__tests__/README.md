@@ -19,13 +19,13 @@ This is a regression test for the bug where transcription history showed raw OCR
 
 #### What It Tests
 
-1. **Edited payload persistence**: Verifies that when staff edits quantities, metadata, and resolves conflicts, those edits are merged into the payload saved to Snowflake AND synced back to `event_generate.final_output`
+1. **Edited payload persistence**: Verifies that when staff edits quantities, metadata, and resolves conflicts, those edits are merged into the payload saved to BigQuery AND synced back to `event_generate.final_output`
 
-2. **Event record update**: Confirms that the `save-to-snowflake` API route calls the Supabase update to set `event_generate.final_output` and `edited=true` when a `uid_generate` is present
+2. **Event record update**: Confirms that the `save-to-bigquery` API route calls the Supabase update to set `event_generate.final_output` and `edited=true` when a `uid_generate` is present
 
-3. **History reload**: Ensures the client-side `saveToSnowflake()` function triggers `loadTranscriptionHistory()` after successful save, so the UI reflects corrected data immediately
+3. **History reload**: Ensures the client-side `loadToBigQuery()` function triggers `loadTranscriptionHistory()` after successful save, so the UI reflects corrected data immediately
 
-4. **Error handling**: Tests that if history sync fails (network error, permission issue), the Snowflake save still succeeds but returns a warning so users are informed
+4. **Error handling**: Tests that if history sync fails (network error, permission issue), the BigQuery save still succeeds but returns a warning so users are informed
 
 5. **Data integrity**: Validates that individual field edits (quantities, metadata, conflict flags) are preserved through the save-to-history flow
 
@@ -34,8 +34,8 @@ This is a regression test for the bug where transcription history showed raw OCR
 **Before fix:**
 - User parses photo → OCR extraction stored in `event_generate.final_output`
 - User edits quantities/metadata → State in React component (unsaved)
-- User validates → Payload sent to `/api/save-to-snowflake`
-- Save writes to Snowflake (correct data) but did NOT update `event_generate.final_output`
+- User validates → Payload sent to `/api/save-to-bigquery`
+- Save writes to BigQuery (correct data) but did NOT update `event_generate.final_output`
 - History endpoint reads `event_generate.final_output` → returns raw OCR, not edits
 
 **After fix:**

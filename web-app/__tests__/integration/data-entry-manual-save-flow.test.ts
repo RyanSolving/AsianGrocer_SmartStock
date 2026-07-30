@@ -1,23 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals'
 
 const mockGetAuthContext = jest.fn()
-const mockSnowflakeCreateConnection = jest.fn(() => {
-  throw new Error('Snowflake should not be initialized during persist-only saves.')
+const mockBigQueryConstructor = jest.fn(() => {
+  throw new Error('BigQuery should not be initialized during persist-only saves.')
 })
 
 jest.mock('../../lib/supabase/route-auth', () => ({
   getAuthContext: mockGetAuthContext,
 }))
 
-jest.mock('snowflake-sdk', () => ({
-  __esModule: true,
-  default: {
-    createConnection: mockSnowflakeCreateConnection,
-  },
-  createConnection: mockSnowflakeCreateConnection,
+jest.mock('@google-cloud/bigquery', () => ({
+  BigQuery: mockBigQueryConstructor,
 }))
 
-import { POST } from '../../app/api/save-to-snowflake/route'
+import { POST } from '../../app/api/save-to-bigquery/route'
 
 function buildPersistOnlyPayload(quantity: number | null, uidGenerate?: string) {
   const payload: Record<string, unknown> = {
@@ -71,20 +67,12 @@ describe('Data Entry manual save flow', () => {
   beforeEach(() => {
     updateCalls.length = 0
     insertCalls.length = 0
-    mockSnowflakeCreateConnection.mockClear()
+    mockBigQueryConstructor.mockClear()
     mockGetAuthContext.mockReset()
 
-    let updateEqCallCount = 0
-
     const updateChain = {
-      eq: jest.fn(() => {
-        updateEqCallCount += 1
-        if (updateEqCallCount >= 2) {
-          return Promise.resolve({ error: null })
-        }
-
-        return updateChain
-      }),
+      eq: jest.fn(() => updateChain),
+      select: jest.fn(() => Promise.resolve({ data: [{ uid_generate: 'updated-draft-uid' }], error: null })),
     }
 
     const insertChain = {
@@ -96,7 +84,6 @@ describe('Data Entry manual save flow', () => {
       from: jest.fn(() => ({
         update: jest.fn((payload: Record<string, unknown>) => {
           updateCalls.push(payload)
-          updateEqCallCount = 0
           return updateChain
         }),
         insert: jest.fn((payload: Record<string, unknown>) => {
@@ -110,7 +97,7 @@ describe('Data Entry manual save flow', () => {
       user: { id: 'user-123', email: 'staff@example.com' },
       roles: ['staff'],
       supabase: mockSupabase,
-    })
+    } as never)
   })
 
   afterEach(() => {
@@ -119,7 +106,7 @@ describe('Data Entry manual save flow', () => {
 
   it('saves edited stock-in drafts to Supabase and keeps later edits on the same record', async () => {
     const firstResponse = await POST(
-      new Request('http://localhost/api/save-to-snowflake', {
+      new Request('http://localhost/api/save-to-bigquery', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(buildPersistOnlyPayload(4, 'uid-data-entry-001')),
@@ -127,7 +114,7 @@ describe('Data Entry manual save flow', () => {
     )
 
     const secondResponse = await POST(
-      new Request('http://localhost/api/save-to-snowflake', {
+      new Request('http://localhost/api/save-to-bigquery', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(buildPersistOnlyPayload(9, 'uid-data-entry-001')),
@@ -136,7 +123,7 @@ describe('Data Entry manual save flow', () => {
 
     expect(firstResponse.status).toBe(200)
     expect(secondResponse.status).toBe(200)
-    expect(mockSnowflakeCreateConnection).not.toHaveBeenCalled()
+    expect(mockBigQueryConstructor).not.toHaveBeenCalled()
     expect(updateCalls).toHaveLength(2)
 
     expect(updateCalls[0]).toMatchObject({
@@ -173,19 +160,19 @@ describe('Data Entry manual save flow', () => {
     expect(firstJson).toMatchObject({
       success: true,
       uid_generate: 'uid-data-entry-001',
-      message: 'Saved to Supabase. You can keep editing before loading to Snowflake.',
+      message: 'Saved to Supabase. You can keep editing before loading to BigQuery.',
     })
 
     expect(secondJson).toMatchObject({
       success: true,
       uid_generate: 'uid-data-entry-001',
-      message: 'Saved to Supabase. You can keep editing before loading to Snowflake.',
+      message: 'Saved to Supabase. You can keep editing before loading to BigQuery.',
     })
   })
 
   it('creates a manual draft row when no uid exists, then updates the same row on later saves', async () => {
     const firstResponse = await POST(
-      new Request('http://localhost/api/save-to-snowflake', {
+      new Request('http://localhost/api/save-to-bigquery', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(buildPersistOnlyPayload(5)),
@@ -195,7 +182,7 @@ describe('Data Entry manual save flow', () => {
     const firstJson = await firstResponse.json()
 
     const secondResponse = await POST(
-      new Request('http://localhost/api/save-to-snowflake', {
+      new Request('http://localhost/api/save-to-bigquery', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -209,7 +196,7 @@ describe('Data Entry manual save flow', () => {
 
     expect(firstResponse.status).toBe(200)
     expect(secondResponse.status).toBe(200)
-    expect(mockSnowflakeCreateConnection).not.toHaveBeenCalled()
+    expect(mockBigQueryConstructor).not.toHaveBeenCalled()
     expect(insertCalls).toHaveLength(1)
     expect(updateCalls).toHaveLength(1)
 
@@ -238,19 +225,19 @@ describe('Data Entry manual save flow', () => {
     expect(firstJson).toMatchObject({
       success: true,
       uid_generate: 'manual-draft-uid',
-      message: 'Saved to Supabase. You can keep editing before loading to Snowflake.',
+      message: 'Saved to Supabase. You can keep editing before loading to BigQuery.',
     })
 
     expect(secondJson).toMatchObject({
       success: true,
       uid_generate: 'manual-draft-uid',
-      message: 'Saved to Supabase. You can keep editing before loading to Snowflake.',
+      message: 'Saved to Supabase. You can keep editing before loading to BigQuery.',
     })
   })
 
   it('preserves null quantity in persist-only saves for untouched items', async () => {
     const response = await POST(
-      new Request('http://localhost/api/save-to-snowflake', {
+      new Request('http://localhost/api/save-to-bigquery', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(buildPersistOnlyPayload(null, 'uid-data-entry-null-001')),
@@ -258,7 +245,7 @@ describe('Data Entry manual save flow', () => {
     )
 
     expect(response.status).toBe(200)
-    expect(mockSnowflakeCreateConnection).not.toHaveBeenCalled()
+    expect(mockBigQueryConstructor).not.toHaveBeenCalled()
     expect(updateCalls).toHaveLength(1)
 
     expect(updateCalls[0]).toMatchObject({

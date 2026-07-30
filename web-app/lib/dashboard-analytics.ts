@@ -1,4 +1,8 @@
-import snowflake from 'snowflake-sdk'
+import {
+  getDashboardStockItemsTableName,
+  getMissingBigQueryEnvKeys,
+  queryBigQueryRows,
+} from './bigquery/warehouse'
 
 export type DashboardFilters = {
   date: string
@@ -31,124 +35,40 @@ export type DashboardResponseFilters = {
   categories: string[]
 }
 
-const DEFAULT_FACT_TABLE = 'FACT_TABLE'
-const DEFAULT_PRODUCT_TABLE = 'DIM_PRODUCT'
-const DEFAULT_CATEGORY_TABLE = 'DIM_PROD_CAT'
-const DEFAULT_LOCATION_TABLE = 'DIM_LOCATION'
-
-function getDashboardDatabaseAndSchema() {
-  const database = process.env.SNOWFLAKE_DASHBOARD_DB ?? process.env.SNOWFLAKE_DB ?? process.env.SNOWFLAKE_DATABASE
-  const schema = process.env.SNOWFLAKE_DASHBOARD_SCHEMA ?? process.env.SNOWFLAKE_SCHEMA
-
-  return { database, schema }
-}
-
 function normalizeFilterValue(value: string | null | undefined) {
   const trimmed = value?.trim() ?? ''
   return trimmed.length > 0 ? trimmed : null
 }
 
-function getMissingSnowflakeEnvKeys() {
-  const missing: string[] = []
-  const { database, schema } = getDashboardDatabaseAndSchema()
-
-  if (!process.env.SNOWFLAKE_ACCOUNT) missing.push('SNOWFLAKE_ACCOUNT')
-  if (!process.env.SNOWFLAKE_USER) missing.push('SNOWFLAKE_USER')
-  if (!process.env.SNOWFLAKE_PASSWORD) missing.push('SNOWFLAKE_PASSWORD')
-  if (!process.env.SNOWFLAKE_WAREHOUSE) missing.push('SNOWFLAKE_WAREHOUSE')
-  if (!database) missing.push('SNOWFLAKE_DASHBOARD_DB or SNOWFLAKE_DB or SNOWFLAKE_DATABASE')
-  if (!schema) missing.push('SNOWFLAKE_DASHBOARD_SCHEMA or SNOWFLAKE_SCHEMA')
-
-  return missing
-}
-
-function sanitizeIdentifier(value: string) {
-  const trimmed = value.trim()
-  if (!trimmed) {
-    throw new Error('Snowflake identifier cannot be empty.')
+function unwrapBigQueryValue(value: unknown) {
+  if (value && typeof value === 'object' && 'value' in value) {
+    return (value as { value: unknown }).value
   }
 
-  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
-    return trimmed
+  return value
+}
+
+function rowValue(row: Record<string, unknown>, key: string) {
+  return unwrapBigQueryValue(row[key] ?? row[key.toUpperCase()])
+}
+
+function parseWarehouseDate(value: unknown) {
+  const unwrapped = unwrapBigQueryValue(value)
+  if (typeof unwrapped === 'string') {
+    return unwrapped.slice(0, 10)
   }
 
-  return `"${trimmed.toUpperCase().replaceAll('"', '""')}"`
-}
-
-function getQualifiedTableName(tableName: string) {
-  const { database, schema } = getDashboardDatabaseAndSchema()
-
-  if (!database || !schema) {
-    throw new Error('Snowflake database and schema are required.')
-  }
-
-  return [database, schema, tableName].map(sanitizeIdentifier).join('.')
-}
-
-function getDashboardTableNames() {
-  return {
-    fact: getQualifiedTableName(process.env.SNOWFLAKE_DASHBOARD_FACT_TABLE ?? DEFAULT_FACT_TABLE),
-    product: getQualifiedTableName(process.env.SNOWFLAKE_DASHBOARD_PRODUCT_TABLE ?? DEFAULT_PRODUCT_TABLE),
-    category: getQualifiedTableName(process.env.SNOWFLAKE_DASHBOARD_CATEGORY_TABLE ?? DEFAULT_CATEGORY_TABLE),
-    location: getQualifiedTableName(process.env.SNOWFLAKE_DASHBOARD_LOCATION_TABLE ?? DEFAULT_LOCATION_TABLE),
-  }
-}
-
-function connectSnowflake(connection: ReturnType<typeof snowflake.createConnection>) {
-  return new Promise<void>((resolve, reject) => {
-    connection.connect((error) => {
-      if (error) {
-        reject(error)
-        return
-      }
-
-      resolve()
-    })
-  })
-}
-
-function querySnowflakeRows(
-  connection: ReturnType<typeof snowflake.createConnection>,
-  sqlText: string,
-  binds: Array<string | number | null>,
-) {
-  return new Promise<Record<string, unknown>[]>((resolve, reject) => {
-    connection.execute({
-      sqlText,
-      binds,
-      complete(error, _statement, rows) {
-        if (error) {
-          reject(error)
-          return
-        }
-
-        resolve((rows ?? []) as Record<string, unknown>[])
-      },
-    })
-  })
-}
-
-function closeSnowflakeConnection(connection: ReturnType<typeof snowflake.createConnection>) {
-  return new Promise<void>((resolve) => {
-    connection.destroy(() => resolve())
-  })
-}
-
-function parseSnowflakeDate(value: unknown) {
-  if (typeof value === 'string') {
-    return value.slice(0, 10)
-  }
-
-  if (value instanceof Date) {
-    return value.toISOString().slice(0, 10)
+  if (unwrapped instanceof Date) {
+    return unwrapped.toISOString().slice(0, 10)
   }
 
   return ''
 }
 
-function parseSnowflakeTimestamp(value: unknown) {
-  if (typeof value === 'string') return value
-  if (value instanceof Date) return value.toISOString()
+function parseWarehouseTimestamp(value: unknown) {
+  const unwrapped = unwrapBigQueryValue(value)
+  if (typeof unwrapped === 'string') return unwrapped
+  if (unwrapped instanceof Date) return unwrapped.toISOString()
   return new Date().toISOString()
 }
 
@@ -163,15 +83,15 @@ function parseQuantity(value: unknown) {
 
 function normalizeRow(row: Record<string, unknown>) {
   return {
-    photo_id: String(row.PHOTO_ID ?? ''),
-    stock_date: parseSnowflakeDate(row.STOCK_DATE),
-    mode: String(row.MODE ?? ''),
-    cleaned_at: parseSnowflakeTimestamp(row.CLEANED_AT ?? row.CREATED_AT),
-    quantity: parseQuantity(row.QUANTITY),
-    product_name: String(row.PRODUCT_NAME ?? row.OFFICIAL_NAME ?? row.PRODUCT ?? row.CATALOG_CODE ?? 'Unknown').trim() || 'Unknown',
-    category: String(row.CATEGORY_NAME ?? row.CATEGORY ?? 'Unknown').trim() || 'Unknown',
-    location: String(row.LOCATION_NAME ?? row.LOCATION ?? 'Unknown').trim() || 'Unknown',
-    sub_location: String(row.SUB_LOCATION_NAME ?? row.SUB_LOCATION ?? 'Unknown').trim() || 'Unknown',
+    photo_id: String(rowValue(row, 'photo_id') ?? ''),
+    stock_date: parseWarehouseDate(rowValue(row, 'stock_date')),
+    mode: String(rowValue(row, 'mode') ?? ''),
+    cleaned_at: parseWarehouseTimestamp(rowValue(row, 'cleaned_at') ?? rowValue(row, 'created_at')),
+    quantity: parseQuantity(rowValue(row, 'quantity')),
+    product_name: String(rowValue(row, 'product_name') ?? rowValue(row, 'official_name') ?? rowValue(row, 'product') ?? rowValue(row, 'catalog_code') ?? 'Unknown').trim() || 'Unknown',
+    category: String(rowValue(row, 'category_name') ?? rowValue(row, 'category') ?? 'Unknown').trim() || 'Unknown',
+    location: String(rowValue(row, 'location_name') ?? rowValue(row, 'location') ?? 'Unknown').trim() || 'Unknown',
+    sub_location: String(rowValue(row, 'sub_location_name') ?? rowValue(row, 'sub_location') ?? 'Unknown').trim() || 'Unknown',
   }
 }
 
@@ -183,91 +103,84 @@ function compareRowsByFreshness(a: { cleaned_at: string, photo_id: string }, b: 
 
 function buildFiltersWhereClause(filters: DashboardFilters) {
   const conditions: string[] = []
-  const binds: Array<string | number | null> = []
+  const params: Record<string, string> = {}
 
   if (filters.location) {
-    conditions.push(`LOWER(COALESCE(dl.LOCATION, '')) = LOWER(?)`)
-    binds.push(filters.location)
+    conditions.push(`LOWER(COALESCE(location, '')) = LOWER(@location)`)
+    params.location = filters.location
   }
 
   if (filters.category) {
-    conditions.push(`LOWER(COALESCE(dpc.CATEGORY, '')) = LOWER(?)`)
-    binds.push(filters.category)
+    conditions.push(`LOWER(COALESCE(category, '')) = LOWER(@category)`)
+    params.category = filters.category
   }
 
   return {
-    whereClause: conditions.length > 0 ? `\n      AND ${conditions.join('\n      AND ')}` : '',
-    binds,
+    whereClause: conditions.length > 0 ? `\n    WHERE ${conditions.join('\n      AND ')}` : '',
+    params,
   }
 }
 
 function buildDateWindowClause(includePreviousDate: boolean) {
-  return includePreviousDate ? 'IN (TO_DATE(?), DATEADD(DAY, -1, TO_DATE(?)))' : '= TO_DATE(?)'
+  return includePreviousDate ? 'IN (DATE(@selected_date), DATE_SUB(DATE(@selected_date), INTERVAL 1 DAY))' : '= DATE(@selected_date)'
 }
 
 async function fetchDashboardRows(filters: DashboardFilters, includePreviousDate: boolean) {
-  const missingEnv = getMissingSnowflakeEnvKeys()
+  const missingEnv = getMissingBigQueryEnvKeys()
   if (missingEnv.length > 0) {
     return { rows: [] as ReturnType<typeof normalizeRow>[], missingEnv }
   }
 
-  const { database, schema } = getDashboardDatabaseAndSchema()
-  const tableNames = getDashboardTableNames()
-  const connection = snowflake.createConnection({
-    account: process.env.SNOWFLAKE_ACCOUNT,
-    username: process.env.SNOWFLAKE_USER,
-    password: process.env.SNOWFLAKE_PASSWORD,
-    warehouse: process.env.SNOWFLAKE_WAREHOUSE,
-    database,
-    schema,
-    role: process.env.SNOWFLAKE_ROLE,
+  const tableName = getDashboardStockItemsTableName()
+  const filterConditions = buildFiltersWhereClause(filters)
+
+  const sqlText = `
+    WITH normalized AS (
+      SELECT
+        CAST(f.photo_id AS STRING) AS photo_id,
+        SAFE_CAST(f.stock_date AS DATE) AS stock_date,
+        CAST(f.mode AS STRING) AS mode,
+        COALESCE(
+          SAFE_CAST(f.cleaned_at AS TIMESTAMP),
+          SAFE_CAST(f.created_at AS TIMESTAMP),
+          SAFE_CAST(f.upload_date AS TIMESTAMP),
+          CURRENT_TIMESTAMP()
+        ) AS cleaned_at,
+        COALESCE(SAFE_CAST(f.quantity AS FLOAT64), 0) AS quantity,
+        COALESCE(CAST(f.official_name AS STRING), CAST(f.product AS STRING), CAST(f.catalog_code AS STRING), 'Unknown') AS product_name,
+        COALESCE(CAST(f.category AS STRING), 'Unknown') AS category,
+        COALESCE(CAST(f.location AS STRING), 'Unknown') AS location,
+        COALESCE(CAST(f.sub_location AS STRING), 'Unknown') AS sub_location
+      FROM ${tableName} f
+      WHERE SAFE_CAST(f.stock_date AS DATE) ${buildDateWindowClause(includePreviousDate)}
+    )
+    SELECT
+      photo_id,
+      stock_date,
+      mode,
+      cleaned_at,
+      quantity,
+      product_name,
+      category AS category_name,
+      location AS location_name,
+      sub_location AS sub_location_name
+    FROM normalized
+    ${filterConditions.whereClause}
+    QUALIFY ROW_NUMBER() OVER (
+      PARTITION BY stock_date, product_name, location, sub_location, mode
+      ORDER BY cleaned_at DESC NULLS LAST, photo_id DESC
+    ) = 1
+    ORDER BY stock_date ASC, product_name ASC, location ASC, sub_location ASC
+  `
+
+  const rows = await queryBigQueryRows(sqlText, {
+    selected_date: filters.date,
+    ...filterConditions.params,
   })
 
-  try {
-    await connectSnowflake(connection)
-    const filterConditions = buildFiltersWhereClause(filters)
-
-    const sqlText = `
-      SELECT
-        f.PHOTO_ID,
-        f.STOCK_DATE,
-        f.MODE,
-        f.CLEANED_AT,
-        f.QUANTITY,
-        COALESCE(dp.OFFICIAL_NAME, dp.PRODUCT, f.CATALOG_CODE, 'Unknown') AS PRODUCT_NAME,
-        COALESCE(dpc.CATEGORY, 'Unknown') AS CATEGORY_NAME,
-        COALESCE(dl.LOCATION, 'Unknown') AS LOCATION_NAME,
-        COALESCE(f.SUB_LOCATION, 'Unknown') AS SUB_LOCATION_NAME
-      FROM ${tableNames.fact} f
-      LEFT JOIN ${tableNames.product} dp
-        ON f.PRODUCT_SK = dp.PRODUCT_SK
-      LEFT JOIN ${tableNames.category} dpc
-        ON f.PROD_CAT_SK = dpc.PROD_CAT_SK
-      LEFT JOIN ${tableNames.location} dl
-        ON f.LOCATION_SK = dl.LOCATION_SK
-      WHERE f.STOCK_DATE ${buildDateWindowClause(includePreviousDate)}
-      ${filterConditions.whereClause}
-      QUALIFY ROW_NUMBER() OVER (
-        PARTITION BY f.STOCK_DATE, f.PRODUCT_SK, f.LOCATION_SK, f.SUB_LOCATION, f.MODE
-        ORDER BY f.CLEANED_AT DESC NULLS LAST, f.PHOTO_ID DESC
-      ) = 1
-      ORDER BY f.STOCK_DATE ASC, PRODUCT_NAME ASC, LOCATION_NAME ASC, SUB_LOCATION_NAME ASC
-    `
-
-    const dateBinds: Array<string | number | null> = includePreviousDate
-      ? [filters.date, filters.date]
-      : [filters.date]
-
-    const binds: Array<string | number | null> = [...dateBinds, ...filterConditions.binds]
-
-    const rows = await querySnowflakeRows(connection, sqlText, binds)
-
-    return {
-      rows: rows.map(normalizeRow),
-      missingEnv: [] as string[],
-    }
-  } finally {
-    await closeSnowflakeConnection(connection)
+  return {
+    rows: rows.map(normalizeRow),
+    missingEnv: [] as string[],
   }
 }
 
@@ -413,7 +326,7 @@ export async function fetchDashboardOverview(filters: DashboardFilters) {
 
   const { rows, missingEnv } = await fetchDashboardRows(normalizedFilters, false)
   if (missingEnv.length > 0) {
-    return { error: 'Snowflake environment variables are not fully configured.', missingEnv }
+    return { error: 'BigQuery environment variables are not fully configured.', missingEnv }
   }
 
   const overview = groupOverviewRows(rows, normalizedFilters.date)
@@ -440,7 +353,7 @@ export async function fetchDashboardStockLevels(filters: DashboardFilters) {
 
   const { rows, missingEnv } = await fetchDashboardRows(normalizedFilters, true)
   if (missingEnv.length > 0) {
-    return { error: 'Snowflake environment variables are not fully configured.', missingEnv }
+    return { error: 'BigQuery environment variables are not fully configured.', missingEnv }
   }
 
   return {

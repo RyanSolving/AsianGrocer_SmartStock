@@ -6,7 +6,7 @@
  * Flow:
  * 1. Admin parses a stocklist photo (OCR creates event_generate with raw final_output)
  * 2. Staff edits quantities and metadata, then validates
- * 3. Staff saves to DB (should merge edits into Snowflake staging record)
+ * 3. Staff saves to DB (should merge edits into BigQuery staging record)
  * 4. Save endpoint must update event_generate.final_output with the edited payload
  * 5. When history is fetched, it should return the edited data, not raw OCR
  */
@@ -164,7 +164,7 @@ describe('Save-to-History Sync Integration', () => {
         ],
       }
 
-      // Mock Supabase update operation that should occur in save-to-snowflake route
+      // Mock Supabase update operation that should occur in save-to-bigquery route
       const updateEventGenerateCall = {
         table: 'event_generate',
         data: {
@@ -188,7 +188,7 @@ describe('Save-to-History Sync Integration', () => {
       // Simulate the client-side reload pattern
       const historyReloadCalls: string[] = []
 
-      const saveToSnowflake = async () => {
+      const saveToBigQuery = async () => {
         // Simulates the save operation
         return { success: true, uid_stock_check: 'uid-stock-001' }
       }
@@ -198,7 +198,7 @@ describe('Save-to-History Sync Integration', () => {
       }
 
       const saveWorkflow = async () => {
-        const result = await saveToSnowflake()
+        const result = await saveToBigQuery()
         if (result.success) {
           await loadTranscriptionHistory()
         }
@@ -215,7 +215,7 @@ describe('Save-to-History Sync Integration', () => {
     it('should handle history sync failures gracefully', () => {
       const syncResult = {
         success: true,
-        warning: 'Saved to Snowflake, but failed to sync edited data to transcription history.',
+        warning: 'Saved to BigQuery, but failed to sync edited data to transcription history.',
         history_sync_error: 'Network timeout',
       }
 

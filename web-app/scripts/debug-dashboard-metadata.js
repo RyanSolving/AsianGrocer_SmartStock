@@ -1,9 +1,21 @@
 const fs = require('fs')
 const path = require('path')
-const snowflake = require('snowflake-sdk')
+const { BigQuery } = require('@google-cloud/bigquery')
+
+const DEFAULT_PROJECT_ID = 'gen-lang-client-0274270007'
+
+function normalizePrivateKey(value) {
+  return String(value || '')
+    .trim()
+    .replace(/^['"]|['"],?$/g, '')
+    .replace(/\\n/g, '\n')
+    .trim()
+}
 
 function readEnvFile(filePath) {
   const env = Object.create(null)
+  if (!fs.existsSync(filePath)) return env
+
   for (const line of fs.readFileSync(filePath, 'utf8').split(/\r?\n/)) {
     const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/)
     if (!match) continue
@@ -19,64 +31,43 @@ function readEnvFile(filePath) {
 
 async function main() {
   const env = readEnvFile(path.join(process.cwd(), '.env.local'))
-  const database = env.SNOWFLAKE_DASHBOARD_DB || env.SNOWFLAKE_DB || env.SNOWFLAKE_DATABASE
-  const schema = env.SNOWFLAKE_DASHBOARD_SCHEMA || env.SNOWFLAKE_SCHEMA
-
-  const connection = snowflake.createConnection({
-    account: env.SNOWFLAKE_ACCOUNT,
-    username: env.SNOWFLAKE_USER,
-    password: env.SNOWFLAKE_PASSWORD,
-    warehouse: env.SNOWFLAKE_WAREHOUSE,
-    database,
-    schema,
-    role: env.SNOWFLAKE_ROLE,
+  const projectId = env.BIGQUERY_PROJECT_ID || DEFAULT_PROJECT_ID
+  const client = new BigQuery({
+    projectId,
+    credentials: {
+      client_email: env.BIGQUERY_CLIENT_EMAIL,
+      private_key: normalizePrivateKey(env.BIGQUERY_PRIVATE_KEY),
+    },
   })
 
-  await new Promise((resolve, reject) => {
-    connection.connect((error) => {
-      if (error) return reject(error)
-      resolve()
-    })
-  })
+  const datasets = [
+    env.BIGQUERY_RAW_DATASET || 'raw_stocklist',
+    'cleaned_stockdata',
+    'analytics',
+  ]
 
-  const run = (sqlText, binds = []) =>
-    new Promise((resolve, reject) => {
-      connection.execute({
-        sqlText,
-        binds,
-        complete(error, _statement, rows) {
-          if (error) return reject(error)
-          resolve(rows || [])
-        },
-      })
-    })
-
-  try {
-    const tables = await run(
-      `SELECT TABLE_NAME FROM ${database}.INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME`,
-      [schema]
-    )
-    console.log('TABLES')
-    for (const row of tables) {
-      console.log(String(row.TABLE_NAME))
+  for (const dataset of datasets) {
+    const [tables] = await client.dataset(dataset).getTables()
+    console.log(`\nTABLES ${projectId}.${dataset}`)
+    for (const table of tables) {
+      console.log(table.id)
     }
+  }
 
-    const candidateTables = ['FACT_TABLE', 'DIM_PRODUCT', 'DIM_PROD_CAT', 'DIM_LOCATION', 'STOCK_PHOTOS_RAW']
-    for (const tableName of candidateTables) {
-      const cols = await run(
-        `SELECT COLUMN_NAME, DATA_TYPE FROM ${database}.INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? ORDER BY ORDINAL_POSITION`,
-        [schema, tableName]
-      )
+  const candidates = [
+    { dataset: env.BIGQUERY_RAW_DATASET || 'raw_stocklist', table: env.BIGQUERY_RAW_TABLE || 'stock_photos_raw' },
+    { dataset: 'cleaned_stockdata', table: 'cleaned_data' },
+    { dataset: env.BIGQUERY_DASHBOARD_DATASET || 'cleaned_stockdata', table: env.BIGQUERY_DASHBOARD_TABLE || 'stock_items_flat' },
+  ]
 
-      if (cols.length > 0) {
-        console.log(`\nCOLUMNS ${tableName}`)
-        for (const col of cols) {
-          console.log(`${col.COLUMN_NAME} :: ${col.DATA_TYPE}`)
-        }
-      }
+  for (const candidate of candidates) {
+    const tableId = candidate.table.includes('.') ? candidate.table.split('.').pop() : candidate.table
+    const [metadata] = await client.dataset(candidate.dataset).table(tableId).getMetadata()
+
+    console.log(`\nCOLUMNS ${projectId}.${candidate.dataset}.${tableId}`)
+    for (const field of metadata.schema?.fields || []) {
+      console.log(`${field.name} :: ${field.type}`)
     }
-  } finally {
-    await new Promise((resolve) => connection.destroy(() => resolve()))
   }
 }
 

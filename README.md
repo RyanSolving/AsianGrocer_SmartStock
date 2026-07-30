@@ -33,6 +33,13 @@ By capturing a photo of a handwritten closing stock sheet, this application leve
    OPENAI_VISION_MODEL="gpt-4o" # or gpt-4.5-preview / gpt-5.4
    NEXT_PUBLIC_SUPABASE_URL="https://YOUR_PROJECT_REF.supabase.co"
    NEXT_PUBLIC_SUPABASE_ANON_KEY="YOUR_SUPABASE_ANON_KEY"
+   BIGQUERY_PROJECT_ID="gen-lang-client-0274270007"
+   BIGQUERY_CLIENT_EMAIL="your-service-account@gen-lang-client-0274270007.iam.gserviceaccount.com"
+   BIGQUERY_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+   BIGQUERY_RAW_DATASET="raw_stocklist"
+   BIGQUERY_RAW_TABLE="stock_photos_raw"
+   BIGQUERY_DASHBOARD_DATASET="cleaned_stockdata"
+   BIGQUERY_DASHBOARD_TABLE="stock_items_flat"
    ```
 
 2. **Run Supabase SQL Migration:**
@@ -71,7 +78,7 @@ By capturing a photo of a handwritten closing stock sheet, this application leve
 
 ## Unified Save Payload Schema
 
-Both Data Entry stock-closing and Stock Check now use the same save envelope shape when sending to Snowflake-backed save routes.
+Both Data Entry stock-closing and Stock Check now use the same save envelope shape when sending to BigQuery-backed save routes.
 
 Canonical request body:
 
@@ -113,10 +120,10 @@ Canonical request body:
    }
 
 Behavior notes:
-- Endpoint /api/save-to-snowflake validates this canonical envelope for normal submissions.
+- Endpoint /api/save-to-bigquery validates this canonical envelope for normal submissions.
 - Endpoint /api/stock-check/save-to-db validates the same canonical envelope.
-- For Stock Check, Snowflake validated is intentionally forced to yes by route logic.
-- Re-push via uid_generate in /api/save-to-snowflake remains supported.
+- For Stock Check, warehouse validated is intentionally forced to yes by route logic.
+- Re-push via uid_generate in /api/save-to-bigquery remains supported.
 
 ## 🔮 Next Phases / Roadmap
 

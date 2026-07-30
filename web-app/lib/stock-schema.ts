@@ -109,7 +109,7 @@ export const parsedStockSchema = z.object({
   items: z.array(itemSchema),
 })
 
-export const snowflakeStagingRecordSchema = z.object({
+export const warehouseStagingRecordSchema = z.object({
   photo_id: z.string().min(1),
   mode: stockModeSchema.default('stock-in'),
   validated: z.enum(['yes', 'no']).default('no'),
@@ -124,7 +124,7 @@ export const snowflakeStagingRecordSchema = z.object({
 export const unknownItemSchema = itemSchema
 export const missingCatalogItemsSchema = catalogEntrySchema.array().default([])
 
-export const saveToSnowflakeEnvelopeSchema = z.object({
+export const saveToWarehouseEnvelopeSchema = z.object({
   data: parsedStockSchema,
   validated: z.enum(['yes', 'no']).optional(),
   unknown_items: unknownItemSchema.array().default([]),
@@ -157,13 +157,13 @@ function catalogEntryToStagedItem(entry: CatalogEntry): StockItem {
   }
 }
 
-export function buildSnowflakeStagingRecord(input: {
+export function buildWarehouseStagingRecord(input: {
   parsedData: ParsedStock
   validated?: 'yes' | 'no'
   unknownItems?: unknown[]
   missingCatalogItems?: unknown[]
   forcedValidated?: 'yes' | 'no'
-}): SnowflakeStagingRecord {
+}): WarehouseStagingRecord {
   const unknownItems = unknownItemSchema.array().default([]).parse(input.unknownItems)
   const missingCatalogItems = missingCatalogItemsSchema.parse(input.missingCatalogItems)
 
@@ -173,7 +173,7 @@ export function buildSnowflakeStagingRecord(input: {
     ...unknownItems,
   ]
 
-  return snowflakeStagingRecordSchema.parse({
+  return warehouseStagingRecordSchema.parse({
     photo_id: input.parsedData.photo_id,
     mode: input.parsedData.mode,
     validated: input.forcedValidated ?? input.validated ?? 'no',
@@ -189,7 +189,7 @@ export function buildSnowflakeStagingRecord(input: {
 export type CatalogEntry = z.infer<typeof catalogEntrySchema>
 export type ParsedStock = z.infer<typeof parsedStockSchema>
 export type StockItem = z.infer<typeof itemSchema>
-export type SnowflakeStagingRecord = z.infer<typeof snowflakeStagingRecordSchema>
+export type WarehouseStagingRecord = z.infer<typeof warehouseStagingRecordSchema>
 export type StockMode = z.infer<typeof stockModeSchema>
 export type CatalogItem = z.infer<typeof catalogItemSchema>
-export type SaveToSnowflakeEnvelope = z.infer<typeof saveToSnowflakeEnvelopeSchema>
+export type SaveToWarehouseEnvelope = z.infer<typeof saveToWarehouseEnvelopeSchema>

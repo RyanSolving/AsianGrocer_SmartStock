@@ -1550,7 +1550,7 @@ export function EmbeddedStockCheckPanel({
     }
   }
 
-  function buildSnowflakeEnvelopePayload(inputRows: StockCheckRow[], validated: boolean) {
+  function buildWarehouseEnvelopePayload(inputRows: StockCheckRow[], validated: boolean) {
     const known = inputRows.filter((x) => isKnownRow(x))
     const unknown = inputRows.filter((x) => x.source === 'unknown')
 
@@ -1618,7 +1618,7 @@ export function EmbeddedStockCheckPanel({
   }
 
   async function saveStockCheck() {
-    const requestEnvelope = buildSnowflakeEnvelopePayload(rows, true)
+    const requestEnvelope = buildWarehouseEnvelopePayload(rows, true)
 
     applyValidatedState()
     setIsSaving(true)
@@ -1786,17 +1786,17 @@ export function EmbeddedStockCheckPanel({
       const response = await fetch('/api/stock-check/save-to-db', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildSnowflakeEnvelopePayload(rows, isValidated)),
+        body: JSON.stringify(buildWarehouseEnvelopePayload(rows, isValidated)),
       })
 
       const payload = await response.json()
       if (!response.ok) {
-        throw new Error(payload?.error ?? 'Push to Snowflake Database failed.')
+        throw new Error(payload?.error ?? 'Push to BigQuery failed.')
       }
 
-      setStatus(`Loaded to Snowflake (UID: ${payload?.uid_stock_check ?? '-'})`)
+      setStatus(`Loaded to BigQuery (UID: ${payload?.uid_stock_check ?? '-'})`)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Load to Snowflake failed.')
+      setError(e instanceof Error ? e.message : 'Load to BigQuery failed.')
     } finally {
       setIsSaving(false)
     }

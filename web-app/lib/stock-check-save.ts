@@ -1,4 +1,4 @@
-import type { SnowflakeStagingRecord } from './stock-schema'
+import type { WarehouseStagingRecord } from './stock-schema'
 import { buildStockCheckRecordName } from './record-names'
 
 export type SupabaseStockCheckRecordData = {
@@ -34,7 +34,7 @@ export type SupabaseStockCheckUpsertRow = {
   item_data: SupabaseStockCheckRecordData
 }
 
-export function toSupabaseMirrorItemData(stagedRecord: SnowflakeStagingRecord): SupabaseStockCheckRecordData {
+export function toSupabaseMirrorItemData(stagedRecord: WarehouseStagingRecord): SupabaseStockCheckRecordData {
   const items = stagedRecord.item_data
     .filter((item) => item.catalog_code)
     .map((item) => ({

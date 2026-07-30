@@ -535,7 +535,7 @@ export default function Home() {
   const [isParsing, setIsParsing] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
   const [isSavingSupabase, setIsSavingSupabase] = useState(false)
-  const [isLoadingSnowflake, setIsLoadingSnowflake] = useState(false)
+  const [isLoadingBigQuery, setIsLoadingBigQuery] = useState(false)
   const [isCatalogUploading, setIsCatalogUploading] = useState(false)
   const [session, setSession] = useState<SessionPayload | null>(null)
   const [isAuthLoading, setIsAuthLoading] = useState(true)
@@ -2379,7 +2379,7 @@ export default function Home() {
     if (typeof window !== 'undefined' && !window.navigator.onLine) {
       enqueueOfflineRequest({
         feature: 'stock-in',
-        endpoint: '/api/save-to-snowflake',
+        endpoint: '/api/save-to-bigquery',
         payload: requestPayload,
       })
       setApiStatus(STATUS.OFFLINE_QUEUED)
@@ -2389,7 +2389,7 @@ export default function Home() {
     }
 
     try {
-      const response = await fetch('/api/save-to-snowflake', {
+      const response = await fetch('/api/save-to-bigquery', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestPayload),
@@ -2424,7 +2424,7 @@ export default function Home() {
       if (isNetworkRequestError(error)) {
         enqueueOfflineRequest({
           feature: 'stock-in',
-          endpoint: '/api/save-to-snowflake',
+          endpoint: '/api/save-to-bigquery',
           payload: requestPayload,
         })
         setApiStatus(STATUS.OFFLINE_QUEUED)
@@ -2453,13 +2453,10 @@ export default function Home() {
     const saved = await saveToSupabase()
     if (!saved) return
 
-    // Step 3: load to Snowflake (awaited so user sees "All done!" only after both saves complete)
+    // Step 3: load to BigQuery (awaited so user sees "All done!" only after both saves complete)
     if (window.navigator.onLine) {
-      try {
-        await loadToSnowflake(saved)
-      } catch {
-        // Snowflake failure is non-fatal; record is safe in Supabase
-      }
+      const loaded = await loadToBigQuery(saved)
+      if (!loaded) return
     }
 
     // Step 4: clear draft
@@ -2469,24 +2466,24 @@ export default function Home() {
     // Step 5: return to landing
     addToast('success', '✅ All done!')
     setStockInPhase('landing')
-  }, [parsedData, normalizeAndMarkValidated, loadToSnowflake, addToast, saveToSupabase])
+  }, [parsedData, normalizeAndMarkValidated, loadToBigQuery, addToast, saveToSupabase])
 
-  async function loadToSnowflake(overrideUidOrSaved?: string | boolean) {
+  async function loadToBigQuery(overrideUidOrSaved?: string | boolean) {
     if (!parsedData) {
       setApiError('No parsed data to load yet. Parse a stock photo first.')
-      return
+      return false
     }
 
     const targetUid = typeof overrideUidOrSaved === 'string' ? overrideUidOrSaved : latestGenerateUid
 
     if (!targetUid && overrideUidOrSaved !== true) {
       setApiError('No transcription record is available yet. Parse a stock photo first.')
-      return
+      return false
     }
 
     // Validation and Supabase save are guaranteed by handleStockInDone pipeline
 
-    setIsLoadingSnowflake(true)
+    setIsLoadingBigQuery(true)
     setApiError(null)
     setApiStatus(null)
 
@@ -2494,7 +2491,7 @@ export default function Home() {
       // Use re-push mode: send only uid_generate so the API fetches
       // the authoritative data from the Supabase record we just saved.
       // This prevents stale closure data from overwriting the correct record.
-      const response = await fetch('/api/save-to-snowflake', {
+      const response = await fetch('/api/save-to-bigquery', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2505,7 +2502,7 @@ export default function Home() {
       const payload = await response.json()
 
       if (response.status === 401) {
-        throw new Error('Unauthorized. Please sign in at /login before saving to Snowflake.')
+        throw new Error('Unauthorized. Please sign in at /login before saving to BigQuery.')
       }
 
       if (!response.ok) {
@@ -2513,27 +2510,29 @@ export default function Home() {
         const detailsText = typeof details === 'string' ? details : details ? JSON.stringify(details) : ''
         throw new Error(
           detailsText
-            ? `${payload?.error ?? 'Snowflake save failed.'} Details: ${detailsText}`
-            : payload?.error ?? 'Snowflake save failed.'
+            ? `${payload?.error ?? 'BigQuery save failed.'} Details: ${detailsText}`
+            : payload?.error ?? 'BigQuery save failed.'
         )
       }
 
       // Success, no extra toast needed since handleStockInDone fires "All done!"
       setHasLoadedToDb(true)
+      return true
     } catch (error) {
-      setApiError(error instanceof Error ? error.message : 'Unexpected Snowflake save error.')
+      setApiError(error instanceof Error ? error.message : 'Unexpected BigQuery save error.')
+      return false
     } finally {
-      setIsLoadingSnowflake(false)
+      setIsLoadingBigQuery(false)
     }
   }
 
-  async function reopushToSnowflake(uid: string) {
+  async function repushToBigQuery(uid: string) {
     setIsRepushing(true)
     setApiError(null)
     setApiStatus(null)
 
     try {
-      const response = await fetch('/api/save-to-snowflake', {
+      const response = await fetch('/api/save-to-bigquery', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2545,14 +2544,14 @@ export default function Home() {
       const payload = await response.json()
 
       if (response.status === 401) {
-        throw new Error('Unauthorized. Please sign in at /login before pushing to Snowflake.')
+        throw new Error('Unauthorized. Please sign in at /login before pushing to BigQuery.')
       }
 
       if (!response.ok) {
-        throw new Error(payload?.error ?? 'Failed to repush to Snowflake.')
+        throw new Error(payload?.error ?? 'Failed to repush to BigQuery.')
       }
 
-      setApiStatus(`Entry repushed to Snowflake successfully.`)
+      setApiStatus(`Entry repushed to BigQuery successfully.`)
       // Reload history to refresh push status
       await loadTranscriptionHistory()
     } catch (error) {
@@ -3580,7 +3579,7 @@ export default function Home() {
                   <button
                     type="button"
                     onClick={handleStockInDone}
-                    disabled={!parsedData || isSavingSupabase || isLoadingSnowflake || isExporting}
+                    disabled={!parsedData || isSavingSupabase || isLoadingBigQuery || isExporting}
                     className="flex-1 min-h-12 rounded-lg bg-emerald-600 px-6 py-3
                                text-base font-semibold text-white hover:bg-emerald-700
                                disabled:bg-slate-300 transition-colors shadow-md"
@@ -3762,7 +3761,7 @@ export default function Home() {
           setIsHistoryOpen(false)
           void loadDataEntryHistoryToEditor(uid)
         }}
-        onRepush={reopushToSnowflake}
+        onRepush={repushToBigQuery}
         onDeleteHistory={deleteTranscriptionHistory}
         deletingUid={isDeletingHistoryUid}
         isRepushing={isRepushing}

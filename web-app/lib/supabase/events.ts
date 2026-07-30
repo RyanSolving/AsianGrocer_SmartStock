@@ -65,7 +65,7 @@ export async function logCatalogSaveEvent(
   })
 }
 
-export async function logPushToSnowflakeEvent(
+export async function logPushToBigQueryEvent(
   supabase: SupabaseClient,
   input: {
     user: UserContext
