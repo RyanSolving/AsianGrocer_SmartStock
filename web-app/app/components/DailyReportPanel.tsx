@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
-import { Download, Loader2, RefreshCw } from 'lucide-react'
+import { Download, Loader2, RefreshCw, Search, X } from 'lucide-react'
 import { toPng } from 'html-to-image'
 
 import { formatDayLabel, getLocalTodayDate } from '../../lib/date-utils'
@@ -15,7 +15,7 @@ import { FlagPickerSheet } from './FlagPickerSheet'
 import { BrandTile } from './BrandMark'
 import { ReportInfo } from './ReportNotices'
 import { Button, IconButton } from './ui/Button'
-import { inputClass } from './ui/Input'
+import { fieldClass, inputClass } from './ui/Input'
 import { ActionBar, ScreenHeader } from './ui/Primitives'
 
 type DailyReportPanelProps = {
@@ -151,8 +151,19 @@ export function DailyReportPanel({ catalogItems, requestedDate, defaultDate, liv
 
   const openFlagPicker = (row: ReportRow) => setFlagPickerRow(row)
 
-  const sections = useMemo(() => {
-    const paper = buildPaperSections(indexedRows)
+  const [query, setQuery] = useState('')
+  const terms = useMemo(() => query.trim().toLowerCase().split(/\s+/).filter(Boolean), [query])
+  // Every word must appear in the item's name, stocklist name, product, category or code.
+  const shownRows = useMemo(() => {
+    if (terms.length === 0) return indexedRows
+    return indexedRows.filter(({ row }) => {
+      const haystack = [row.official_name, row.stocklist_name, row.product, row.category, row.code].join(' ').toLowerCase()
+      return terms.every((term) => haystack.includes(term))
+    })
+  }, [indexedRows, terms])
+
+  const toSections = (rows: IndexedReportRow[]) => {
+    const paper = buildPaperSections(rows)
     const toGroup = (section: typeof paper.leftColumn[number]) => ({
       title: section.title,
       items: orderedRows(section.rows),
@@ -163,7 +174,10 @@ export function DailyReportPanel({ catalogItems, requestedDate, defaultDate, liv
       outside: orderedRows(paper.outsideRows),
       unknown: orderedRows(paper.unknownRows),
     }
-  }, [indexedRows])
+  }
+  // The exported photo always has every item; the search only filters the screen.
+  const allSections = useMemo(() => toSections(indexedRows), [indexedRows])
+  const screenSections = useMemo(() => toSections(shownRows), [shownRows])
 
   async function exportPhoto() {
     if (isExporting) return
@@ -192,6 +206,7 @@ export function DailyReportPanel({ catalogItems, requestedDate, defaultDate, liv
   const stockLabel = showsCurrent ? 'Current' : 'Closing'
 
   function renderSheet(photo: boolean) {
+    const sections = photo ? allSections : screenSections
     const midpoint = Math.ceil(sections.outside.length / 2)
     return (
       <div ref={photo ? photoRef : undefined} className={photo ? "report-photo bg-surface" : "report-screen bg-surface"}>
@@ -280,6 +295,43 @@ export function DailyReportPanel({ catalogItems, requestedDate, defaultDate, liv
       ) : null}
 
       {hasReport ? (
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') setQuery('')
+            }}
+            placeholder="Find an item"
+            aria-label="Find an item in the report"
+            enterKeyHint="search"
+            autoComplete="off"
+            className={`${fieldClass} pl-10 pr-11 [&::-webkit-search-cancel-button]:hidden`}
+          />
+          {query ? (
+            <button
+              type="button"
+              onClick={() => setQuery('')}
+              aria-label="Clear search"
+              className="absolute inset-y-0 right-0 inline-flex w-11 items-center justify-center rounded-r-control text-muted hover:text-ink"
+            >
+              <X className="h-5 w-5" aria-hidden="true" />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {hasReport && terms.length > 0 ? (
+        <p className="px-1 text-[13px] text-muted" aria-live="polite">
+          {shownRows.length === 0
+            ? `No item matches "${query.trim()}".`
+            : `${shownRows.length} of ${indexedRows.length} items`}
+        </p>
+      ) : null}
+
+      {hasReport && shownRows.length > 0 ? (
         <div className="min-w-0 overflow-hidden rounded-card border border-line">
           {renderSheet(false)}
         </div>
