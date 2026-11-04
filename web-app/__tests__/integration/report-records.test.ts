@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals'
 
-import { addDays, buildSalesTrend, combineStockInRecords, describeStockInRecords } from '../../lib/report-records'
+import { addDays, buildSalesTrend, combineStockInRecords, describeStockInRecords, latestReportDate } from '../../lib/report-records'
 
 const closing = (date: string, quantities: Record<string, number>) => ({
   date,
@@ -118,5 +118,18 @@ describe('describeStockInRecords', () => {
     expect(describeStockInRecords(0, 0)).toBeUndefined()
     expect(describeStockInRecords(1, 0)).toBe('plus 1 extra delivery')
     expect(describeStockInRecords(2, 1)).toBe('plus 2 extra deliveries, 1 earlier save replaced')
+  })
+})
+
+describe('latestReportDate', () => {
+  it('picks the newest closing that has an earlier one', () => {
+    expect(latestReportDate(['2026-11-01', '2026-11-04', '2026-11-03'], '2026-11-05')).toBe('2026-11-04')
+  })
+  it('ignores closings dated after today', () => {
+    expect(latestReportDate(['2026-11-03', '2026-11-04', '2026-11-09'], '2026-11-05')).toBe('2026-11-04')
+  })
+  it('needs an earlier closing to compare against', () => {
+    expect(latestReportDate(['2026-11-04'], '2026-11-05')).toBeNull()
+    expect(latestReportDate(['2026-11-04', '2026-11-04'], '2026-11-05')).toBeNull()
   })
 })

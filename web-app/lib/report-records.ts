@@ -90,6 +90,16 @@ export function describeStockInRecords(extraCount: number, replacedCount: number
   return parts.length > 0 ? parts.join(', ') : undefined
 }
 
+/**
+ * The newest date, up to `today`, that has a full Daily Report: a closing saved that day and an
+ * earlier closing to work out units sold from. Null when there is none yet.
+ */
+export function latestReportDate(closingDates: string[], today: string): string | null {
+  const dates = Array.from(new Set(closingDates.filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date) && date <= today)))
+    .sort((a, b) => b.localeCompare(a))
+  return dates.length >= 2 ? dates[0] : null
+}
+
 /** `YYYY-MM-DD` plus `days` (negative goes back), in calendar days. */
 export function addDays(isoDate: string, days: number) {
   const [year, month, day] = isoDate.split('-').map(Number)

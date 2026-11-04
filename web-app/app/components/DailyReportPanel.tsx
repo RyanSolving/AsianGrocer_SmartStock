@@ -23,6 +23,8 @@ type DailyReportPanelProps = {
   catalogItems: ReportCatalogItem[]
   /** Opens the report on this date (from Home). A new `key` applies it again. */
   requestedDate?: { date: string; key: number } | null
+  /** The newest date with a full report (today's may not be ready). Used until a date is picked. */
+  defaultDate?: string | null
 }
 
 function orderedRows(rows: PaperRowColumns<ReportRow>) {
@@ -109,11 +111,19 @@ function ReportArea({ title, groups, insights, onSelectItem }: {
   )
 }
 
-export function DailyReportPanel({ catalogItems, requestedDate }: DailyReportPanelProps) {
-  const [reportDate, setReportDate] = useState(() => requestedDate?.date ?? getLocalTodayDate())
+export function DailyReportPanel({ catalogItems, requestedDate, defaultDate }: DailyReportPanelProps) {
+  const [reportDate, setReportDate] = useState(() => requestedDate?.date ?? defaultDate ?? getLocalTodayDate())
+  // Opens on the newest date with a report; once someone picks a date, it stays theirs.
+  const hasPickedDate = useRef(Boolean(requestedDate?.date))
   useEffect(() => {
-    if (requestedDate?.date) setReportDate(requestedDate.date)
+    if (requestedDate?.date) {
+      hasPickedDate.current = true
+      setReportDate(requestedDate.date)
+    }
   }, [requestedDate])
+  useEffect(() => {
+    if (defaultDate && !hasPickedDate.current) setReportDate(defaultDate)
+  }, [defaultDate])
   const [isExporting, setIsExporting] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
   const photoRef = useRef<HTMLDivElement | null>(null)
@@ -211,7 +221,11 @@ export function DailyReportPanel({ catalogItems, requestedDate }: DailyReportPan
           type="date"
           aria-label="Report date"
           value={reportDate}
-          onChange={(event) => event.target.value && setReportDate(event.target.value)}
+          onChange={(event) => {
+            if (!event.target.value) return
+            hasPickedDate.current = true
+            setReportDate(event.target.value)
+          }}
           className={`${inputClass} w-auto min-w-0 flex-1 tabular sm:flex-none`}
         />
         <IconButton label="Refresh" onClick={() => void reload()} disabled={isLoading} className="border border-line bg-surface">

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Download, Loader2, RefreshCw } from 'lucide-react'
 import { toPng } from 'html-to-image'
 import { getLocalTodayDate } from '../../lib/date-utils'
@@ -15,6 +15,8 @@ import { useDailyReportData, type ReportCatalogItem } from './useDailyReportData
 
 type DashboardPanelProps = {
   catalogItems: ReportCatalogItem[]
+  /** The newest date with a full report (today's may not be ready). Used until a date is picked. */
+  defaultDate?: string | null
 }
 
 function DailySummaryTab({ catalogItems, date, refreshKey }: { catalogItems: ReportCatalogItem[]; date: string; refreshKey: number }) {
@@ -87,9 +89,13 @@ function DailySummaryTab({ catalogItems, date, refreshKey }: { catalogItems: Rep
   )
 }
 
-export function DashboardPanel({ catalogItems }: DashboardPanelProps) {
+export function DashboardPanel({ catalogItems, defaultDate }: DashboardPanelProps) {
   const today = useMemo(() => getLocalTodayDate(), [])
-  const [selectedDate, setSelectedDate] = useState(today)
+  const [selectedDate, setSelectedDate] = useState(defaultDate ?? today)
+  const hasPickedDate = useRef(false)
+  useEffect(() => {
+    if (defaultDate && !hasPickedDate.current) setSelectedDate(defaultDate)
+  }, [defaultDate])
   const [summaryRefreshKey, setSummaryRefreshKey] = useState(0)
 
   return (
@@ -102,7 +108,11 @@ export function DashboardPanel({ catalogItems }: DashboardPanelProps) {
         <input
           type="date"
           value={selectedDate}
-          onChange={(event) => event.target.value && setSelectedDate(event.target.value)}
+          onChange={(event) => {
+            if (!event.target.value) return
+            hasPickedDate.current = true
+            setSelectedDate(event.target.value)
+          }}
           aria-label="Report date"
           className={`${inputClass} w-auto min-w-0 flex-1 tabular sm:flex-none`}
         />

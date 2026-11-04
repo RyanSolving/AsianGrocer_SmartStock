@@ -31,6 +31,7 @@ import { useChoiceSheet } from './components/ChoiceSheet'
 import { formatDayLabel, formatTimeLabel } from '../lib/date-utils'
 import { sectionFromQuery } from '../lib/hub-navigation'
 import { useKeypadEntry } from '../lib/use-keypad-entry'
+import { latestReportDate } from '../lib/report-records'
 import { friendlyError, toast } from '../lib/toast-store'
 
 import { DailyReportPanel } from './components/DailyReportPanel'
@@ -592,6 +593,11 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
   const [isInlineCreateSaving, setIsInlineCreateSaving] = useState(false)
   const [stockCheckHistory, setStockCheckHistory] = useState<StockCheckHistoryEntry[]>([])
   const [isStockCheckHistoryLoading, setIsStockCheckHistoryLoading] = useState(false)
+  // Report and Dashboard open on the newest date that has a full report (today's comes after 4 PM).
+  const latestReportDay = useMemo(
+    () => latestReportDate(stockCheckHistory.map((entry) => entry.stock_date), getLocalTodayDate()),
+    [stockCheckHistory],
+  )
   const [stockCheckSearchTerm, setStockCheckSearchTerm] = useState('')
   const [stockCheckStatusFilter, setStockCheckStatusFilter] = useState<'all' | 'validated' | 'unvalidated'>('all')
   const [selectedStockCheckHistoryRecord, setSelectedStockCheckHistoryRecord] = useState<SelectedStockCheckHistoryRecord | null>(null)
@@ -2948,12 +2954,12 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
           ) : null}
           {visitedSections.has('daily-report') ? (
             <div hidden={activeSection !== 'daily-report'}>
-              <DailyReportPanel catalogItems={visibleCatalog} requestedDate={reportDateRequest} />
+              <DailyReportPanel catalogItems={visibleCatalog} requestedDate={reportDateRequest} defaultDate={latestReportDay} />
             </div>
           ) : null}
           {visitedSections.has('dashboard') ? (
             <div hidden={activeSection !== 'dashboard'}>
-              <DashboardPanel catalogItems={visibleCatalog} />
+              <DashboardPanel catalogItems={visibleCatalog} defaultDate={latestReportDay} />
             </div>
           ) : null}
           <div hidden={activeSection !== 'data-entry'}>
