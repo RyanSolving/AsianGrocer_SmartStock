@@ -70,16 +70,29 @@ describe('soldByCategory', () => {
 })
 
 describe('refillList', () => {
-  it('lists ORDER items with sold-out first, then biggest shortfall', () => {
+  it('lists only Stock-out and Low stock items, Stock-out first', () => {
     const list = refillList(entries)
 
-    expect(list.map((r) => r.code)).toEqual(['C', 'B'])
-    expect(list[0].soldOut).toBe(true)
-    expect(list[1].suggestedQty).toBe(20)
+    // C and D: closing 0 (Stock-out, best seller first). B: 5 left / 25 sold = 0.2 cover. A: 10 / 10 = 1 cover.
+    expect(list.map((r) => [r.code, r.flag])).toEqual([
+      ['C', 'Stock-out'], ['D', 'Stock-out'], ['B', 'Low stock'], ['A', 'Low stock'],
+    ])
+    expect(list[2].cover).toBeCloseTo(0.2)
+    // E (no earlier closing) and F (counts that don't add up) have no reliable cover, so no flag.
+    expect(list.map((r) => r.code)).not.toContain('E')
   })
 
-  it('excludes items that are at zero but sold nothing', () => {
-    expect(refillList(entries).map((r) => r.code)).not.toContain('D')
+  it('leaves out items with enough cover', () => {
+    const healthy = entry('H', 'Apple', { prev: 40, closing: 30 }) // sold 10, cover 3
+    expect(refillList([healthy]).map((r) => r.code)).toEqual([])
+  })
+
+  it('orders Low stock by least cover first', () => {
+    const list = refillList([
+      entry('X', 'Apple', { prev: 30, closing: 20 }), // cover 2
+      entry('Y', 'Apple', { prev: 30, closing: 10 }), // cover 0.5
+    ])
+    expect(list.map((r) => r.code)).toEqual(['Y', 'X'])
   })
 })
 

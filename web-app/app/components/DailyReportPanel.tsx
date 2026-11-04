@@ -70,9 +70,9 @@ function ReportArea({ title, groups, insights }: {
             return (
               <tr key={index}>
                 <th scope="row">
-                  <div className="flex items-center gap-1.5">
+                  <div className="report-name">
                     {row.redMarked && <span aria-label="Marked for reorder" role="img" className="h-2 w-2 shrink-0 rounded-full bg-danger" />}
-                    <span className="shrink-0">{row.official_name}</span>
+                    <span>{row.official_name}</span>
                     {insight?.stockFlag && <StockFlagBadge flag={insight.stockFlag} />}
                   </div>
                 </th>
@@ -136,7 +136,7 @@ export function DailyReportPanel({ catalogItems }: DailyReportPanelProps) {
   function renderSheet(photo: boolean) {
     const midpoint = Math.ceil(sections.outside.length / 2)
     return (
-      <div ref={photo ? photoRef : undefined} className={photo ? "report-photo bg-surface" : "min-w-min bg-surface"}>
+      <div ref={photo ? photoRef : undefined} className={photo ? "report-photo bg-surface" : "report-screen bg-surface"}>
         <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 py-4 sm:px-5">
           <h2 className="text-lg font-semibold tracking-tight text-forest">Closing stock</h2>
           <div className="flex items-center gap-3">
@@ -200,7 +200,7 @@ export function DailyReportPanel({ catalogItems }: DailyReportPanelProps) {
       ) : null}
 
       {hasReport ? (
-        <div className="min-w-0 overflow-x-auto rounded-card border border-line">
+        <div className="min-w-0 overflow-hidden rounded-card border border-line">
           {renderSheet(false)}
         </div>
       ) : null}

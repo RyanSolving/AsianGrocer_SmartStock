@@ -1,4 +1,4 @@
-import type { ItemInsight } from './report-insights'
+import type { ItemInsight, StockFlag } from './report-insights'
 
 /**
  * Aggregations behind the Daily Report summary photo (charts + refill list).
@@ -16,14 +16,18 @@ export type SellerBar = { code: string; name: string; sold: number; closing: num
 
 export type CategorySlice = { label: string; sold: number; share: number }
 
+export type RefillFlag = Extract<StockFlag, 'Stock-out' | 'Low stock'>
+
 export type RefillItem = {
   code: string
   name: string
   category: string
   closing: number
-  sold: number
-  suggestedQty: number
-  soldOut: boolean
+  /** Null when there is no reliable sold figure (no earlier closing, or counts that don't add up). */
+  sold: number | null
+  flag: RefillFlag
+  /** Closing ÷ sold: days of stock left at today's pace. Null when nothing (reliable) sold. */
+  cover: number | null
 }
 
 function soldOf(entry: ReportEntry) {
@@ -124,22 +128,32 @@ export function inventoryTotals(entries: ReportEntry[]) {
   return { productsInHand, currentInventory }
 }
 
-/** Items flagged ORDER, most urgent first: sold-out items, then biggest shortfall. */
+/**
+ * Items to refill for tomorrow: Stock-out and Low stock only (see BUSINESS_RULES.md).
+ * Order: Stock-out first (best sellers first), then Low stock by least cover, then most sold.
+ */
 export function refillList(entries: ReportEntry[]): RefillItem[] {
+  const rank: Record<RefillFlag, number> = { 'Stock-out': 0, 'Low stock': 1 }
   return entries
-    .filter((entry) => entry.insight.status === 'ok' && entry.insight.flag === 'ORDER')
-    .map((entry) => ({
-      code: entry.code,
-      name: entry.name,
-      category: entry.category,
-      closing: entry.insight.closing ?? 0,
-      sold: soldOf(entry),
-      suggestedQty: entry.insight.suggestedQty,
-      soldOut: (entry.insight.closing ?? 0) === 0,
-    }))
+    .filter((entry): entry is ReportEntry & { insight: ItemInsight & { stockFlag: RefillFlag } } =>
+      entry.insight.stockFlag === 'Stock-out' || entry.insight.stockFlag === 'Low stock')
+    .map((entry) => {
+      const closing = entry.insight.closing ?? 0
+      const sold = entry.insight.status === 'ok' ? entry.insight.sold : null
+      return {
+        code: entry.code,
+        name: entry.name,
+        category: entry.category,
+        closing,
+        sold,
+        flag: entry.insight.stockFlag,
+        cover: sold !== null && sold > 0 ? closing / sold : null,
+      }
+    })
     .sort((a, b) =>
-      Number(b.soldOut) - Number(a.soldOut)
-      || b.suggestedQty - a.suggestedQty
+      rank[a.flag] - rank[b.flag]
+      || (a.flag === 'Low stock' ? (a.cover ?? 0) - (b.cover ?? 0) : 0)
+      || (b.sold ?? -1) - (a.sold ?? -1)
       || a.name.localeCompare(b.name),
     )
 }

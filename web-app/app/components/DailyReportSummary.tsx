@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, type FocusEvent, type PointerEvent, type ReactNode, type Ref } from 'react'
-import { AlertCircle } from 'lucide-react'
 
 import {
   TOP_CONTRIBUTION_SHARE,
@@ -25,7 +24,7 @@ import { BrandTile } from './BrandMark'
  * - Units sold: the forest lead tile and the strongest green bars.
  * - Contribution (what makes half of sales): the brand green, as washes, tiles and the share meter.
  * - Stock left: violet, on thinner bars with muted labels, so it reads last.
- * - Refill recommendations keep brick, the status colour for action.
+ * - Refill rows carry their stock flag (Stock-out brick, Low stock orange); rules in BUSINESS_RULES.md.
  * - Face: a sage ground from the produce world (#f2f5f2) under white, flat, bordered panels.
  * - Signature element: the "half of today's sales" emphasis, shared by the product and category rankings.
  * - Data colours checked with the dataviz validator; text tiers hold 4.5:1 on their surfaces.
@@ -212,11 +211,12 @@ export function DailyReportSummary({ containerRef, photoMode = false, date, prev
   const topCategory = soldByCategory(entries, 50)[0]
   const categorySlices = soldByCategory(entries, CATEGORY_ROWS)
   const refill = refillList(entries)
-  const soldOutCount = refill.filter((item) => item.soldOut).length
-  const visibleRefill = refill.slice(0, REFILL_ROW_LIMIT)
+  const soldOutCount = refill.filter((item) => item.flag === 'Stock-out').length
+  const lowStockCount = refill.length - soldOutCount
+  // The photo keeps the most urgent rows; the screen lists every one.
+  const visibleRefill = photoMode ? refill.slice(0, REFILL_ROW_LIMIT) : refill
   const hiddenRefillCount = refill.length - visibleRefill.length
   const maxSold = Math.max(1, ...products.map((product) => product.sold))
-  const maxRefill = Math.max(1, ...visibleRefill.map((item) => item.suggestedQty))
   const unreliable = summary.itemsWithoutBaseline + summary.itemsWithNegative
 
   // The screen's one finding, read first under the title.
@@ -230,7 +230,7 @@ export function DailyReportSummary({ containerRef, photoMode = false, date, prev
       )
       : 'No sales recorded for this date'
   const refillFinding = refill.length > 0
-      ? `${refill.length} to refill${soldOutCount > 0 ? `, ${soldOutCount} sold out` : ''}`
+      ? `${refill.length} to refill${soldOutCount > 0 ? `, ${soldOutCount} stock-out` : ''}`
       : 'nothing to refill'
 
   const showTooltip: ShowTooltip | undefined = photoMode
@@ -434,14 +434,18 @@ export function DailyReportSummary({ containerRef, photoMode = false, date, prev
       {/* Refill recommendations: the job for tomorrow */}
       <Panel className="mt-4 px-5 py-4">
         <PanelTitle
-          subtitle="Sold out first, then the biggest shortfall"
-          aside={<span className={`shrink-0 pt-1 text-[13px] tabular-nums ${refill.length ? 'font-semibold text-danger' : 'text-muted'}`}>{refill.length} item{refill.length === 1 ? '' : 's'}</span>}
+          subtitle="Stock-out first, then low stock with the least cover"
+          aside={(
+            <span className="shrink-0 pt-1 text-[13px] tabular-nums" style={{ color: C.muted }}>
+              {soldOutCount} stock-out · {lowStockCount} low
+            </span>
+          )}
         >
           Refill for tomorrow
         </PanelTitle>
 
         {visibleRefill.length === 0 ? (
-          <p className="mt-3 text-[14px]" style={{ color: C.muted }}>Nothing to refill. Closing stock covers today&apos;s sales.</p>
+          <p className="mt-3 text-[14px]" style={{ color: C.muted }}>Nothing to refill. No item is out or low.</p>
         ) : (
           <div className="mt-2">
             <table className="w-full text-left text-[14px]">
@@ -450,10 +454,8 @@ export function DailyReportSummary({ containerRef, photoMode = false, date, prev
                   <th className="py-2 pr-2 font-normal">Item</th>
                   <th className={`py-2 pr-2 font-normal ${photoMode ? '' : 'hidden sm:table-cell'}`}>Category</th>
                   <th className="py-2 pr-2 text-right font-normal">Closing</th>
-                  <th className="whitespace-nowrap py-2 text-right font-normal">
-                    {photoMode ? 'Units sold' : <><span className="sm:hidden">Sold</span><span className="hidden sm:inline">Units sold</span></>}
-                  </th>
-                  <th className={`py-2 pl-4 font-normal sm:w-[38%] sm:pl-8 ${photoMode ? 'w-[38%] pl-8' : ''}`}>Order<span className={photoMode ? '' : 'hidden sm:inline'}> for tomorrow</span></th>
+                  <th className="py-2 pr-3 text-right font-normal">Sold</th>
+                  <th className="py-2 text-right font-normal">Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -465,26 +467,9 @@ export function DailyReportSummary({ containerRef, photoMode = false, date, prev
                     </td>
                     <td className={`py-2.5 pr-2 ${photoMode ? '' : 'hidden sm:table-cell'}`} style={{ color: C.muted }}>{item.category}</td>
                     <td className="py-2.5 pr-2 text-right tabular-nums">{formatQuantity(item.closing)}</td>
-                    <td className="py-2.5 text-right tabular-nums">{formatQuantity(item.sold)}</td>
-                    <td className={`py-2.5 pl-4 sm:pl-8 ${photoMode ? 'pl-8' : ''}`}>
-                      <div className="flex items-center justify-end gap-3">
-                        <div className={`h-[10px] flex-1 ${photoMode ? '' : 'hidden sm:block'}`}>
-                          <div
-                            className="h-full bg-danger"
-                            style={{ width: `${Math.max(4, (item.suggestedQty / maxRefill) * 100)}%`, borderRadius: BAR_RADIUS }}
-                          />
-                        </div>
-                        {item.soldOut ? (
-                          <span
-                            className="inline-flex flex-none items-center gap-1 whitespace-nowrap rounded bg-danger-soft px-1.5 py-0.5 text-[12px] font-medium text-danger"
-                          >
-                            <AlertCircle className="h-3.5 w-3.5" aria-hidden="true" />
-                            Sold out
-                          </span>
-                        ) : (
-                          <span className="w-12 flex-none text-right text-[14px] font-semibold tabular-nums text-danger">+{item.suggestedQty}</span>
-                        )}
-                      </div>
+                    <td className="py-2.5 pr-3 text-right tabular-nums">{item.sold === null ? '–' : formatQuantity(item.sold)}</td>
+                    <td className="py-2.5 text-right">
+                      <StockFlagBadge flag={item.flag} />
                     </td>
                   </tr>
                 ))}
@@ -495,13 +480,13 @@ export function DailyReportSummary({ containerRef, photoMode = false, date, prev
 
         {hiddenRefillCount > 0 ? (
           <p className="mt-2 text-[12px]" style={{ color: C.muted }}>
-            {hiddenRefillCount} more item(s) with a suggested refill
+            {hiddenRefillCount} more item{hiddenRefillCount === 1 ? '' : 's'} out or low on the Dashboard
           </p>
         ) : null}
       </Panel>
 
       <p className="mt-3 text-[12px]" style={{ color: C.muted }}>
-        Units sold = previous closing + stock in − closing. Refill = units sold − closing.
+        Units sold = previous closing + stock in − closing. Low stock = less than 3× today&apos;s sales left.
         {unreliable > 0 ? ` ${unreliable} item(s) left out: no earlier closing, or counts that do not add up.` : ''}
       </p>
 

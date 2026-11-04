@@ -597,6 +597,36 @@ textarea {
   font-weight: 400;
 }
 
+.report-name {
+  display: flex;
+  align-items: center;
+  gap: 4px 6px;
+}
+
+/* The photo keeps one line per product. */
+.report-photo .report-name {
+  flex-wrap: nowrap;
+}
+
+/* On screen the sheet fits the phone with no sideways scroll: long names wrap and the
+   flag drops under the name; the two number columns keep a fixed width. */
+.report-screen .report-ledger {
+  table-layout: fixed;
+}
+
+.report-screen .report-ledger th[scope="row"] {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.report-screen .report-name {
+  flex-wrap: wrap;
+}
+
+.report-screen .report-number-column {
+  width: 3.5rem;
+}
+
 .report-ledger td {
   font-weight: 700;
 }

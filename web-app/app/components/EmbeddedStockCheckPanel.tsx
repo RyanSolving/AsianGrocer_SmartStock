@@ -37,6 +37,7 @@ import { Sheet } from './ui/Sheet'
 import { SectionLandingState } from './SectionLandingState'
 import { getOfflineDraftAge } from '../../lib/offline/queue'
 import { getLocalTodayDate } from '../../lib/date-utils'
+import { findUncountedItems } from '../../lib/closing-completeness'
 
 type CatalogInnerUnit = 'box' | 'bag' | 'punnet' | 'piece' | 'tray' | 'bunch' | 'pack' | 'kg' | 'g'
 
@@ -134,9 +135,18 @@ type RecheckWarning = {
   label: string
   section: string
   previousQuantity: number
+  /** Stock that arrived for this date (0 when none, or not known for unknown items). */
+  stockIn: number
   currentQuantity: number | null
   reason: 'now_zero' | 'now_blank'
 }
+
+type SaveCheckData = {
+  prevClosingByCode: Record<string, number>
+  stockInByCode: Record<string, number>
+}
+
+const SAVE_CHECK_TIMEOUT_MS = 6000
 
 type ParsedPhotoItem = {
   catalog_code?: string | null
@@ -433,6 +443,7 @@ export function EmbeddedStockCheckPanel({
   const [isParsing, setIsParsing] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [isCheckingCounts, setIsCheckingCounts] = useState(false)
   const [isOnline, setIsOnline] = useState(true)
   const [phase, setPhase] = useState<'landing' | 'editing'>('landing')
   const [pendingModeSwitch, setPendingModeSwitch] = useState<'manual' | 'photo' | null>(null)
@@ -1408,79 +1419,91 @@ export function EmbeddedStockCheckPanel({
     checkItemInputRef.current?.focus()
   }
 
-  function compareWithPreviousValidatedStockCheck(): number {
-    if (!latestPreviousValidatedRecord?.record_data) {
-      setRecheckWarnings([])
-      setHasPassedRecheck(true)
-      setShowRecheckWarningModal(false)
-      return 0
-    }
+  /**
+   * Items that should be on this closing but are blank or 0 (BUSINESS_RULES.md §8).
+   * Catalog items are checked against the server's previous closing and today's stock-in.
+   * Without that data (offline), they fall back to the last validated sheet in history.
+   * Unknown (free-typed) items are always compared with the last validated sheet.
+   */
+  function buildSaveWarnings(serverData: SaveCheckData | null): RecheckWarning[] {
+    const previousRecord = latestPreviousValidatedRecord?.record_data ?? null
+    const sectionOf = (row: { location: string; sub_location: string }) => `${row.location} / ${row.sub_location}`
+    const labelOf = (row: { official_name: string; stocklist_name: string; product: string; code: string | null }) =>
+      row.official_name || row.stocklist_name || row.product || row.code || ''
 
-    const currentKnownByCode = new Map<string, StockCheckRow>()
-    const currentUnknownByName = new Map<string, StockCheckRow>()
+    const known = rows.filter((row) => isKnownRow(row))
+    const sheet = known.map((row) => ({ code: row.code as string, label: labelOf(row), section: sectionOf(row), quantity: parseNumericQuantity(row.quantity) }))
+    // Hidden catalog items are left off the sheet on purpose, so they are not asked about.
+    const catalog: Array<{ code: string; label: string; section: string }> = visibleCatalogItems.map((item) => ({ code: item.code, label: labelOf(item), section: sectionOf(item) }))
 
-    for (const row of rows) {
-      if (row.code) {
-        currentKnownByCode.set(row.code.trim().toUpperCase(), row)
-      } else {
-        const fallbackName = row.official_name || row.stocklist_name || row.product
-        currentUnknownByName.set(normalizeCompareKey(fallbackName), row)
+    const fallbackPrevious: Record<string, number> = {}
+    if (!serverData && previousRecord) {
+      for (const item of previousRecord.items) {
+        const quantity = parseNumericQuantity(item.quantity)
+        if (item.code && quantity !== null) fallbackPrevious[item.code] = (fallbackPrevious[item.code] ?? 0) + quantity
       }
     }
 
-    const warnings: RecheckWarning[] = []
+    const warnings: RecheckWarning[] = findUncountedItems({
+      sheet,
+      catalog,
+      prevClosingByCode: serverData?.prevClosingByCode ?? fallbackPrevious,
+      stockInByCode: serverData?.stockInByCode ?? {},
+    }).map((item) => ({
+      key: `known-${item.code}`,
+      label: item.label,
+      section: item.section,
+      previousQuantity: item.previousClosing,
+      stockIn: item.stockIn,
+      currentQuantity: item.current,
+      reason: item.reason === 'blank' ? 'now_blank' : 'now_zero',
+    }))
 
-    for (const previousRow of latestPreviousValidatedRecord.record_data.items) {
-      const previousQuantity = parseNumericQuantity(previousRow.quantity)
-      if (previousQuantity === null || previousQuantity <= 0) continue
-
-      const key = previousRow.code.trim().toUpperCase()
-      const currentRow = currentKnownByCode.get(key)
-      const currentQuantity = parseNumericQuantity(currentRow?.quantity)
-
-      if (currentQuantity === null || currentQuantity <= 0) {
-        warnings.push({
-          key: `known-${key}`,
-          label: previousRow.official_name || previousRow.stocklist_name || previousRow.product || previousRow.code,
-          section: `${previousRow.location} / ${previousRow.sub_location}`,
-          previousQuantity,
-          currentQuantity,
-          reason: currentQuantity === null ? 'now_blank' : 'now_zero',
-        })
+    if (previousRecord) {
+      const currentUnknownByName = new Map<string, StockCheckRow>()
+      for (const row of rows) {
+        if (row.code) continue
+        currentUnknownByName.set(normalizeCompareKey(row.official_name || row.stocklist_name || row.product), row)
+      }
+      for (const previousRow of previousRecord.unknown_items) {
+        const previousQuantity = parseNumericQuantity(previousRow.quantity)
+        if (previousQuantity === null || previousQuantity <= 0) continue
+        const compareKey = normalizeCompareKey(previousRow.user_input)
+        const currentQuantity = parseNumericQuantity(currentUnknownByName.get(compareKey)?.quantity)
+        if (currentQuantity === null || currentQuantity <= 0) {
+          warnings.push({
+            key: `unknown-${compareKey}`,
+            label: previousRow.user_input,
+            section: 'Unknown Items',
+            previousQuantity,
+            stockIn: 0,
+            currentQuantity,
+            reason: currentQuantity === null ? 'now_blank' : 'now_zero',
+          })
+        }
       }
     }
 
-    for (const previousRow of latestPreviousValidatedRecord.record_data.unknown_items) {
-      const previousQuantity = parseNumericQuantity(previousRow.quantity)
-      if (previousQuantity === null || previousQuantity <= 0) continue
+    return warnings
+  }
 
-      const compareKey = normalizeCompareKey(previousRow.user_input)
-      const currentRow = currentUnknownByName.get(compareKey)
-      const currentQuantity = parseNumericQuantity(currentRow?.quantity)
-
-      if (currentQuantity === null || currentQuantity <= 0) {
-        warnings.push({
-          key: `unknown-${compareKey}`,
-          label: previousRow.user_input,
-          section: 'Unknown Items',
-          previousQuantity,
-          currentQuantity,
-          reason: currentQuantity === null ? 'now_blank' : 'now_zero',
-        })
+  async function loadSaveCheckData(): Promise<SaveCheckData | null> {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return null
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => controller.abort(), SAVE_CHECK_TIMEOUT_MS)
+    try {
+      const response = await fetch(`/api/daily-report?date=${encodeURIComponent(stockDate)}`, { cache: 'no-store', signal: controller.signal })
+      if (!response.ok) return null
+      const payload = await response.json()
+      return {
+        prevClosingByCode: payload?.prevClosingByCode ?? {},
+        stockInByCode: payload?.stockInByCode ?? {},
       }
+    } catch {
+      return null
+    } finally {
+      window.clearTimeout(timer)
     }
-
-    if (warnings.length === 0) {
-      setRecheckWarnings([])
-      setHasPassedRecheck(true)
-      setShowRecheckWarningModal(false)
-      return 0
-    }
-
-    setRecheckWarnings(warnings)
-    setHasPassedRecheck(false)
-    setShowRecheckWarningModal(true)
-    return warnings.length
   }
 
   function applyValidatedState() {
@@ -1673,11 +1696,24 @@ export function EmbeddedStockCheckPanel({
     })()
   }
 
-  /** One Save: recheck -> (warnings sheet if needed) -> save -> background warehouse sync. */
-  function handleSave() {
-    if (isSaving) return
-    const warningCount = compareWithPreviousValidatedStockCheck()
-    if (warningCount > 0) return
+  /** One Save: check for uncounted items -> (warnings sheet if needed) -> save -> background warehouse sync. */
+  async function handleSave() {
+    if (isSaving || isCheckingCounts) return
+    setIsCheckingCounts(true)
+    let warnings: RecheckWarning[]
+    try {
+      warnings = buildSaveWarnings(await loadSaveCheckData())
+    } finally {
+      setIsCheckingCounts(false)
+    }
+
+    setRecheckWarnings(warnings)
+    if (warnings.length > 0) {
+      setHasPassedRecheck(false)
+      setShowRecheckWarningModal(true)
+      return
+    }
+    setHasPassedRecheck(true)
     void saveAndSync()
   }
 
@@ -2448,13 +2484,13 @@ export function EmbeddedStockCheckPanel({
             </button>
             <button
               type="button"
-              onClick={handleSave}
-              disabled={isExporting || isSaving || isParsing}
-              aria-busy={isSaving || undefined}
+              onClick={() => void handleSave()}
+              disabled={isExporting || isSaving || isParsing || isCheckingCounts}
+              aria-busy={isSaving || isCheckingCounts || undefined}
               className="inline-flex min-h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-control bg-forest px-4 text-[16px] font-semibold text-white transition-colors duration-150 hover:bg-forest-700 disabled:cursor-not-allowed disabled:bg-forest/40"
             >
-              {isSaving ? <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" /> : isSyncingWarehouse ? <Loader2 className="h-5 w-5 animate-spin opacity-70" aria-hidden="true" /> : <Save className="h-5 w-5" aria-hidden="true" />}
-              <span className="truncate">{isSaving ? 'Saving…' : 'Save'}</span>
+              {isSaving || isCheckingCounts ? <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" /> : isSyncingWarehouse ? <Loader2 className="h-5 w-5 animate-spin opacity-70" aria-hidden="true" /> : <Save className="h-5 w-5" aria-hidden="true" />}
+              <span className="truncate">{isSaving ? 'Saving…' : isCheckingCounts ? 'Checking…' : 'Save'}</span>
             </button>
           </div>
         </div>
@@ -2475,8 +2511,8 @@ export function EmbeddedStockCheckPanel({
       <Sheet
         open={showRecheckWarningModal}
         onClose={() => setShowRecheckWarningModal(false)}
-        title={`Check ${recheckWarnings.length} item${recheckWarnings.length === 1 ? '' : 's'} before saving`}
-        description="These were in stock last time but are now 0 or blank. Count them again if you can."
+        title={`Count ${recheckWarnings.length} item${recheckWarnings.length === 1 ? '' : 's'} before saving`}
+        description="These had stock at the last closing or arrived today, but are blank or 0. Count them, or save anyway if 0 is right."
         size="md"
         dismissible={!isSaving}
         footer={
@@ -2507,10 +2543,12 @@ export function EmbeddedStockCheckPanel({
               </div>
               <div className="shrink-0 text-right tabular">
                 <p className="text-[15px] text-ink">
-                  {warning.previousQuantity} <span className="text-muted">→</span>{' '}
+                  {warning.previousQuantity}
+                  {warning.stockIn > 0 ? <span className="text-muted"> + {warning.stockIn} in</span> : null}
+                  <span className="text-muted"> → </span>
                   <span className="font-semibold text-warning">{warning.currentQuantity === null ? 'blank' : warning.currentQuantity}</span>
                 </p>
-                <p className="text-[12px] text-muted">last → now</p>
+                <p className="text-[12px] text-muted">{warning.stockIn > 0 ? 'last + arrived → now' : 'last → now'}</p>
               </div>
             </li>
           ))}
