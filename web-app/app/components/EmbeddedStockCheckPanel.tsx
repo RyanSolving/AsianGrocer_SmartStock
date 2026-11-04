@@ -416,11 +416,13 @@ const QUIET_STATUSES = new Set<string>([
 export function EmbeddedStockCheckPanel({
   catalogItems,
   selectedHistoryRecord,
+  onClearHistorySelection,
   historyRecords,
   onToggleCatalogVisibility,
   onOpenHistory,
 }: {
   catalogItems: CatalogItem[] | null
+  onClearHistorySelection?: () => void
   selectedHistoryRecord?: SelectedStockCheckHistoryRecord | null
   historyRecords?: StockCheckHistoryRecord[]
   onToggleCatalogVisibility?: (code: string, nextVisible: boolean) => Promise<boolean>
@@ -1676,6 +1678,12 @@ export function EmbeddedStockCheckPanel({
                 action: { label: 'Undo', onClick: () => restoreStockCheckDraft(previousDraft) },
               })
             }
+          } else if (action === 'discard') {
+            onClearHistorySelection?.()
+            startManualEntry()
+            setLastAddedCheck(null)
+            setTouchedRowIndexes(new Set())
+            toast.success('Closing count draft removed')
           } else if (action === 'continue') {
             setPhase('editing')
             // draft restore effect will handle it

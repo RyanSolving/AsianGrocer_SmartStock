@@ -21,7 +21,7 @@ export const NAV_ITEMS: NavItem[] = [
 const MANAGEMENT_ITEMS: NavItem[] = [{ id: 'catalog', label: 'Catalog', short: 'Catalog', icon: Database }]
 
 /** Home is reached from the logo on phones and from the top of the rail on desktop. */
-const HOME_ITEM: NavItem = { id: 'home', label: 'Home', short: 'Home', icon: House }
+const HOME_ITEM: NavItem = { id: 'home', label: 'Welcome', short: 'Welcome', icon: House }
 
 export type SyncState = {
   isOnline: boolean
@@ -115,7 +115,7 @@ export function AppShell({ active, onNavigate, sync, account, isAuthLoading, onS
     <div className="min-h-dvh bg-ground md:flex">
       {/* Desktop rail */}
       <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col bg-forest px-3 py-5 md:flex">
-        <button type="button" onClick={() => onNavigate('home')} className="px-2 pb-6 text-left" aria-label="Asian Grocer home">
+        <button type="button" onClick={() => onNavigate('home')} className="px-2 pb-6 text-left" aria-label="Asian Grocer welcome screen">
           <BrandLogo className="w-full" />
         </button>
         <nav className="space-y-1" aria-label="Main">
@@ -150,12 +150,12 @@ export function AppShell({ active, onNavigate, sync, account, isAuthLoading, onS
             <button
               type="button"
               onClick={() => onNavigate('home')}
-              aria-label="Home"
+              aria-label="Welcome"
               aria-current={active === 'home' ? 'page' : undefined}
               className="flex min-h-11 min-w-0 flex-1 items-center gap-2.5 rounded-control text-left"
             >
               <BrandTile size="sm" />
-              <span className="truncate font-semibold">{active === 'home' ? 'Asian Grocer' : activeItem?.label ?? 'Asian Grocer'}</span>
+              <span className="truncate font-semibold">{activeItem?.label ?? 'Asian Grocer'}</span>
             </button>
             <SyncDot sync={sync} onDark />
             {onOpenHistory ? (
@@ -189,8 +189,8 @@ export function AppShell({ active, onNavigate, sync, account, isAuthLoading, onS
         aria-label="Main"
         className="safe-bottom fixed inset-x-0 bottom-0 z-50 border-t border-line bg-surface/95 backdrop-blur md:hidden"
       >
-        <div className="grid h-[var(--tabbar-h)] grid-cols-5">
-          {NAV_ITEMS.map((item) => {
+        <div className="grid h-[var(--tabbar-h)] grid-cols-6 text-[10px] min-[360px]:text-[11px] min-[400px]:text-xs">
+          {[HOME_ITEM, ...NAV_ITEMS].map((item) => {
             const Icon = item.icon
             const selected = item.id === active
             return (
@@ -199,7 +199,7 @@ export function AppShell({ active, onNavigate, sync, account, isAuthLoading, onS
                 type="button"
                 onClick={() => onNavigate(item.id)}
                 aria-current={selected ? 'page' : undefined}
-                className={`relative flex flex-col items-center justify-center gap-1 text-[12px] ${selected ? 'font-semibold text-forest-900' : 'text-muted'}`}
+                className={`relative flex flex-col items-center justify-center gap-1 ${selected ? 'font-semibold text-forest-900' : 'text-muted'}`}
               >
                 {selected ? <span className="absolute top-0 h-[3px] w-8 rounded-b-full bg-accent" aria-hidden="true" /> : null}
                 <Icon className="h-[22px] w-[22px]" strokeWidth={selected ? 2.25 : 1.75} aria-hidden="true" />
@@ -211,7 +211,7 @@ export function AppShell({ active, onNavigate, sync, account, isAuthLoading, onS
             type="button"
             onClick={() => setIsMoreOpen(true)}
             aria-current={active === 'catalog' ? 'page' : undefined}
-            className={`relative flex flex-col items-center justify-center gap-1 text-[12px] ${active === 'catalog' ? 'font-semibold text-forest-900' : 'text-muted'}`}
+            className={`relative flex flex-col items-center justify-center gap-1 ${active === 'catalog' ? 'font-semibold text-forest-900' : 'text-muted'}`}
           >
             {active === 'catalog' ? <span className="absolute top-0 h-[3px] w-8 rounded-b-full bg-accent" aria-hidden="true" /> : null}
             <Menu className="h-[22px] w-[22px]" strokeWidth={1.75} aria-hidden="true" />
@@ -223,7 +223,7 @@ export function AppShell({ active, onNavigate, sync, account, isAuthLoading, onS
       <Sheet open={isMoreOpen} onClose={() => setIsMoreOpen(false)} title="More" size="sm">
         <div className="space-y-4">
           <div className="space-y-1">
-            {MANAGEMENT_ITEMS.map((item) => {
+            {[HOME_ITEM, ...MANAGEMENT_ITEMS].map((item) => {
               const Icon = item.icon
               return (
                 <button

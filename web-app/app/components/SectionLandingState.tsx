@@ -1,7 +1,9 @@
 'use client'
-import { ChevronRight, FileClock, History, Plus } from 'lucide-react'
+import { ChevronRight, FileClock, History, Plus, Trash2 } from 'lucide-react'
 
-type LandingAction = 'new' | 'continue' | 'history'
+import { useConfirm } from './ConfirmDialog'
+
+type LandingAction = 'new' | 'continue' | 'history' | 'discard'
 
 type SectionLandingStateProps = {
   sectionLabel: string // "Receive Stock" or "Count Stock"
@@ -31,6 +33,17 @@ export function SectionLandingState({
   onAction,
   subtitle,
 }: SectionLandingStateProps) {
+  const [confirm, confirmElement] = useConfirm()
+
+  async function discardDraft() {
+    if (await confirm({
+      title: `Remove ${sectionLabel.toLowerCase()} draft?`,
+      message: 'This clears the unfinished sheet from this device. Saved history is kept.',
+      confirmLabel: 'Remove draft',
+      variant: 'danger',
+    })) onAction('discard')
+  }
+
   return (
     <div className="mx-auto w-full max-w-xl space-y-4 py-2 sm:py-6">
       <div>
@@ -57,6 +70,14 @@ export function SectionLandingState({
           <ChevronRight className="h-6 w-6 text-white/60 transition-transform duration-150 group-hover:translate-x-0.5" aria-hidden="true" />
         </button>
       ) : null}
+
+      {hasDraft && (
+        <button type="button" onClick={discardDraft} className="inline-flex min-h-11 items-center gap-2 rounded-control px-3 text-sm font-medium text-danger hover:bg-danger-soft">
+          <Trash2 className="h-4 w-4" aria-hidden="true" />
+          Remove draft
+        </button>
+      )}
+      {confirmElement}
 
       <button
         type="button"

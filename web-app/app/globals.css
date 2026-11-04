@@ -360,6 +360,18 @@ textarea {
 	margin-right: -16px;
 }
 
+@media (max-width: 767px) {
+	.stock-in-editor:has(#stock-in-item-search:focus, #stock-in-qty:focus)::after {
+		content: '';
+		display: block;
+		height: var(--stock-keypad-inset, 0px);
+	}
+	/* Free the area above the keyboard for the current item and its Add button. */
+	.stock-in-editor:has(#stock-in-item-search:focus, #stock-in-qty:focus) .mobile-sticky-actions {
+		position: static;
+	}
+}
+
 @media (min-width: 768px) {
 
 	.mobile-sticky-top,
