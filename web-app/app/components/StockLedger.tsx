@@ -59,6 +59,10 @@ type StockLedgerProps<T extends IndexableRow> = {
   getRowClass?: (index?: number) => string
   renderName: (item: T) => ReactNode
   renderQuantityCell: (item: T) => ReactNode
+  /** Adds a small remove button at the end of each row. */
+  onRemove?: (item: T) => void
+  /** Accessible name of an item, for the remove button's label. */
+  getItemLabel?: (item: T) => string
 }
 
 /**
@@ -75,7 +79,10 @@ export function StockLedger<T extends IndexableRow>({
   getRowClass,
   renderName,
   renderQuantityCell,
+  onRemove,
+  getItemLabel,
 }: StockLedgerProps<T>) {
+  const columnCount = onRemove ? 3 : 2
   if (areas.length === 0) return null
 
   return (
@@ -98,15 +105,25 @@ export function StockLedger<T extends IndexableRow>({
 
             {areaOpen ? (
               <table className="report-ledger">
-                <colgroup><col /><col className="stock-ledger-qty-col" /></colgroup>
-                <thead><tr><th scope="col">Item</th><th scope="col">{quantityLabel}</th></tr></thead>
+                <colgroup>
+                  <col />
+                  <col className="stock-ledger-qty-col" />
+                  {onRemove ? <col className="stock-ledger-remove-col" /> : null}
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th scope="col">Item</th>
+                    <th scope="col">{quantityLabel}</th>
+                    {onRemove ? <th scope="col"><span className="sr-only">Remove</span></th> : null}
+                  </tr>
+                </thead>
                 {area.groups.filter((group) => group.items.length > 0).map((group) => {
                   const groupOpen = !(group.title && isCollapsed?.(group.id))
                   return (
                     <tbody key={`${keyPrefix}-${group.id}`}>
                       {group.title ? (
                         <tr>
-                          <th scope="rowgroup" colSpan={2} className="report-category">
+                          <th scope="rowgroup" colSpan={columnCount} className="report-category">
                             {onToggleCollapse ? (
                               <button type="button" className="stock-ledger-band-btn" onClick={() => onToggleCollapse(group.id)} aria-expanded={groupOpen}>
                                 <span className="min-w-0 flex-1 truncate">{group.title}</span>
@@ -130,6 +147,21 @@ export function StockLedger<T extends IndexableRow>({
                         >
                           <th scope="row">{renderName(item)}</th>
                           <td>{renderQuantityCell(item)}</td>
+                          {onRemove ? (
+                            <td className="stock-ledger-remove-cell">
+                              <button
+                                type="button"
+                                className="stock-ledger-remove-btn"
+                                aria-label={`Remove ${getItemLabel?.(item) ?? 'item'} from today's list`}
+                                title="Remove from today's list"
+                                onClick={() => onRemove(item)}
+                              >
+                                <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4">
+                                  <path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+                                </svg>
+                              </button>
+                            </td>
+                          ) : null}
                         </tr>
                       )) : null}
                     </tbody>

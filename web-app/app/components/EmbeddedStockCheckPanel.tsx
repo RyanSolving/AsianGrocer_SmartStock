@@ -202,6 +202,8 @@ type StockCheckOfflineDraft = {
   rows: StockCheckRow[]
   isValidated: boolean
   hasPassedRecheck: boolean
+  /** Items taken off today's list (see listRowKey). Optional: older drafts have none. */
+  removedRowKeys?: string[]
 }
 
 function normalizeCompareKey(value: string) {
@@ -212,6 +214,11 @@ function parseNumericQuantity(value: number | null | undefined) {
   if (value === null || value === undefined) return null
   if (!Number.isFinite(value)) return null
   return value
+}
+
+/** Identifies a row on today's list across re-parses: the catalog code, or the row id for free-typed items. */
+function listRowKey(row: Pick<StockCheckRow, 'code' | 'id'>) {
+  return row.code ? `code:${row.code.trim().toUpperCase()}` : `id:${row.id}`
 }
 
 function makeCatalogRow(item: CatalogItem): StockCheckRow {
@@ -459,6 +466,8 @@ export function EmbeddedStockCheckPanel({
   const closingPhotoRef = useRef<HTMLDivElement | null>(null)
   const [manualCheckQuantity, setManualCheckQuantity] = useState('')
   const [touchedRowIndexes, setTouchedRowIndexes] = useState<Set<number>>(() => new Set())
+  /** Rows taken off today's list (by code, or row id for free-typed items). Adding the item again brings it back. */
+  const [removedRowKeys, setRemovedRowKeys] = useState<Set<string>>(() => new Set())
   const [lastAddedCheck, setLastAddedCheck] = useState<{ id: number; name: string; quantity: number; note?: string; snapshot: StockCheckRow[] } | null>(null)
   const checkItemInputRef = useRef<HTMLInputElement | null>(null)
   const checkQtyInputRef = useRef<HTMLInputElement | null>(null)
@@ -544,6 +553,7 @@ export function EmbeddedStockCheckPanel({
     setStockEntryMode(draft.stockEntryMode ?? 'manual')
     setStockDate(typeof draft.stockDate === 'string' && draft.stockDate.length > 0 ? draft.stockDate : today)
     setRows(draft.rows)
+    setRemovedRowKeys(new Set(Array.isArray(draft.removedRowKeys) ? draft.removedRowKeys : []))
     setIsValidated(Boolean(draft.isValidated))
     setHasPassedRecheck(Boolean(draft.hasPassedRecheck))
     setStatus(STATUS.DRAFT_RECOVERED)
@@ -569,16 +579,18 @@ export function EmbeddedStockCheckPanel({
         rows,
         isValidated,
         hasPassedRecheck,
+        removedRowKeys: Array.from(removedRowKeys),
       })
       setHasStockCheckLocalDraft(true)
     })
-  }, [hasPassedRecheck, hasRestoredOfflineDraft, isValidated, rows, stockDate, stockEntryMode])
+  }, [hasPassedRecheck, hasRestoredOfflineDraft, isValidated, removedRowKeys, rows, stockDate, stockEntryMode])
 
   const startManualEntry = useCallback(() => {
     const freshToday = getLocalTodayDate()
     setStockEntryMode('manual')
     setStockPhotoFile(null)
     setRows([])
+    setRemovedRowKeys(new Set())
     setStockDate(freshToday)
     clearOfflineDraft('stock-check')
     setHasStockCheckLocalDraft(false)
@@ -596,6 +608,7 @@ export function EmbeddedStockCheckPanel({
     setStockEntryMode(draft.stockEntryMode ?? 'manual')
     setStockDate(typeof draft.stockDate === 'string' && draft.stockDate.length > 0 ? draft.stockDate : today)
     setRows(draft.rows)
+    setRemovedRowKeys(new Set(Array.isArray(draft.removedRowKeys) ? draft.removedRowKeys : []))
     setIsValidated(Boolean(draft.isValidated))
     setHasPassedRecheck(Boolean(draft.hasPassedRecheck))
     saveOfflineDraft('stock-check', draft)
@@ -782,6 +795,7 @@ export function EmbeddedStockCheckPanel({
     }
 
     setRows(nextRows)
+    setRemovedRowKeys(new Set())
     setStockDate(selectedHistoryRecord.stock_date || today)
     setIsValidated(recordData.validated || selectedHistoryRecord.validated)
     setHasPassedRecheck(false)
@@ -826,12 +840,15 @@ export function EmbeddedStockCheckPanel({
   const indexedRows = useMemo(() => rows.map((row, index) => ({ row, index })), [rows])
 
   const displayedIndexedRows = useMemo(() => {
+    const kept = removedRowKeys.size > 0
+      ? indexedRows.filter((entry) => !removedRowKeys.has(listRowKey(entry.row)))
+      : indexedRows
     if (stockEntryMode !== 'manual') {
-      return indexedRows
+      return kept
     }
 
-    return indexedRows.filter((entry) => entry.row.quantity !== null || touchedRowIndexes.has(entry.index))
-  }, [indexedRows, stockEntryMode, touchedRowIndexes])
+    return kept.filter((entry) => entry.row.quantity !== null || touchedRowIndexes.has(entry.index))
+  }, [indexedRows, removedRowKeys, stockEntryMode, touchedRowIndexes])
 
   const quantityByCode = useMemo(() => {
     const map = new Map<string, number>()
@@ -960,6 +977,14 @@ export function EmbeddedStockCheckPanel({
   }
 
   function addKnownFromSuggestion(item: CatalogItem, quantityOverride: number | null = null, redMarked = false) {
+    // An item taken off today's list comes back when it is added again.
+    const key = `code:${item.code.trim().toUpperCase()}`
+    setRemovedRowKeys((current) => {
+      if (!current.has(key)) return current
+      const next = new Set(current)
+      next.delete(key)
+      return next
+    })
     setRows((prev) => {
       const existingIndex = prev.findIndex((x) => x.code === item.code)
       const nextRow = {
@@ -1543,6 +1568,44 @@ export function EmbeddedStockCheckPanel({
     }
   }, [onToggleCatalogVisibility])
 
+  /**
+   * Takes an item off today's list: its count and reorder mark are cleared and the row is hidden.
+   * The catalog is unchanged, and a toast offers Undo.
+   */
+  function removeFromTodaysList(item: IndexedRow) {
+    const before = rows[item.index]
+    if (!before) return
+    const key = listRowKey(before)
+    const wasTouched = touchedRowIndexes.has(item.index)
+    const name = before.official_name || before.stocklist_name || before.product || 'Item'
+
+    updateRow(item.index, { quantity: null, red_marked: false })
+    setTouchedRowIndexes((current) => {
+      if (!current.has(item.index)) return current
+      const next = new Set(current)
+      next.delete(item.index)
+      return next
+    })
+    setRemovedRowKeys((current) => new Set(current).add(key))
+    setLastAddedCheck(null)
+
+    toast.info(`${name} removed from today's list`, {
+      duration: 6000,
+      action: {
+        label: 'Undo',
+        onClick: () => {
+          updateRow(item.index, { quantity: before.quantity, red_marked: before.red_marked })
+          if (wasTouched) setTouchedRowIndexes((current) => new Set(current).add(item.index))
+          setRemovedRowKeys((current) => {
+            const next = new Set(current)
+            next.delete(key)
+            return next
+          })
+        },
+      },
+    })
+  }
+
   /** Name cell of the list: the reorder mark, then the name, which wraps. */
   function renderLedgerName(item: IndexedRow) {
     const code = item.row.code?.trim().toUpperCase() ?? ''
@@ -1884,6 +1947,8 @@ export function EmbeddedStockCheckPanel({
             quantityLabel="Closing"
             getRowClass={getCardHighlightClass}
             renderName={renderLedgerName}
+            onRemove={removeFromTodaysList}
+            getItemLabel={(item) => item.row.official_name || item.row.stocklist_name || item.row.product}
             renderQuantityCell={renderQuantityCell}
           />
         </div>
