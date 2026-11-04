@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { ReportEntry } from '../../lib/report-aggregations'
-import { applyFlagOverrides, computeItemInsights, summarizeInsights, type StockFlag } from '../../lib/report-insights'
+import { applyFlagOverrides, computeItemInsights, formatQuantity, summarizeInsights, type StockFlag } from '../../lib/report-insights'
 import { friendlyError, toast } from '../../lib/toast-store'
 import type { IndexedPaperRow, PaperRow } from '../../lib/stock-paper-layout'
 import { describeStockInRecords } from '../../lib/report-records'
@@ -15,8 +15,8 @@ import { describeStockInRecords } from '../../lib/report-records'
 
 export type ReportNotice = {
   id: string
-  /** Blocking notices explain why figures are missing; notes explain individual cells. */
-  severity: 'blocking' | 'note'
+  /** Blocking notices explain why figures are missing; warnings ask staff to check counts; notes explain individual cells. */
+  severity: 'blocking' | 'warning' | 'note'
   text: string
   /** The symbol shown in the sheet for affected items, if any. */
   marker?: string
@@ -251,17 +251,22 @@ export function useDailyReportData(date: string, catalogItems: ReportCatalogItem
         text: `${summary.itemsWithoutBaseline} ${summary.itemsWithoutBaseline === 1 ? 'item has' : 'items have'} no earlier closing.`,
       })
     }
-    if (summary.itemsWithNegative > 0) {
+    const negatives = entries.filter((entry) => entry.insight.status === 'negative')
+    if (negatives.length > 0) {
+      const named = negatives
+        .slice(0, 3)
+        .map((entry) => `${entry.name} (${formatQuantity(entry.insight.sold).replace('-', '−')})`)
+        .join(', ')
+      const more = negatives.length > 3 ? ` and ${negatives.length - 3} more` : ''
       list.push({
         id: 'negative',
-        severity: 'note',
-        marker: '?',
-        count: summary.itemsWithNegative,
-        text: `${summary.itemsWithNegative} ${summary.itemsWithNegative === 1 ? 'item closes' : 'items close'} above earlier closing + stock-in.`,
+        severity: 'warning',
+        count: negatives.length,
+        text: `Sold below zero for ${named}${more}. The closing is above the earlier closing plus stock in, so a count or a stock in may be wrong.`,
       })
     }
     return list
-  }, [data, summary])
+  }, [data, summary, entries])
 
   const hasReport = Boolean(data?.closingFound) && indexedRows.length > 0
 

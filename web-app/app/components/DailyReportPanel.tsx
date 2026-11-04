@@ -74,7 +74,10 @@ function ReportArea({ title, groups, insights, onSelectItem }: {
           {group.title && <tr><th scope="rowgroup" colSpan={3} className="report-category">{group.title}</th></tr>}
           {group.items.map(({ row, index }) => {
             const insight = insights[row.code]
-            const sold = insight?.status === 'ok' ? formatQuantity(insight.sold) : insight?.status === 'negative' ? '?' : '-'
+            // A negative figure is shown as it is (a miscount), in amber, with a warning above.
+            const sold = insight?.status === 'ok' || insight?.status === 'negative'
+              ? formatQuantity(insight.sold).replace('-', '−')
+              : '-'
             return (
               <tr
                 key={index}
@@ -101,7 +104,12 @@ function ReportArea({ title, groups, insights, onSelectItem }: {
                   </div>
                 </th>
                 <td>{formatQuantity(row.closing)}</td>
-                <td className={insight?.status === 'negative' ? 'text-warning' : 'text-muted'}>{sold}</td>
+                <td
+                  className={insight?.status === 'negative' ? 'text-warning' : 'text-muted'}
+                  aria-label={insight?.status === 'negative' ? `Sold ${sold}, check the count` : undefined}
+                >
+                  {sold}
+                </td>
               </tr>
             )
           })}

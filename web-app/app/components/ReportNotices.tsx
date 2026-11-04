@@ -23,7 +23,8 @@ function Marker({ symbol }: { symbol?: string }) {
  */
 export function ReportNotices({ notices }: { notices: ReportNotice[] }) {
   if (notices.length === 0) return null
-  const blocking = notices.filter((notice) => notice.severity === 'blocking')
+  // Warnings (e.g. sold below zero) stay visible like blocking notices.
+  const blocking = notices.filter((notice) => notice.severity === 'blocking' || notice.severity === 'warning')
   const notes = notices.filter((notice) => notice.severity === 'note')
   const markers = notes.filter((notice) => notice.marker && notice.count)
 

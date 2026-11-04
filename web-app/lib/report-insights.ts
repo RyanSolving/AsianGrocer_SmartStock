@@ -164,6 +164,7 @@ export function describeAutoFlag(insight: Pick<ItemInsight, 'closing' | 'sold' |
   const sold = insight.status === 'ok' ? insight.sold : null
   if (closing === 0) return 'Closing is 0.'
   if (closing === null) return 'Not on the closing.'
+  if (insight.status === 'negative') return `Sold is ${formatQuantity(insight.sold)}: the closing is above the earlier closing plus stock in. Check both counts.`
   if (sold === null) return insight.status === 'no-baseline' ? 'No earlier closing, so units sold is unknown.' : 'Units sold could not be worked out.'
   if (sold === 0) return `${formatQuantity(closing)} left and nothing sold.`
   const cover = Math.round((closing / sold) * 10) / 10
@@ -198,6 +199,9 @@ export function summarizeInsights(insights: Record<string, ItemInsight>): Insigh
       summary.totalSold += insight.sold ?? 0
       if (insight.flag === 'ORDER') summary.itemsToOrder += 1
     }
+    // A negative figure is a miscount (or a missing stock in). It still counts, so a
+    // count that was too low one day and corrected the next nets out over the two days.
+    if (insight.status === 'negative') summary.totalSold += insight.sold ?? 0
   }
 
   return summary

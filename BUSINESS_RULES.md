@@ -63,11 +63,13 @@ units sold = previous closing + stock in − closing
 |---|---|---|
 | `ok` | The formula gives 0 or more | The sold figure |
 | `no-baseline` | The item has no previous closing | `-`. A missing previous closing is never treated as 0, which would invent a large sale. |
-| `negative` | Closing is higher than previous closing + stock in (a counting error or a missing stock-in) | `?` |
+| `negative` | Closing is higher than previous closing + stock in (a miscount or a missing stock-in) | The negative figure (e.g. `−2`) in amber |
 | `no-closing` | The item is not on the closing | Nothing |
 
-Only `ok` items count towards totals, rankings and charts. The report notes say how many items
-show `-` or `?`.
+`ok` and `negative` items count towards **total units sold**, so a miscount one day and its
+correction the next net out. Only `ok` items count towards rankings, top sellers and charts.
+Negative items get an amber warning at the top of the report naming them (first three, then
+"and N more") and asking staff to check the counts. The report notes say how many items show `-`.
 
 Code: `computeItemInsight` in `web-app/lib/report-insights.ts`.
 
@@ -142,7 +144,7 @@ Code: `rankProductsBySales` and `TOP_CONTRIBUTION_SHARE` in
 
 | Figure | Rule |
 |---|---|
-| **Units sold** | Sum of units sold over `ok` items |
+| **Units sold** | Sum of units sold over `ok` and `negative` items (see §2) |
 | **Stock in today** | Sum of stock in over all items |
 | **Top selling category** | The category with the most units sold, with its share of sales |
 | **Stock left** | Sum of closing over all items (negatives count as 0) |

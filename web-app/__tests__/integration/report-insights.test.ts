@@ -117,7 +117,8 @@ describe('computeItemInsights + summarizeInsights', () => {
 
     const summary = summarizeInsights(insights)
 
-    expect(summary.totalSold).toBe(21)
+    // 18 + 3, plus D4's miscount of -8 (1 + 0 - 9): negatives count so a miscount nets out.
+    expect(summary.totalSold).toBe(13)
     expect(summary.totalStockIn).toBe(25)
     expect(summary.itemsWithoutBaseline).toBe(1)
     expect(summary.itemsWithNegative).toBe(1)
