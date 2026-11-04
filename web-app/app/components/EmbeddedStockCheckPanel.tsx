@@ -19,6 +19,13 @@ import { EntryMethodToggle } from './EntryMethodToggle'
 import { CreateCatalogItemModal, type CreateCatalogItemPayload } from './CreateCatalogItemModal'
 import { StockPaperCardSection, StockPaperSectionTable, StockPaperThreeColumnTable } from './StockPaperTables'
 import { formatSheetDate, normalizeInsideSectionLabel } from '../../lib/stock-paper-utils'
+import {
+  OUTSIDE_SECTION_ID,
+  UNKNOWN_SECTION_ID,
+  buildInsideSectionId,
+  buildOutsideDisplayColumns,
+  buildPaperSections,
+} from '../../lib/stock-paper-layout'
 import { STATUS } from '../../lib/status-messages'
 import { ConfirmDialog } from './ConfirmDialog'
 import { SectionLandingState } from './SectionLandingState'
@@ -180,52 +187,6 @@ type StockCheckOfflineDraft = {
   hasPassedRecheck: boolean
 }
 
-function splitRows(items: IndexedRow[]): RowColumns {
-  const singles = items.filter((x) => x.row.row_position === 'single')
-  const paired = items.filter((x) => x.row.row_position !== 'single')
-  const left: IndexedRow[] = []
-  const right: IndexedRow[] = []
-
-  // Keep visual reading order alphabetical by alternating sorted rows across columns.
-  paired.forEach((row, index) => {
-    if (index % 2 === 0) {
-      left.push(row)
-    } else {
-      right.push(row)
-    }
-  })
-
-  return {
-    left,
-    right,
-    single: singles,
-  }
-}
-
-function getRowDisplayNameForSort(row: StockCheckRow) {
-  return (row.official_name || row.stocklist_name || row.product || '').trim()
-}
-
-function sortIndexedRowsByName(rows: IndexedRow[]) {
-  return [...rows].sort((a, b) => {
-    const nameCompare = getRowDisplayNameForSort(a.row).localeCompare(getRowDisplayNameForSort(b.row), undefined, {
-      sensitivity: 'base',
-      numeric: true,
-    })
-
-    if (nameCompare !== 0) return nameCompare
-
-    const codeCompare = (a.row.code || '').localeCompare(b.row.code || '', undefined, {
-      sensitivity: 'base',
-      numeric: true,
-    })
-
-    if (codeCompare !== 0) return codeCompare
-
-    return a.index - b.index
-  })
-}
-
 function normalizeCompareKey(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, ' ')
 }
@@ -238,17 +199,6 @@ function parseNumericQuantity(value: number | null | undefined) {
 
 const STOCK_CHECK_MOBILE_VIEW_KEY = 'smartstock:stock-check-mobile-view'
 const STOCK_CHECK_EXPANDED_SECTIONS_KEY = 'smartstock:stock-check-expanded-sections'
-const OUTSIDE_SECTION_ID = 'outside-coolroom'
-const UNKNOWN_SECTION_ID = 'unclassified-staff-inspection'
-
-function toSectionId(value: string) {
-  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
-}
-
-function buildInsideSectionId(title: string) {
-  return `inside-${toSectionId(title)}`
-}
-
 function makeCatalogRow(item: CatalogItem): StockCheckRow {
   return {
     id: `catalog-${item.code}`,
@@ -1082,60 +1032,12 @@ export function EmbeddedStockCheckPanel({
     }
   }, [findTerm])
 
-  const paperSections = useMemo(() => {
-    const insideRows = displayedIndexedRows.filter(
-      (x) => x.row.location === 'Inside Coolroom' && x.row.source !== 'unknown'
-    )
+  const paperSections = useMemo(() => buildPaperSections(displayedIndexedRows), [displayedIndexedRows])
 
-    const insideRowsByCategory = new Map<string, IndexedRow[]>()
-
-    insideRows.forEach((entry) => {
-      const sectionLabel = normalizeInsideSectionLabel(entry.row.category, entry.row.sub_location)
-      const existing = insideRowsByCategory.get(sectionLabel)
-      if (existing) {
-        existing.push(entry)
-        return
-      }
-      insideRowsByCategory.set(sectionLabel, [entry])
-    })
-
-    const insideSections = Array.from(insideRowsByCategory.entries())
-      .sort(([leftLabel], [rightLabel]) => leftLabel.localeCompare(rightLabel, undefined, {
-        sensitivity: 'base',
-        numeric: true,
-      }))
-      .map(([label, sectionRows]) => ({
-        id: buildInsideSectionId(label),
-        title: label.toUpperCase(),
-        rows: splitRows(sortIndexedRowsByName(sectionRows)),
-      }))
-
-    const midpoint = Math.ceil(insideSections.length / 2)
-
-    const outsideRows = sortIndexedRowsByName(displayedIndexedRows.filter((x) => x.row.location === 'Outside Coolroom'))
-    const unknownRows = sortIndexedRowsByName(displayedIndexedRows.filter((x) => x.row.source === 'unknown'))
-
-    return {
-      leftColumn: insideSections.slice(0, midpoint),
-      rightColumn: insideSections.slice(midpoint),
-      outsideRows: splitRows(outsideRows),
-      unknownRows: splitRows(unknownRows),
-    }
-  }, [displayedIndexedRows])
-
-  const outsideDisplayColumns = useMemo(() => {
-    const combinedOutside = [
-      ...paperSections.outsideRows.left,
-      ...paperSections.outsideRows.right,
-      ...paperSections.outsideRows.single,
-    ]
-
-    return {
-      left: combinedOutside.slice(0, 6),
-      middle: combinedOutside.slice(6, 12),
-      right: combinedOutside.slice(12),
-    }
-  }, [paperSections.outsideRows.left, paperSections.outsideRows.right, paperSections.outsideRows.single])
+  const outsideDisplayColumns = useMemo(
+    () => buildOutsideDisplayColumns(paperSections.outsideRows),
+    [paperSections.outsideRows],
+  )
 
   const stockCardSections = useMemo(() => {
     const sections = [

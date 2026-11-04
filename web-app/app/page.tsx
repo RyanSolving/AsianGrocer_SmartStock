@@ -10,6 +10,7 @@ import {
   FileImage,
   History,
   Loader2,
+  ClipboardList,
   Save,
   Search,
   Settings,
@@ -17,6 +18,7 @@ import {
   Plus
 } from 'lucide-react'
 
+import { DailyReportPanel } from './components/DailyReportPanel'
 import { DashboardPanel } from './components/DashboardPanel'
 import { CatalogManagementView } from './catalog/CatalogManagementView'
 import { CreateCatalogItemModal, type CreateCatalogItemPayload } from './components/CreateCatalogItemModal'
@@ -233,7 +235,7 @@ type IndexedItem = {
   source: 'parsed' | 'missing' | 'unknown'
 }
 
-type HubSection = 'data-entry' | 'stock-check' | 'dashboard' | 'catalog'
+type HubSection = 'data-entry' | 'stock-check' | 'daily-report' | 'dashboard' | 'catalog'
 type DataEntryMode = 'manual' | 'photo'
 type InlineCreateItemForm = {
   official_name: string
@@ -2849,6 +2851,17 @@ export default function Home() {
             </button>
             <button
               type="button"
+              onClick={() => setActiveSection('daily-report')}
+              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm ${activeSection === 'daily-report'
+                  ? 'bg-brand-50 font-semibold text-brand-700'
+                  : 'text-slate-600 hover:bg-slate-100'
+                }`}
+            >
+              <ClipboardList className="h-4 w-4" />
+              Daily Report
+            </button>
+            <button
+              type="button"
               onClick={() => setActiveSection('dashboard')}
               className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm ${activeSection === 'dashboard'
                   ? 'bg-brand-50 font-semibold text-brand-700'
@@ -3042,8 +3055,10 @@ export default function Home() {
               historyRecords={stockCheckHistory}
               onToggleCatalogVisibility={toggleCatalogItemVisibility}
             />
+          ) : activeSection === 'daily-report' ? (
+            <DailyReportPanel catalogItems={visibleCatalog} />
           ) : activeSection === 'dashboard' ? (
-            <DashboardPanel />
+            <DashboardPanel catalogItems={visibleCatalog} />
           ) : stockInPhase === 'landing' ? (
             <SectionLandingState
               sectionLabel="Receive Stock"
