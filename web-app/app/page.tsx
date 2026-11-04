@@ -18,6 +18,7 @@ import {
   Plus,
   Check,
   Undo2,
+  Tag,
   ChevronLeft,
 } from 'lucide-react'
 import { ToastViewport } from './components/ui/Toast'
@@ -89,6 +90,8 @@ type StockItem = {
   confidence: 'high' | 'medium' | 'low'
   catalog_match_status?: 'exact' | 'fuzzy' | 'unknown'
   notes: string | null
+  /** Arrived on a special discount (BUSINESS_RULES.md §1b). */
+  special?: boolean
 }
 
 type UnknownItem = {
@@ -109,6 +112,7 @@ type UnknownItem = {
   row_position: 'left' | 'right' | 'single'
   confidence: 'high' | 'medium' | 'low'
   catalog_match_status: 'unknown'
+  special?: boolean
 }
 
 type CatalogItem = {
@@ -130,6 +134,7 @@ type CatalogItem = {
   quantity_raw?: string | null
   quantity?: number | null
   quantity_conflict_flag?: boolean
+  special?: boolean
 }
 
 type StockMode = 'stock-in' | 'stock-closing'
@@ -538,6 +543,7 @@ export default function Home() {
   const [dataEntryAddHighlightIndex, setDataEntryAddHighlightIndex] = useState<number>(-1)
   const [dataEntrySelectedCatalogCode, setDataEntrySelectedCatalogCode] = useState<string | null>(null)
   const [manualEntryQuantity, setManualEntryQuantity] = useState('')
+  const [manualEntrySpecial, setManualEntrySpecial] = useState(false)
   const [dataEntryTouchedIndexes, setDataEntryTouchedIndexes] = useState<Set<number>>(() => new Set())
   const [lastAddedEntry, setLastAddedEntry] = useState<LastAddedEntry | null>(null)
   const hadParsedDataRef = useRef(false)
@@ -1091,7 +1097,8 @@ export default function Home() {
         quantity_conflict_flag: Boolean(c_item.quantity_conflict_flag),
         row_position: c_item.row_position || 'single',
         confidence: 'high' as const,
-        notes: null
+        notes: null,
+        special: c_item.special === true,
       },
       index: -1000 - pos,  // Unique index for each missing item
       source: 'missing' as const
@@ -1165,6 +1172,7 @@ export default function Home() {
         name: catalogItem?.official_name ?? row.item.official_name ?? row.item.product_raw ?? '',
         quantity: String(row.item.quantity ?? ''),
         tone: row.source === 'missing' ? 'warning' : row.source === 'unknown' ? 'alert' : undefined,
+        special: row.item.special === true,
       }
     }
     const counted = (rows: IndexedItem[]) => sortIndexedItemsByName(rows.filter((row) => row.item.quantity !== null)).map(toRow)
@@ -1348,7 +1356,7 @@ export default function Home() {
     setIsValidatedByStaff(false)
   }, [])
 
-  const addKnownDataEntryItem = useCallback((catalogItem: CatalogItem, quantityOverride: number | null = null): boolean => {
+  const addKnownDataEntryItem = useCallback((catalogItem: CatalogItem, quantityOverride: number | null = null, special = false): boolean => {
     if (!parsedData) {
       setApiError('Please start manual entry or parse a photo before adding items.')
       return false
@@ -1389,6 +1397,7 @@ export default function Home() {
             row_position: catalogItem.row_position ?? 'single',
             confidence: 'high',
             catalog_match_status: 'exact',
+            special,
             notes: null,
           },
         ],
@@ -1483,6 +1492,7 @@ export default function Home() {
         if (patch.quantity !== undefined) item.quantity = patch.quantity
         if (patch.quantity_raw !== undefined) item.quantity_raw = patch.quantity_raw
         if (patch.quantity_conflict_flag !== undefined) item.quantity_conflict_flag = patch.quantity_conflict_flag
+        if (patch.special !== undefined) item.special = patch.special
         return next
       })
       return
@@ -1501,6 +1511,7 @@ export default function Home() {
         if (patch.quantity !== undefined) item.quantity = patch.quantity
         if (patch.quantity_raw !== undefined) item.quantity_raw = patch.quantity_raw
         if (patch.quantity_conflict_flag !== undefined) item.quantity_conflict_flag = patch.quantity_conflict_flag
+        if (patch.special !== undefined) item.special = patch.special
         return next
       })
       return
@@ -1591,11 +1602,13 @@ export default function Home() {
           row_position: 'single',
           confidence: 'high',
           catalog_match_status: 'unknown',
+          special: manualEntrySpecial,
         },
       ])
       setDataEntryNewItemName('')
       setDataEntrySelectedCatalogCode(null)
       setManualEntryQuantity('')
+      setManualEntrySpecial(false)
       setApiError(null)
       noteAdded(itemName, quantity, snapshot, 'not in catalog')
       return true
@@ -1609,10 +1622,12 @@ export default function Home() {
         quantity,
         quantity_raw: String(quantity),
         quantity_conflict_flag: false,
+        ...(manualEntrySpecial ? { special: true } : {}),
       })
       setDataEntryNewItemName('')
       setDataEntrySelectedCatalogCode(null)
       setManualEntryQuantity('')
+      setManualEntrySpecial(false)
       setApiError(null)
       noteAdded(chosen.official_name, quantity, snapshot)
       return true
@@ -1626,17 +1641,22 @@ export default function Home() {
         quantity,
         quantity_raw: String(quantity),
         quantity_conflict_flag: false,
+        ...(manualEntrySpecial ? { special: true } : {}),
       })
       setDataEntryNewItemName('')
       setDataEntrySelectedCatalogCode(null)
       setManualEntryQuantity('')
+      setManualEntrySpecial(false)
       setApiError(null)
       noteAdded(chosen.official_name, quantity, snapshot)
       return true
     }
 
-    const added = addKnownDataEntryItem(chosen, quantity)
-    if (added) noteAdded(chosen.official_name, quantity, snapshot)
+    const added = addKnownDataEntryItem(chosen, quantity, manualEntrySpecial)
+    if (added) {
+      setManualEntrySpecial(false)
+      noteAdded(chosen.official_name, quantity, snapshot)
+    }
     return added
   }, [
     addKnownDataEntryItem,
@@ -1645,6 +1665,7 @@ export default function Home() {
     dataEntryAddSuggestions,
     dataEntryNewItemName,
     manualEntryQuantity,
+    manualEntrySpecial,
     missingCatalogItems,
     parsedData,
     selectedDataEntryCatalogItem,
@@ -1984,7 +2005,25 @@ export default function Home() {
     const latestCatalogItem = code ? visibleCatalog.find((c) => c.code.trim().toUpperCase() === code) : null
     const displayName = latestCatalogItem?.official_name ?? row.item.official_name ?? row.item.product_raw ?? ''
     const tone = row.source === 'missing' ? 'text-warning' : row.source === 'unknown' ? 'font-semibold text-red-600' : undefined
-    return <span className={tone}>{displayName}</span>
+    const special = row.item.special === true
+    return (
+      <div className="report-name">
+        <button
+          type="button"
+          aria-label={`Special discount: ${displayName}`}
+          aria-pressed={special}
+          title={special ? 'Special discount (tap to clear)' : 'Mark as special discount'}
+          onClick={() => updateItem(row.index, { special: !special })}
+          className={`relative inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors duration-150 before:absolute before:-inset-2.5 before:content-[''] ${special ? 'bg-[#e6f6ed] text-[#176b43]' : 'text-slate-400 hover:text-ink'}`}
+        >
+          <Tag className="h-4 w-4" strokeWidth={special ? 2.25 : 1.75} aria-hidden="true" />
+        </button>
+        <span className={tone}>
+          {displayName}
+          {special ? <> <span className="report-tag report-tag-special ml-1 align-[1px]">Special</span></> : null}
+        </span>
+      </div>
+    )
   }
 
   function renderDataEntryQuantityCell(row: IndexedItem) {
@@ -2891,6 +2930,20 @@ export default function Home() {
                               Add
                             </button>
                           </div>
+
+                          <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-control px-1 text-[15px] text-ink">
+                            <input
+                              type="checkbox"
+                              checked={manualEntrySpecial}
+                              onChange={(event) => setManualEntrySpecial(event.target.checked)}
+                              disabled={!parsedData}
+                              className="h-5 w-5 rounded border-slate-300 text-forest focus:ring-forest"
+                            />
+                            <span className="inline-flex items-center gap-2">
+                              <Tag className="h-4 w-4 text-[#176b43]" aria-hidden="true" />
+                              Special (discount)
+                            </span>
+                          </label>
 
                           {lastAddedEntry ? (
                             <div key={lastAddedEntry.id} className="flex animate-fade-in items-center gap-2 rounded-control bg-forest-50 py-1.5 pl-3 pr-1.5" role="status">

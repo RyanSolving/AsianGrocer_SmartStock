@@ -779,3 +779,9 @@ textarea {
   outline: 2px solid theme(colors.forest.DEFAULT);
   outline-offset: -2px;
 }
+
+/* Stock In: special discount tag (soft brand green, 5.9:1). */
+.report-tag-special {
+  background: #e6f6ed;
+  color: #176b43;
+}

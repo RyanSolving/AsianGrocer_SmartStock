@@ -11,6 +11,8 @@ export type PhotoRow = {
   tone?: 'warning' | 'alert'
   /** Marked as selling fast: a red dot and red name, as on the paper sheet. */
   marked?: boolean
+  /** Stock In: arrived on a special discount. */
+  special?: boolean
 }
 
 export type PhotoGroup = { title?: string; rows: PhotoRow[] }
@@ -48,6 +50,7 @@ function PhotoTable({ groups, quantityLabel }: { groups: PhotoGroup[]; quantityL
                 <div className="report-name">
                   {row.marked ? <span aria-label="Selling fast" role="img" className="h-2 w-2 shrink-0 rounded-full bg-danger" /> : null}
                   <span className={row.marked ? 'font-semibold text-red-600' : row.tone ? TONE_CLASS[row.tone] : undefined}>{row.name}</span>
+                  {row.special ? <span className="report-tag report-tag-special">Special</span> : null}
                 </div>
               </th>
               <td className="font-semibold">{row.quantity}</td>

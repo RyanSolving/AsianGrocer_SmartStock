@@ -16,6 +16,21 @@ item code.
 
 Code: `web-app/app/api/daily-report/route.ts`.
 
+### 1b. Special discount (Stock In)
+
+- Any stock-in item can be marked **Special**: it arrived on a special discount.
+- To mark it, tick **Special (discount)** before Add, or tap the tag icon before the item's name
+  in the list. Tap the icon again to clear it. Re-adding an item without the tick leaves an
+  existing mark alone.
+- A marked item shows a soft green **SPECIAL** tag on screen and in the Stock In photo, and
+  `yes` in the CSV's last column, **Special**.
+- Saved as `special: true` on the item in the stock-in record (`event_generate.final_output`)
+  and in the warehouse JSON `item_data`. Older records have no field, which means not special.
+- It is information only: it doesn't change units sold, flags or refill.
+
+Code: `special` in `itemSchema` (`web-app/lib/stock-schema.ts`); `renderDataEntryLedgerName`
+in `web-app/app/page.tsx`.
+
 **Sources row.** The Daily Report and Dashboard show which records were used: the closing, the
 previous closing and the stock in, each with its date, name and saved time (`created_at` for a
 closing, which is when it was first saved; `log_time` for stock in). When there are several

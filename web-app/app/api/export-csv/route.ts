@@ -42,6 +42,7 @@ function toCsv(
     'Note',
     'Source',
     'Validated',
+    'Special',
   ].join(',')
 
   const knownRows = data.items.map((item: StockItem) =>
@@ -64,6 +65,7 @@ function toCsv(
       item.notes ?? '',
       'known',
       validated,
+      item.special ? 'yes' : 'no',
     ]
       .map((value) => escapeCsv(String(value)))
       .join(',')
@@ -89,6 +91,7 @@ function toCsv(
       (item.notes as string) ?? 'Unmatched item',
       'unknown',
       validated,
+      item.special === true ? 'yes' : 'no',
     ]
       .map((value) => escapeCsv(String(value)))
       .join(',')
@@ -114,6 +117,7 @@ function toCsv(
       'Missing from stocklist',
       'missing_catalog',
       validated,
+      item.special === true ? 'yes' : 'no',
     ]
       .map((value) => escapeCsv(String(value)))
       .join(',')

@@ -68,6 +68,8 @@ export const catalogEntrySchema = z.object({
   // row_position parsed from guide
   row_position: z.enum(catalogRowPositionOptions).optional(),
   is_visible: z.boolean().default(true),
+  /** Stock In only, when a catalog item is added to the delivery by hand. */
+  special: z.boolean().optional(),
 })
 
 export const itemSchema = z.object({
@@ -96,6 +98,8 @@ export const itemSchema = z.object({
   confidence: z.enum(['high', 'medium', 'low']).default('medium'),
   catalog_match_status: z.enum(['exact', 'fuzzy', 'unknown']).optional(),
   notes: z.string().nullable().default(null),
+  /** Stock In: the item arrived on a special discount (BUSINESS_RULES.md §1b). */
+  special: z.boolean().optional(),
 })
 
 export const parsedStockSchema = z.object({
