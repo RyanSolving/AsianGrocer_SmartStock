@@ -3013,8 +3013,8 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                 )}
 
                 {/* Stock in is always typed: deliveries are counted item by item, never photographed. */}
-                <div className="grid gap-4">
-                    <div className="grid gap-3 md:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4">
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                       <div className="md:rounded-card md:border md:border-line md:p-4">
                         <div ref={stockEntryRef} className="keypad-entry space-y-2">
                           <div className="relative">
@@ -3296,7 +3296,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                 </div>
               </section>
 
-              <section className="rounded-card border border-line bg-surface p-4 sm:p-6">
+              <section className="rounded-card border border-line bg-surface p-3 sm:p-6">
                 <div className="mb-3 flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
                   <h2 className="text-[20px] font-semibold tracking-[-0.01em] text-ink">Counted items</h2>
                   <p className="text-[14px] text-muted tabular">
@@ -3357,7 +3357,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                     onClick={handleStockInDone}
                     disabled={!parsedData || isSavingSupabase || isLoadingBigQuery || isExporting || isExportingStockInPhoto}
                     aria-busy={isSavingSupabase || undefined}
-                    className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-control bg-forest px-5 text-[16px] font-semibold text-white transition-colors duration-150 hover:bg-forest-700 disabled:cursor-not-allowed disabled:bg-forest/40"
+                    className="inline-flex min-h-12 min-w-0 flex-1 items-center whitespace-nowrap justify-center gap-2 rounded-control bg-forest px-3 text-[16px] font-semibold text-white transition-colors duration-150 hover:bg-forest-700 disabled:cursor-not-allowed disabled:bg-forest/40"
                   >
                     {isSavingSupabase ? (
                       <>
@@ -3367,7 +3367,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                     ) : (
                       <>
                         <Save className="h-5 w-5" aria-hidden="true" />
-                        <span>Save · {filledItemCount} {filledItemCount === 1 ? 'item' : 'items'}</span>
+                        <span className="truncate">Save · {filledItemCount}<span className="hidden min-[360px]:inline"> {filledItemCount === 1 ? 'item' : 'items'}</span></span>
                       </>
                     )}
                   </button>

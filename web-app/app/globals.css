@@ -659,6 +659,31 @@ textarea {
   width: 5.5rem;
 }
 
+/* Narrow phones (Galaxy S at 360px, less with larger font or screen zoom): the list runs to
+   the card's edges and the count and remove columns slim down, so names keep one line. */
+@media (max-width: 419px) {
+  .stock-paper-wrap.is-ledger {
+    margin-left: -12px;
+    margin-right: -12px;
+  }
+
+  .stock-ledger col.stock-ledger-qty-col {
+    width: 4.5rem;
+  }
+
+  .stock-ledger col.stock-ledger-remove-col {
+    width: 2.25rem;
+  }
+
+  .stock-ledger .report-ledger th:first-child {
+    padding-left: 12px;
+  }
+}
+
+.stock-ledger .report-name > span {
+  overflow-wrap: break-word;
+}
+
 .stock-ledger .report-ledger th[scope="row"],
 .stock-ledger .report-ledger td {
   padding-top: 4px;
