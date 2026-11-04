@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server'
 
 import { getAuthContext } from '../../../lib/supabase/route-auth'
 
+// Cap payload size: history rows carry full item JSON, so unbounded reads grow forever.
+const HISTORY_LIMIT = 200
+
 export async function GET(request: Request) {
   const auth = await getAuthContext()
   if (auth instanceof NextResponse) {
@@ -9,11 +12,12 @@ export async function GET(request: Request) {
   }
 
   try {
-    // Fetch all transcription events for current user
-    const { data: events, error: eventsError } = await auth.supabase
-      .from('event_generate')
-      .select(
-        `
+    // Fetch recent transcription events and push events in parallel.
+    const [eventsResult, pushResult] = await Promise.all([
+      auth.supabase
+        .from('event_generate')
+        .select(
+          `
         uid_generate,
         input_file_name,
         record_name,
@@ -21,9 +25,18 @@ export async function GET(request: Request) {
         final_output,
         stock_mode
       `
-      )
-      .eq('user_id', auth.user.id)
-      .order('log_time', { ascending: false })
+        )
+        .eq('user_id', auth.user.id)
+        .order('log_time', { ascending: false })
+        .limit(HISTORY_LIMIT),
+      auth.supabase
+        .from('event_push')
+        .select('uid_generate')
+        .eq('user_id', auth.user.id),
+    ])
+
+    const { data: events, error: eventsError } = eventsResult
+    const { data: pushEvents, error: pushError } = pushResult
 
     if (eventsError) {
       return NextResponse.json(
@@ -34,12 +47,6 @@ export async function GET(request: Request) {
         { status: 400 }
       )
     }
-
-    // Fetch push events to determine which transcriptions were pushed
-    const { data: pushEvents, error: pushError } = await auth.supabase
-      .from('event_push')
-      .select('uid_generate')
-      .eq('user_id', auth.user.id)
 
     if (pushError) {
       return NextResponse.json(

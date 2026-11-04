@@ -46,6 +46,7 @@ import {
 import { formatSheetDate, normalizeInsideSectionLabel } from '../lib/stock-paper-utils'
 import { STATUS } from '../lib/status-messages'
 import { getLocalTodayDate } from '../lib/date-utils'
+import { useHistoryRealtime } from '../lib/realtime/history-realtime'
 
 function shouldSilenceOfflineNetworkError(error: unknown) {
   if (typeof window === 'undefined' || window.navigator.onLine) {
@@ -737,9 +738,12 @@ export default function Home() {
     }
   }
 
-  const loadTranscriptionHistory = useCallback(async () => {
-    setIsHistoryLoading(true)
-    setApiError(null)
+  const loadTranscriptionHistory = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = options?.silent === true
+    if (!silent) {
+      setIsHistoryLoading(true)
+      setApiError(null)
+    }
 
     try {
       const response = await fetch('/api/transcription-history', { cache: 'no-store' })
@@ -758,15 +762,20 @@ export default function Home() {
         return
       }
 
-      setApiError(error instanceof Error ? error.message : 'Failed to load history.')
+      if (!silent) {
+        setApiError(error instanceof Error ? error.message : 'Failed to load history.')
+      }
     } finally {
-      setIsHistoryLoading(false)
+      if (!silent) setIsHistoryLoading(false)
     }
   }, [])
 
-  const loadStockCheckHistory = useCallback(async () => {
-    setIsStockCheckHistoryLoading(true)
-    setApiError(null)
+  const loadStockCheckHistory = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = options?.silent === true
+    if (!silent) {
+      setIsStockCheckHistoryLoading(true)
+      setApiError(null)
+    }
 
     try {
       const response = await fetch('/api/stock-check/history')
@@ -782,9 +791,11 @@ export default function Home() {
         return
       }
 
-      setApiError(error instanceof Error ? error.message : 'Failed to load stock check history.')
+      if (!silent) {
+        setApiError(error instanceof Error ? error.message : 'Failed to load stock check history.')
+      }
     } finally {
-      setIsStockCheckHistoryLoading(false)
+      if (!silent) setIsStockCheckHistoryLoading(false)
     }
   }, [])
 
@@ -921,10 +932,13 @@ export default function Home() {
         const data = await res.json()
         setSession(data)
 
+        // History lists are not needed to render the page, so load them in the
+        // background in parallel instead of blocking startup behind each request.
+        void loadTranscriptionHistory()
+        void loadStockCheckHistory()
+
         try {
           await loadCatalogFromApi()
-          await loadTranscriptionHistory()
-          await loadStockCheckHistory()
         } catch (catalogError) {
           if (shouldSilenceOfflineNetworkError(catalogError)) {
             return
@@ -943,6 +957,12 @@ export default function Home() {
       void loadStockCheckHistory()
     }
   }, [activeSection, loadStockCheckHistory])
+
+  // Keep Stock In / Stock Close history live without a manual refresh.
+  useHistoryRealtime(session?.user?.id, {
+    onStockInChange: () => void loadTranscriptionHistory({ silent: true }),
+    onStockCheckChange: () => void loadStockCheckHistory({ silent: true }),
+  })
 
   useEffect(() => {
     if (typeof window === 'undefined') return

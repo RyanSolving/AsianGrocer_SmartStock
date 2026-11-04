@@ -290,6 +290,7 @@ export async function GET() {
       .select('uid_stock_check, created_at, date, record_name, mode, item_data')
       .eq('user_id', auth.user.id)
       .order('created_at', { ascending: false })
+      .limit(200)
 
     if (error) {
       const bigQueryHistory = await fetchBigQueryHistory()

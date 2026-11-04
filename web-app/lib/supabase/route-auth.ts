@@ -23,18 +23,26 @@ export async function getAuthContext(): Promise<AuthContext | NextResponse> {
     )
   }
 
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser()
+  // getClaims verifies the JWT signature locally against the project's cached JWKS
+  // (no Auth-server round trip) when the project uses asymmetric signing keys. For
+  // projects still on a symmetric secret it falls back to a getUser() network check,
+  // so this is never less strict than before.
+  const { data: claimsData, error } = await supabase.auth.getClaims()
+  const claims = claimsData?.claims
+  const userId = typeof claims?.sub === 'string' ? claims.sub : ''
 
-  if (error || !user) {
+  if (error || !userId) {
     return NextResponse.json(
       {
         error: 'Unauthorized. Please sign in.',
       },
       { status: 401 }
     )
+  }
+
+  const user = {
+    id: userId,
+    email: typeof claims?.email === 'string' ? claims.email : null,
   }
 
   const roleResult = await supabase
@@ -51,7 +59,7 @@ export async function getAuthContext(): Promise<AuthContext | NextResponse> {
   return {
     user: {
       id: user.id,
-      email: user.email ?? null,
+      email: user.email,
     },
     roles,
     supabase,
