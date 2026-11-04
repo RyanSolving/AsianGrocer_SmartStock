@@ -168,26 +168,23 @@ export function DailyReportPanel({ catalogItems }: DailyReportPanelProps) {
   const canExport = hasReport && !isLoading && !isExporting
 
   return (
-    <section className="space-y-4">
-      <ScreenHeader
-        title="Daily report"
-        subtitle="Closing sheet with units sold and stock flags. Export a photo grouped by coolroom area."
-        actions={
-          <IconButton label="Refresh" onClick={() => void reload()} disabled={isLoading} className="border border-line bg-surface">
-            {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <RefreshCw className="h-5 w-5" />}
-          </IconButton>
-        }
-      />
+    <section className="space-y-3">
+      <div className="hidden md:block">
+        <ScreenHeader title="Daily report" />
+      </div>
 
-      <div className="flex items-center gap-3">
-        <label htmlFor="daily-report-date" className="text-[14px] font-medium text-ink">Date</label>
+      <div className="flex items-center gap-2">
         <input
           id="daily-report-date"
           type="date"
+          aria-label="Report date"
           value={reportDate}
           onChange={(event) => event.target.value && setReportDate(event.target.value)}
-          className={`${inputClass} w-auto tabular`}
+          className={`${inputClass} w-auto min-w-0 flex-1 tabular sm:flex-none`}
         />
+        <IconButton label="Refresh" onClick={() => void reload()} disabled={isLoading} className="border border-line bg-surface">
+          {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <RefreshCw className="h-5 w-5" />}
+        </IconButton>
       </div>
 
       {shownError ? (

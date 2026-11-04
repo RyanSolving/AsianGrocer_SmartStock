@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, type FocusEvent, type PointerEvent, type ReactNode, type Ref } from 'react'
+import { useState, type FocusEvent, type PointerEvent, type ReactNode, type Ref } from 'react'
 import { AlertCircle } from 'lucide-react'
 
 import {
@@ -14,7 +14,6 @@ import {
 } from '../../lib/report-aggregations'
 import { formatQuantity, stockFlags, summarizeInsights } from '../../lib/report-insights'
 import { formatSheetDate } from '../../lib/stock-paper-utils'
-import { squarify } from '../../lib/treemap'
 import { StockFlagBadge } from './StockFlagBadge'
 import { BrandTile } from './BrandMark'
 
@@ -22,10 +21,13 @@ import { BrandTile } from './BrandMark'
  * Daily summary (Dashboard tab + exported photo for the owner).
  *
  * Screen question: did today's stock sell, and what do we buy tomorrow?
- * Style: achromatic ledger (taste skill, seed 1181075752) with the brand kept:
- * - Sales use green, inventory uses grey, and refill recommendations use brick.
+ * Colour carries the reading order: units sold > contribution > stock left.
+ * - Units sold: the forest lead tile and the strongest green bars.
+ * - Contribution (what makes half of sales): the brand green, as washes, tiles and the share meter.
+ * - Stock left: violet, on thinner bars with muted labels, so it reads last.
+ * - Refill recommendations keep brick, the status colour for action.
  * - Face: a sage ground from the produce world (#f2f5f2) under white, flat, bordered panels.
- * - Signature element: the "half of today's sales" emphasis, shared by the ranking and the treemap.
+ * - Signature element: the "half of today's sales" emphasis, shared by the product and category rankings.
  * - Data colours checked with the dataviz validator; text tiers hold 4.5:1 on their surfaces.
  * On screen the layout is fluid; the photo is a fixed 1080px sheet.
  */
@@ -33,20 +35,22 @@ import { BrandTile } from './BrandMark'
 const C = {
   ground: '#f2f5f2',
   surface: '#ffffff',
-  border: '#e8e8e8',
-  rule: '#f0f1f0',
-  text: '#111111',
-  muted: '#5f6368',
-  sold: '#23a565', // sales series
-  inventory: '#6b7280', // neutral comparison series
-  emphasisWash: '#edf6f0',
-  tileQuiet: '#e5e7eb',
-  tileInk: '#0b1f14', // near-black on the green tile, 5.4:1
-  brand: '#2bb673', // the logo mark only
+  border: '#e4e8e5',
+  rule: '#eef1ef',
+  text: '#14201b',
+  muted: '#5b6660',
+  forest: '#37604C', // lead tile ground; white text on it is 6.9:1
+  sold: '#16804F', // sales series (validated with stock: CVD dE 20.5, both 3:1 on white)
+  contribution: '#2BB673', // brand green: what makes half of sales
+  contributionWash: '#e6f6ed',
+  contributionLine: '#9fd4b5',
+  soldQuiet: '#a8cdb8', // sales outside the top half: same hue, stepped back
+  contributionInk: '#176b43', // share figures as text, 5.9:1 on the wash
+  stock: '#8C82E0', // stock left: violet, thinner marks
 }
 
-const TREEMAP_SLICES = 12
-const PRODUCT_LIST_HEIGHT = 372 // on-screen scroll box; the treemap matches the list card's height
+const CATEGORY_ROWS = 10 // nine categories plus "Other"; ranked bars stay readable well past a pie's limit
+const PRODUCT_LIST_HEIGHT = 372 // on-screen scroll box
 const REFILL_ROW_LIMIT = 12
 const BAR_RADIUS = '0 4px 4px 0' // rounded data end, square on the baseline
 
@@ -68,25 +72,6 @@ type DailyReportSummaryProps = {
   entries: ReportEntry[]
 }
 
-/** Measures an element so the treemap can fill exactly the space its card gives it. */
-function useElementSize<T extends HTMLElement>() {
-  const ref = useRef<T | null>(null)
-  const [size, setSize] = useState({ width: 0, height: 0 })
-
-  useEffect(() => {
-    const element = ref.current
-    if (!element || typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(([entry]) => {
-      const { width, height } = entry.contentRect
-      setSize((previous) => (previous.width === width && previous.height === height ? previous : { width, height }))
-    })
-    observer.observe(element)
-    return () => observer.disconnect()
-  }, [])
-
-  return [ref, size] as const
-}
-
 function Panel({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
     <section className={`rounded-lg border bg-white ${className}`} style={{ borderColor: C.border }}>
@@ -104,18 +89,6 @@ function PanelTitle({ children, subtitle, aside }: { children: ReactNode; subtit
       </div>
       {aside}
     </div>
-  )
-}
-
-function LegendKey({ color, label, shape = 'bar' }: { color: string; label: string; shape?: 'bar' | 'tile' }) {
-  return (
-    <span className="flex items-center gap-1.5 whitespace-nowrap">
-      <span
-        className={shape === 'bar' ? 'h-2.5 w-3.5' : 'h-3 w-3'}
-        style={{ backgroundColor: color, borderRadius: shape === 'bar' ? BAR_RADIUS : 3 }}
-      />
-      {label}
-    </span>
   )
 }
 
@@ -153,61 +126,79 @@ function topCategoryLabels(slices: CategorySlice[]) {
   return labels
 }
 
-function Treemap({ slices, width, height, onHover, onLeave }: {
+/**
+ * Units sold by category as ranked horizontal bars: one baseline, largest first, so close
+ * values (9% vs 8%) can be told apart. One hue: the categories making half of sales are the
+ * brand green, the rest the same hue stepped back, split by a cut-off line. "Other" stays last.
+ */
+function CategoryBars({ slices, onHover, onLeave }: {
   slices: CategorySlice[]
-  width: number
-  height: number
   onHover?: ShowTooltip
   onLeave?: () => void
 }) {
-  const rects = squarify(slices, (slice) => slice.sold, width, height)
   const emphasised = topCategoryLabels(slices)
+  const maxSold = Math.max(1, ...slices.map((slice) => slice.sold))
+  const emphasisedShare = slices.filter((slice) => emphasised.has(slice.label)).reduce((sum, slice) => sum + slice.share, 0)
 
   return (
-    <div className="relative" style={{ width, height }} role="img" aria-label="Units sold by category">
-      {rects.map((rect) => {
-        const isEmphasised = emphasised.has(rect.item.label)
-        const share = `${Math.round(rect.item.share * 100)}%`
+    <ol className="mt-3" onPointerLeave={onLeave} aria-label="Units sold by category">
+      {slices.map((slice, index) => {
+        const isEmphasised = emphasised.has(slice.label)
+        const share = `${Math.round(slice.share * 100)}%`
+        const next = slices[index + 1]
+        const isCutoff = isEmphasised && next !== undefined && !emphasised.has(next.label)
         const content = {
-          title: rect.item.label,
+          title: slice.label,
           rows: [
-            { label: 'units sold', value: formatQuantity(rect.item.sold) },
+            { label: 'units sold', value: formatQuantity(slice.sold) },
             { label: 'of sales', value: share },
           ],
         }
-        // A label is printed inside a tile only when it fits with padding; the tooltip carries the rest.
-        const labelFits = rect.width - 16 >= Math.max(rect.item.label.length, 4) * 6.8 && rect.height >= 44
-        const shareFits = rect.width >= 36 && rect.height >= 26
         return (
-          <div
-            key={rect.item.label}
-            tabIndex={onHover ? 0 : undefined}
-            aria-label={`${rect.item.label}: ${formatQuantity(rect.item.sold)} units, ${share} of sales`}
-            onPointerMove={onHover ? (event) => onHover(event, content) : undefined}
-            onFocus={onHover ? (event) => onHover(event, content) : undefined}
-            onPointerLeave={onLeave}
-            onBlur={onLeave}
-            className="absolute outline-none transition-[filter] hover:brightness-[1.04] focus-visible:brightness-[1.04]"
-            style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height, padding: 1 }}
-          >
-            {/* Each tile is inset 1px, so neighbours are split by a 2px gap of the panel's white. */}
+          <li key={slice.label}>
             <div
-              className="flex h-full w-full flex-col justify-between rounded-[4px] p-2"
-              style={{ backgroundColor: isEmphasised ? C.sold : C.tileQuiet, color: isEmphasised ? C.tileInk : C.text }}
+              tabIndex={onHover ? 0 : undefined}
+              aria-label={`${slice.label}: ${formatQuantity(slice.sold)} units, ${share} of sales`}
+              onPointerMove={onHover ? (event) => onHover(event, content) : undefined}
+              onFocus={onHover ? (event) => onHover(event, content) : undefined}
+              onBlur={onLeave}
+              className="flex items-center gap-2 rounded-md px-1 py-[6px] text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
             >
-              {labelFits ? <span className="text-[12px] font-medium leading-tight">{rect.item.label}</span> : <span />}
-              {shareFits ? <span className="text-[12px] font-semibold tabular-nums">{share}</span> : null}
+              <span className={`w-24 shrink-0 truncate ${isEmphasised ? 'font-semibold' : ''}`} title={slice.label}>{slice.label}</span>
+              <div className="h-[10px] min-w-0 flex-1">
+                <div
+                  className="h-full"
+                  style={{
+                    width: `${Math.max(1.5, (slice.sold / maxSold) * 100)}%`,
+                    backgroundColor: isEmphasised ? C.contribution : C.soldQuiet,
+                    borderRadius: BAR_RADIUS,
+                  }}
+                />
+              </div>
+              <span className="w-7 shrink-0 text-right tabular-nums" style={{ color: C.muted }}>{formatQuantity(slice.sold)}</span>
+              <span
+                className="w-9 shrink-0 text-right tabular-nums"
+                style={{ color: isEmphasised ? C.contributionInk : C.text, fontWeight: isEmphasised ? 600 : 400 }}
+              >
+                {share}
+              </span>
             </div>
-          </div>
+            {isCutoff ? (
+              <div className="my-1 flex items-center gap-2 text-[11px]" style={{ color: C.contributionInk }}>
+                <span className="h-px flex-1" style={{ backgroundColor: C.contributionLine }} />
+                {Math.round(emphasisedShare * 100)}% of sales above this line
+                <span className="h-px w-4" style={{ backgroundColor: C.contributionLine }} />
+              </div>
+            ) : null}
+          </li>
         )
       })}
-    </div>
+    </ol>
   )
 }
 
 export function DailyReportSummary({ containerRef, photoMode = false, date, prevClosingDate, entries }: DailyReportSummaryProps) {
   const [tooltip, setTooltip] = useState<TooltipState>(null)
-  const [treemapBoxRef, treemapBox] = useElementSize<HTMLDivElement>()
 
   const insights = Object.fromEntries(entries.map((entry) => [entry.code, entry.insight]))
   const summary = summarizeInsights(insights)
@@ -219,18 +210,24 @@ export function DailyReportSummary({ containerRef, photoMode = false, date, prev
   const listedProducts = photoMode ? topContributors : products
   const hiddenProductCount = products.length - listedProducts.length
   const topCategory = soldByCategory(entries, 50)[0]
-  const categorySlices = soldByCategory(entries, TREEMAP_SLICES)
+  const categorySlices = soldByCategory(entries, CATEGORY_ROWS)
   const refill = refillList(entries)
   const soldOutCount = refill.filter((item) => item.soldOut).length
   const visibleRefill = refill.slice(0, REFILL_ROW_LIMIT)
   const hiddenRefillCount = refill.length - visibleRefill.length
-  const maxBar = Math.max(1, ...products.flatMap((product) => [product.sold, product.closing]))
+  const maxSold = Math.max(1, ...products.map((product) => product.sold))
   const maxRefill = Math.max(1, ...visibleRefill.map((item) => item.suggestedQty))
   const unreliable = summary.itemsWithoutBaseline + summary.itemsWithNegative
 
   // The screen's one finding, read first under the title.
   const salesFinding = topContributors.length > 0
-      ? `${topContributors.length} item${topContributors.length === 1 ? '' : 's'} made ${Math.round(topContributorShare * 100)}% of ${formatQuantity(summary.totalSold)} units sold`
+      ? (
+        <>
+          {topContributors.length} item{topContributors.length === 1 ? '' : 's'} made{' '}
+          <span className="font-semibold" style={{ color: C.contributionInk }}>{Math.round(topContributorShare * 100)}%</span> of{' '}
+          <span className="font-semibold">{formatQuantity(summary.totalSold)}</span> units sold
+        </>
+      )
       : 'No sales recorded for this date'
   const refillFinding = refill.length > 0
       ? `${refill.length} to refill${soldOutCount > 0 ? `, ${soldOutCount} sold out` : ''}`
@@ -248,16 +245,18 @@ export function DailyReportSummary({ containerRef, photoMode = false, date, prev
     }
   const hideTooltip = photoMode ? undefined : () => setTooltip(null)
 
-  const kpis = [
-    { label: 'Units sold', value: formatQuantity(summary.totalSold), note: `Stock in today ${formatQuantity(summary.totalStockIn)}`, lead: true },
-    { label: 'Products in hand', value: String(inventory.productsInHand), note: 'Items with stock left' },
-    { label: 'Current inventory', value: formatQuantity(inventory.currentInventory), note: 'Units left after closing' },
+  type Kpi = { label: string; value: string; note: string; tier: 'sold' | 'contribution' | 'stock'; share?: number }
+  const kpis: Kpi[] = [
+    { label: 'Units sold', value: formatQuantity(summary.totalSold), note: `Stock in today ${formatQuantity(summary.totalStockIn)}`, tier: 'sold' },
     {
       label: 'Top selling category',
       value: topCategory?.label ?? '—',
-      isText: true,
       note: topCategory ? `${formatQuantity(topCategory.sold)} units · ${Math.round(topCategory.share * 100)}% of sales` : 'No sales recorded',
+      tier: 'contribution',
+      share: topCategory?.share,
     },
+    { label: 'Stock left', value: formatQuantity(inventory.currentInventory), note: 'Units after closing', tier: 'stock' },
+    { label: 'Products in hand', value: String(inventory.productsInHand), note: 'Items with stock left', tier: 'stock' },
   ]
 
   return (
@@ -266,74 +265,82 @@ export function DailyReportSummary({ containerRef, photoMode = false, date, prev
       className={`${photoMode ? 'w-[1080px] p-8' : 'w-full p-4 sm:p-6'}`}
       style={{ backgroundColor: C.ground, color: C.text }}
     >
-      {/* Title row: product mark, the screen's name, the finding, the date */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <BrandTile size="md" />
-          <div className="min-w-0">
-            <p className="text-[13px] font-medium" style={{ color: C.muted }}>Asian Grocer</p>
-            <h2 className="text-[24px] font-semibold leading-tight">Daily summary</h2>
+      {/* The photo carries its own title and date; on screen the app bar and date picker already say both. */}
+      {photoMode ? (
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <BrandTile size="md" />
+            <div className="min-w-0">
+              <p className="text-[13px] font-medium" style={{ color: C.muted }}>Asian Grocer</p>
+              <h2 className="text-[24px] font-semibold leading-tight">Daily summary</h2>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="text-[16px] font-semibold tabular-nums">{formatSheetDate(date)}</p>
+            <p className="text-[13px]" style={{ color: C.muted }}>
+              {prevClosingDate ? `Sold vs closing of ${formatSheetDate(prevClosingDate)}` : 'No earlier closing found'}
+            </p>
           </div>
         </div>
-        <div className={photoMode ? 'text-right' : 'w-full sm:w-auto sm:text-right'}>
-          <p className="text-[16px] font-semibold tabular-nums">{formatSheetDate(date)}</p>
-          <p className="text-[13px]" style={{ color: C.muted }}>
-            {prevClosingDate ? `Sold vs closing of ${formatSheetDate(prevClosingDate)}` : 'No earlier closing found'}
+      ) : null}
+      {/* The finding and flag counts belong to the photo; on screen the tiles and charts carry them. */}
+      {photoMode ? (
+        <>
+          <p className="mt-2 text-[15px]">
+            {salesFinding} · <span className={`whitespace-nowrap ${refill.length ? 'font-semibold text-danger' : ''}`}>{refillFinding}</span>
           </p>
-        </div>
-      </div>
-      <p className="mt-2 text-[15px]">
-        {salesFinding} · <span className={refill.length ? 'font-semibold text-danger' : undefined}>{refillFinding}</span>
-      </p>
+          <div aria-label="Stock flags" className="mt-3 flex flex-wrap gap-2">
+            {stockFlags.map(flag => {
+              const count = entries.filter(entry => entry.insight.stockFlag === flag).length
+              return count > 0 ? <StockFlagBadge key={flag} flag={flag} count={count} /> : null
+            })}
+          </div>
+        </>
+      ) : null}
 
-      <div aria-label="Stock flags" className="mt-3 flex flex-wrap gap-2">
-        {stockFlags.map(flag => {
-          const count = entries.filter(entry => entry.insight.stockFlag === flag).length
-          return count > 0 ? <StockFlagBadge key={flag} flag={flag} count={count} /> : null
-        })}
-      </div>
-
-      {/* KPI strip: one panel split by 1px dividers; units sold leads */}
-      <Panel className="mt-4 overflow-hidden">
-        <div className={`grid ${photoMode ? 'grid-cols-4' : 'grid-cols-2 lg:grid-cols-4'}`}>
-          {kpis.map((kpi, index) => (
-            <div
-              key={kpi.label}
-              className="px-5 py-4"
-              style={{
-                borderLeft: index % (photoMode ? 4 : 2) === 0 ? undefined : `1px solid ${C.border}`,
-                borderTop: !photoMode && index >= 2 ? `1px solid ${C.border}` : undefined,
-              }}
-            >
-              <p className="text-[13px]" style={{ color: C.muted }}>{kpi.label}</p>
+      {/* KPI tiles: colour steps down from units sold to contribution to stock left */}
+      <div className={`${photoMode ? 'mt-4' : ''} grid gap-2 ${photoMode ? 'grid-cols-4' : 'grid-cols-2 lg:grid-cols-4'}`}>
+        {kpis.map((kpi) => {
+          const tone = kpi.tier === 'sold'
+            ? { backgroundColor: C.forest, color: '#ffffff', borderColor: C.forest }
+            : kpi.tier === 'contribution'
+              ? { backgroundColor: C.contributionWash, color: C.text, borderColor: C.contributionLine }
+              : { backgroundColor: C.surface, color: C.text, borderColor: C.border }
+          const subtle = kpi.tier === 'sold' ? 'rgba(255,255,255,0.85)' : C.muted
+          return (
+            <div key={kpi.label} className="flex min-w-0 flex-col rounded-lg border px-4 py-3.5" style={tone}>
+              <p className="flex items-center gap-1.5 text-[13px]" style={{ color: subtle }}>
+                {kpi.tier === 'stock' ? <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: C.stock }} aria-hidden="true" /> : null}
+                {kpi.label}
+              </p>
               <p
-                className={`mt-1 break-normal leading-tight tabular-nums ${kpi.lead
+                className={`mt-1 truncate leading-tight tabular-nums ${kpi.tier === 'sold'
                   ? 'text-[36px] font-semibold'
-                  : kpi.isText && !photoMode
-                    ? 'pt-[6px] text-[18px] font-medium sm:text-[24px]'
-                    : 'pt-[6px] text-[24px] font-medium'}`}
+                  : kpi.tier === 'contribution'
+                    ? `${photoMode ? 'text-[24px]' : 'text-[20px] sm:text-[24px]'} pt-[5px] font-semibold`
+                    : 'pt-[5px] text-[22px] font-medium'}`}
+                title={kpi.value}
               >
                 {kpi.value}
               </p>
-              <p className="mt-1 text-[12px]" style={{ color: C.muted }}>{kpi.note}</p>
+              {kpi.share !== undefined ? (
+                <div className="mt-2 h-[6px] rounded-full bg-white" aria-hidden="true">
+                  <div className="h-full rounded-full" style={{ width: `${Math.max(4, kpi.share * 100)}%`, backgroundColor: C.contribution }} />
+                </div>
+              ) : null}
+              <p className="mt-1.5 text-[12px]" style={{ color: subtle }}>{kpi.note}</p>
             </div>
-          ))}
-        </div>
-      </Panel>
+          )
+        })}
+      </div>
 
       {/* Charts: the ranking and the category share end on one line */}
       <div className={`mt-4 grid gap-4 ${photoMode ? 'grid-cols-[minmax(0,1fr)_440px]' : 'grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(320px,440px)]'}`}>
         <Panel className="min-w-0 px-5 py-4">
           <PanelTitle
             subtitle={topContributors.length > 0
-              ? `Highlighted: the ${topContributors.length} item${topContributors.length === 1 ? '' : 's'} making ${Math.round(TOP_CONTRIBUTION_SHARE * 100)}% of units sold`
-              : undefined}
-            aside={(
-              <div className="flex shrink-0 items-center gap-3 pt-1 text-[12px]" style={{ color: C.muted }}>
-                <LegendKey color={C.sold} label="Units sold" />
-                <LegendKey color={C.inventory} label="Inventory" />
-              </div>
-            )}
+              ? `Ranked by units sold. The top ${topContributors.length} make ${Math.round(topContributorShare * 100)}% of sales.`
+              : 'Ranked by units sold'}
           >
             Top selling products
           </PanelTitle>
@@ -342,7 +349,7 @@ export function DailyReportSummary({ containerRef, photoMode = false, date, prev
             <p className="mt-4 text-[14px]" style={{ color: C.muted }}>No sales recorded for this date.</p>
           ) : (
             <ol
-              className={`mt-3 space-y-[2px] pr-1 ${photoMode ? '' : 'overflow-y-auto'}`}
+              className={`mt-3 pr-1 ${photoMode ? '' : 'overflow-y-auto'}`}
               style={photoMode ? undefined : { maxHeight: PRODUCT_LIST_HEIGHT }}
               onPointerLeave={hideTooltip}
             >
@@ -351,38 +358,56 @@ export function DailyReportSummary({ containerRef, photoMode = false, date, prev
                   title: product.name,
                   rows: [
                     { label: 'units sold', value: formatQuantity(product.sold), color: C.sold },
-                    { label: 'inventory', value: formatQuantity(product.closing), color: C.inventory },
                     { label: 'of sales', value: `${Math.round(product.share * 100)}%` },
+                    { label: 'stock left', value: formatQuantity(product.closing) },
                   ],
                 }
+                const isCutoff = product.isTopContributor && !listedProducts[index + 1]?.isTopContributor && index < listedProducts.length - 1
                 return (
-                  <li
-                    key={product.code}
-                    tabIndex={photoMode ? undefined : 0}
-                    onPointerMove={showTooltip ? (event) => showTooltip(event, tooltipContent) : undefined}
-                    onFocus={showTooltip ? (event) => showTooltip(event, tooltipContent) : undefined}
-                    onBlur={hideTooltip}
-                    className="flex items-center gap-3 rounded-md px-2 py-[5px] outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
-                    style={{ backgroundColor: product.isTopContributor ? C.emphasisWash : undefined }}
-                  >
-                    <span className="w-5 shrink-0 text-right text-[12px] tabular-nums" style={{ color: C.muted }}>{index + 1}</span>
-                    <span className={`w-28 shrink-0 truncate text-[13px] sm:w-40 ${product.isTopContributor ? 'font-semibold' : ''}`} title={product.name}>
-                      {product.name}
-                    </span>
-                    {/* Paired bars on one shared axis (same unit), 2px apart. */}
-                    <div className="min-w-0 flex-1 space-y-[2px]">
-                      <div className="flex items-center gap-1.5">
-                        <div className="h-[10px]" style={{ width: `${Math.max(1.5, (product.sold / maxBar) * 78)}%`, backgroundColor: C.sold, borderRadius: BAR_RADIUS }} />
-                        <span className="text-[12px] font-semibold tabular-nums">{formatQuantity(product.sold)}</span>
-                        {product.isTopContributor ? (
-                          <span className="text-[12px] tabular-nums" style={{ color: C.muted }}>{Math.round(product.share * 100)}%</span>
-                        ) : null}
+                  <li key={product.code}>
+                    <div
+                      tabIndex={photoMode ? undefined : 0}
+                      onPointerMove={showTooltip ? (event) => showTooltip(event, tooltipContent) : undefined}
+                      onFocus={showTooltip ? (event) => showTooltip(event, tooltipContent) : undefined}
+                      onBlur={hideTooltip}
+                      className="rounded-md px-1 py-[7px] outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+                    >
+                      <div className="flex items-baseline gap-2 text-[13px]">
+                        <span className="w-5 shrink-0 text-right text-[12px] tabular-nums" style={{ color: C.muted }}>{index + 1}</span>
+                        <span className={`min-w-0 flex-1 truncate ${product.isTopContributor ? 'font-semibold' : ''}`} title={product.name}>{product.name}</span>
+                        <span className="text-[14px] font-semibold tabular-nums">{formatQuantity(product.sold)}</span>
+                        <span
+                          className="w-9 shrink-0 text-right text-[12px] tabular-nums"
+                          style={{ color: product.isTopContributor ? C.contributionInk : C.muted, fontWeight: product.isTopContributor ? 600 : 400 }}
+                        >
+                          {Math.round(product.share * 100)}%
+                        </span>
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        <div className="h-[10px]" style={{ width: `${Math.max(1.5, (product.closing / maxBar) * 78)}%`, backgroundColor: C.inventory, borderRadius: BAR_RADIUS }} />
-                        <span className="text-[12px] tabular-nums" style={{ color: C.muted }}>{formatQuantity(product.closing)}</span>
+                      {/* One series on its own axis: bar length is units sold against today's best seller. */}
+                      <div className="mt-1 flex items-center gap-2 pl-7">
+                        <div className="h-[8px] min-w-0 flex-1">
+                          <div
+                            className="h-full"
+                            style={{
+                              width: `${Math.max(1.5, (product.sold / maxSold) * 100)}%`,
+                              backgroundColor: product.isTopContributor ? C.sold : C.soldQuiet,
+                              borderRadius: BAR_RADIUS,
+                            }}
+                          />
+                        </div>
+                        <span className="flex w-[64px] shrink-0 items-center justify-end gap-1 text-[11px] tabular-nums" style={{ color: C.muted }}>
+                          <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: C.stock }} aria-hidden="true" />
+                          {formatQuantity(product.closing)} left
+                        </span>
                       </div>
                     </div>
+                    {isCutoff ? (
+                      <div className="my-1.5 flex items-center gap-2 pl-7 text-[11px]" style={{ color: C.contributionInk }}>
+                        <span className="h-px flex-1" style={{ backgroundColor: C.contributionLine }} />
+                        {Math.round(topContributorShare * 100)}% of sales above this line
+                        <span className="h-px w-4" style={{ backgroundColor: C.contributionLine }} />
+                      </div>
+                    ) : null}
                   </li>
                 )
               })}
@@ -397,28 +422,12 @@ export function DailyReportSummary({ containerRef, photoMode = false, date, prev
         </Panel>
 
         <Panel className="flex min-w-0 flex-col px-5 py-4">
-          <PanelTitle subtitle="Tile area is units sold">Sales by category</PanelTitle>
-          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px]" style={{ color: C.muted }}>
-            <LegendKey shape="tile" color={C.sold} label={`Making ${Math.round(TOP_CONTRIBUTION_SHARE * 100)}% of sales`} />
-            <LegendKey shape="tile" color={C.tileQuiet} label="Other categories" />
-          </div>
-          {/* The treemap fills whatever height the row gives it, so both cards end on one line. */}
-          <div ref={treemapBoxRef} className="relative mt-3 min-h-[220px] flex-1">
-            {categorySlices.length === 0 ? (
-              <p className="text-[14px]" style={{ color: C.muted }}>No sales recorded for this date.</p>
-            ) : treemapBox.width > 0 && treemapBox.height > 0 ? (
-              // Absolutely placed so the drawing never props its own box open: the box takes its size from the row.
-              <div className="absolute inset-0">
-                <Treemap
-                  slices={categorySlices}
-                  width={Math.floor(treemapBox.width)}
-                  height={Math.floor(treemapBox.height)}
-                  onHover={showTooltip}
-                  onLeave={hideTooltip}
-                />
-              </div>
-            ) : null}
-          </div>
+          <PanelTitle subtitle="Units sold and share of sales, largest first">Sales by category</PanelTitle>
+          {categorySlices.length === 0 ? (
+            <p className="mt-3 text-[14px]" style={{ color: C.muted }}>No sales recorded for this date.</p>
+          ) : (
+            <CategoryBars slices={categorySlices} onHover={showTooltip} onLeave={hideTooltip} />
+          )}
         </Panel>
       </div>
 
