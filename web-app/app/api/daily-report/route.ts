@@ -16,12 +16,32 @@ export async function GET(request: NextRequest) {
     return auth
   }
 
-  const date = request.nextUrl.searchParams.get('date') ?? ''
-  if (!isValidDate(date)) {
-    return NextResponse.json({ error: 'date must be in YYYY-MM-DD format.' }, { status: 400 })
+  const requested = request.nextUrl.searchParams.get('date') ?? ''
+  const today = request.nextUrl.searchParams.get('today') ?? ''
+  const wantsLatest = requested === 'latest'
+  if (wantsLatest ? !isValidDate(today) : !isValidDate(requested)) {
+    return NextResponse.json({ error: 'date must be YYYY-MM-DD, or "latest" with today=YYYY-MM-DD.' }, { status: 400 })
   }
 
   try {
+    // date=latest: the newest closing up to today that has an earlier closing to compare with
+    // (same rule as latestReportDate), so Home needs one request instead of two.
+    let date = requested
+    if (wantsLatest) {
+      const { data: recent, error: recentError } = await auth.supabase
+        .from('event_stock_check')
+        .select('date')
+        .eq('mode', 'closing_check')
+        .lte('date', today)
+        .order('date', { ascending: false })
+        .limit(2)
+      if (recentError) {
+        return NextResponse.json({ error: 'Failed to find the latest report.', details: recentError.message }, { status: 400 })
+      }
+      const dates = (recent ?? []).map((row) => String(row.date))
+      date = dates.length >= 2 ? dates[0] : (dates[0] ?? today)
+    }
+
     const [closingResult, prevClosingResult, stockInResult, overrideResult] = await Promise.all([
       auth.supabase
         .from('event_stock_check')

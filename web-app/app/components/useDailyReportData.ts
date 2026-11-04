@@ -104,6 +104,7 @@ function toReportRow(item: ReportCatalogItem, closing: number, redMarked: boolea
 const reportCache = new Map<string, DailyReportResponse>()
 
 /** `refreshKey`: bump it to refetch. The previous data stays on screen while reloading (no flash). */
+/** `date` is `YYYY-MM-DD`, or `latest:YYYY-MM-DD` for the newest date with a report up to that day. */
 export function useDailyReportData(date: string, catalogItems: ReportCatalogItem[], refreshKey = 0) {
   const [data, setData] = useState<DailyReportResponse | null>(() => reportCache.get(date) ?? null)
   const [isLoading, setIsLoading] = useState(false)
@@ -118,7 +119,11 @@ export function useDailyReportData(date: string, catalogItems: ReportCatalogItem
     setError(null)
 
     try {
-      const response = await fetch(`/api/daily-report?date=${encodeURIComponent(date)}`, { cache: 'no-store' })
+      // `latest:YYYY-MM-DD` asks the server for the newest date with a report up to that day.
+      const query = date.startsWith('latest:')
+        ? `date=latest&today=${encodeURIComponent(date.slice('latest:'.length))}`
+        : `date=${encodeURIComponent(date)}`
+      const response = await fetch(`/api/daily-report?${query}`, { cache: 'no-store' })
       const payload = await response.json()
 
       if (!response.ok) {
