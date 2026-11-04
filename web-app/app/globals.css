@@ -537,6 +537,10 @@ textarea {
   min-width: min-content;
 }
 
+.report-photo.is-list {
+  width: 540px;
+}
+
 .report-photo-columns {
   display: grid;
   grid-template-columns: repeat(2, minmax(min-content, 1fr));

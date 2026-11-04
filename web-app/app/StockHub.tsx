@@ -2076,6 +2076,62 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     )
   }
 
+  /** Takes an item off the Stock In list (its count is cleared), with Undo. */
+  function removeDataEntryRow(row: IndexedItem) {
+    const name = row.item.official_name || row.item.product_raw || 'Item'
+    const wasTouched = dataEntryTouchedIndexes.has(row.index)
+    const untouch = () => setDataEntryTouchedIndexes((current) => {
+      if (!current.has(row.index)) return current
+      const next = new Set(current)
+      next.delete(row.index)
+      return next
+    })
+    const restoreTouch = () => {
+      if (wasTouched) setDataEntryTouchedIndexes((current) => new Set(current).add(row.index))
+    }
+
+    if (row.source === 'unknown') {
+      // Typed names not in the catalog are dropped from the sheet entirely.
+      const pos = -2000 - row.index
+      const removed = unknownItems[pos]
+      setUnknownItems((current) => current.filter((_, i) => i !== pos))
+      setIsValidatedByStaff(false)
+      setHasSavedToSupabase(false)
+      untouch()
+      setLastAddedEntry(null)
+      toast.info(`${name} removed`, {
+        duration: 6000,
+        action: {
+          label: 'Undo',
+          onClick: () => {
+            setUnknownItems((current) => [...current.slice(0, pos), removed, ...current.slice(pos)])
+            restoreTouch()
+          },
+        },
+      })
+      return
+    }
+
+    const before = {
+      quantity: row.item.quantity,
+      quantity_raw: row.item.quantity_raw,
+      quantity_conflict_flag: row.item.quantity_conflict_flag,
+      special: row.item.special,
+    }
+    updateItem(row.index, { quantity: null, quantity_raw: null, quantity_conflict_flag: false, special: false })
+    untouch()
+    toast.info(`${name} removed`, {
+      duration: 6000,
+      action: {
+        label: 'Undo',
+        onClick: () => {
+          updateItem(row.index, before)
+          if (!wasTouched) untouch()
+        },
+      },
+    })
+  }
+
   function renderDataEntryQuantityCell(row: IndexedItem) {
     return (
       <input
@@ -3256,6 +3312,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                         insideRight={stockInPhoto.insideRight}
                         outside={stockInPhoto.outside}
                         unknown={stockInPhoto.unknown}
+                        layout="list"
                       />
                     </div>
                   ) : null}
@@ -3269,6 +3326,8 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                       getRowClass={(index) => getCardClasses(indexedItems.find((item) => item.index === index))}
                       renderName={renderDataEntryLedgerName}
                       renderQuantityCell={renderDataEntryQuantityCell}
+                      onRemove={removeDataEntryRow}
+                      getItemLabel={(row) => row.item.official_name || row.item.product_raw || 'item'}
                     />
                   </div>
                 </div>

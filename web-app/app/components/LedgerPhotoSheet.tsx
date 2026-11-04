@@ -26,6 +26,8 @@ type LedgerPhotoSheetProps = {
   insideRight: PhotoGroup[]
   outside: PhotoRow[]
   unknown: PhotoRow[]
+  /** `list`: one long, phone-width column (Stock In). `columns` (default): two columns. */
+  layout?: 'columns' | 'list'
 }
 
 const TONE_CLASS: Record<NonNullable<PhotoRow['tone']>, string> = {
@@ -79,18 +81,20 @@ function TwoColumns({ title, left, right, quantityLabel }: { title: string; left
 }
 
 /**
- * A 1080px photo sheet laid out like the Daily Report photo: the title and date with the logo,
- * then the coolroom areas in two columns, one row per item. Used for exports only.
+ * A photo sheet laid out like the Daily Report photo: the title and date with the logo, then the
+ * coolroom areas, one row per item. 1080px in two columns, or a 540px long list
+ * (`layout="list"`) that reads well on a phone. Used for exports only.
  */
 export const LedgerPhotoSheet = forwardRef<HTMLDivElement, LedgerPhotoSheetProps>(function LedgerPhotoSheet(
-  { title, date, quantityLabel, insideLeft, insideRight, outside, unknown },
+  { title, date, quantityLabel, insideLeft, insideRight, outside, unknown, layout = 'columns' },
   ref,
 ) {
   const hasInside = [...insideLeft, ...insideRight].some((group) => group.rows.length > 0)
   const outsideMidpoint = Math.ceil(outside.length / 2)
+  const isList = layout === 'list'
 
   return (
-    <div ref={ref} className="report-photo bg-surface">
+    <div ref={ref} className={`report-photo bg-surface ${isList ? 'is-list' : ''}`}>
       <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 py-4 sm:px-5">
         <h2 className="text-lg font-semibold tracking-tight text-forest">{title}</h2>
         <div className="flex items-center gap-3">
@@ -99,7 +103,12 @@ export const LedgerPhotoSheet = forwardRef<HTMLDivElement, LedgerPhotoSheetProps
         </div>
       </header>
 
-      {hasInside ? (
+      {hasInside && isList ? (
+        <>
+          <h3 className="report-area-title">Inside coolroom</h3>
+          <PhotoTable groups={[...insideLeft, ...insideRight]} quantityLabel={quantityLabel} />
+        </>
+      ) : hasInside ? (
         insideRight.some((group) => group.rows.length > 0) ? (
           <TwoColumns title="Inside coolroom" left={insideLeft} right={insideRight} quantityLabel={quantityLabel} />
         ) : (
@@ -117,7 +126,12 @@ export const LedgerPhotoSheet = forwardRef<HTMLDivElement, LedgerPhotoSheetProps
         </>
       ) : null}
 
-      {outside.length > 0 ? (
+      {outside.length > 0 && isList ? (
+        <>
+          <h3 className="report-area-title">Outside coolroom</h3>
+          <PhotoTable groups={[{ rows: outside }]} quantityLabel={quantityLabel} />
+        </>
+      ) : outside.length > 0 ? (
         <TwoColumns
           title="Outside coolroom"
           left={[{ rows: outside.slice(0, outsideMidpoint) }]}
