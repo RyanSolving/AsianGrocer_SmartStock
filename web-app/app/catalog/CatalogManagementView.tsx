@@ -39,7 +39,10 @@ function getApiErrorMessage(payload: any, fallback: string) {
   const warning = typeof payload?.warning === 'string' ? payload.warning : ''
   const base = typeof payload?.error === 'string' ? payload.error : fallback
 
-  return [base, details, hint, warning].filter((part) => part && part.trim().length > 0).join(' | ')
+  return [base, details, hint, warning]
+    .map((part) => part.trim().replace(/\.+$/, ''))
+    .filter((part, index, parts) => part.length > 0 && parts.indexOf(part) === index)
+    .join('. ') + '.'
 }
 
 function generateItemCode(category: string, product: string, attribute: string) {
@@ -99,16 +102,13 @@ function StatusBanner({
     : 'border-red-200 bg-red-50 text-red-900'
 
   return (
-    <div className={`rounded-2xl border px-4 py-4 shadow-sm ${classes}`}>
+    <div role={isSuccess ? 'status' : 'alert'} className={`rounded-card border px-4 py-4 ${classes}`}>
       <div className="flex items-start gap-3">
         <div className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${isSuccess ? 'bg-success text-white' : 'bg-red-600 text-white'}`}>
           {isSuccess ? <CheckCircle2 className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />}
         </div>
         <div>
-          <p className={`text-xs font-semibold ${isSuccess ? 'text-success' : 'text-red-700'}`}>
-            {isSuccess ? 'Saved' : 'Action failed'}
-          </p>
-          <h3 className="mt-1 text-base font-semibold">{title}</h3>
+          <h3 className="text-base font-semibold">{title}</h3>
           <p className="mt-1 text-sm leading-6 text-slate-700">{message}</p>
         </div>
       </div>
@@ -641,7 +641,7 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
             {apiError && (
               <StatusBanner
                 tone="error"
-                title="Catalog action failed"
+                title="Something went wrong with the catalog"
                 message={apiError}
               />
             )}

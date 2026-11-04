@@ -39,7 +39,7 @@ export default function LoginPage() {
         <div className="w-full sm:max-w-sm">
           <BrandLogo className="w-72" />
           <p className="mt-6 text-[15px] leading-relaxed text-white/70">
-            Stock in, closing counts and the daily report, in one place.
+            Stock in, stock close and the daily report, in one place.
           </p>
         </div>
       </div>

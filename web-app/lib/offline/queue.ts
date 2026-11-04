@@ -137,7 +137,7 @@ export function getOfflineDraftAge(feature: OfflineDraftFeature): string | null 
   const ms = Date.now() - new Date(draft.savedAt).getTime()
   if (ms < 3600000) return 'just now'
   if (ms < 86400000) return `${Math.floor(ms / 3600000)}h ago`
-  return new Date(draft.savedAt).toLocaleDateString()
+  return new Date(draft.savedAt).toLocaleDateString('en-AU')
 }
 
 export function loadOfflineDraft<T>(feature: OfflineDraftFeature): T | null {

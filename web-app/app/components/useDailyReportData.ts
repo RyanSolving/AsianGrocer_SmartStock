@@ -217,7 +217,7 @@ export function useDailyReportData(date: string, catalogItems: ReportCatalogItem
   const notices = useMemo(() => {
     const list: ReportNotice[] = []
     if (data && !data.closingFound) {
-      list.push({ id: 'no-closing', severity: 'blocking', text: 'No closing saved for this date. Save it in Check Stock first.' })
+      list.push({ id: 'no-closing', severity: 'blocking', text: 'No closing saved for this date. Save it in Stock Close first.' })
     }
     if (data?.closingFound && !data.prevClosingDate) {
       list.push({ id: 'no-prev', severity: 'blocking', text: "No earlier closing, so units sold can't be worked out." })

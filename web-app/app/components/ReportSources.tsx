@@ -10,8 +10,8 @@ function formatSavedAt(iso: string | null | undefined, style: 'time' | 'full' = 
   const value = new Date(iso)
   if (Number.isNaN(value.getTime())) return null
   return style === 'time'
-    ? value.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
-    : value.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })
+    ? value.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' })
+    : value.toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })
 }
 
 function SourceRow({ label, source, missing, extra }: { label: string; source: ReportSource | null; missing: string; extra?: string }) {

@@ -74,7 +74,7 @@ export function StockCheckHistoryDialog({
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString)
-    return date.toLocaleString('en-US', {
+    return date.toLocaleString('en-AU', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
@@ -141,7 +141,7 @@ export function StockCheckHistoryDialog({
 
         {groups.map(([groupName, rows]) => (
           <div key={groupName} className="rounded-md border border-slate-200 bg-white">
-            <p className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+            <p className="border-b border-slate-200 px-3 py-2 text-[13px] font-semibold text-ink">
               {groupName}
             </p>
             <table className="w-full text-xs">
@@ -167,7 +167,7 @@ export function StockCheckHistoryDialog({
   }
 
   return (
-    <Sheet open={isOpen} onClose={onClose} title="Stock check history" description="Open a saved closing count to edit it, or delete it." size="lg">
+    <Sheet open={isOpen} onClose={onClose} title="Stock close history" description="Open a saved stock close to edit it, or delete it." size="lg">
         <div className="space-y-3">
           {isLoading ? (
             <div className="flex items-center justify-center py-12">

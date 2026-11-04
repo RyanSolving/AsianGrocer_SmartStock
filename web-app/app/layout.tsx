@@ -6,7 +6,7 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'sw
 
 export const metadata: Metadata = {
   title: 'Asian Grocer',
-  description: 'Stock in, closing counts and daily reports for Asian Grocer',
+  description: 'Stock in, stock close and daily reports for Asian Grocer',
   manifest: '/manifest.json',
   icons: {
     icon: [{ url: '/icon-192.png', sizes: '192x192', type: 'image/png' }],

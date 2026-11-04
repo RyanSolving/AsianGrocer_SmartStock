@@ -8,7 +8,7 @@ import { inputClass } from './ui/Input'
  * on the left, the stock date on the right. On a phone the big page title is hidden
  * (the app bar already names the section) so the item and quantity fields start
  * near the top of the screen; it stays visible when it carries extra meaning
- * (e.g. "Edit closing count").
+ * (e.g. "Edit stock close").
  */
 export function EditorTopBar({
   title,

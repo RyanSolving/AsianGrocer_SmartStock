@@ -13,7 +13,7 @@ type NavItem = { id: ShellSection; label: string; short: string; icon: typeof Ba
 
 export const NAV_ITEMS: NavItem[] = [
   { id: 'data-entry', label: 'Stock In', short: 'Stock In', icon: PackagePlus },
-  { id: 'stock-check', label: 'Check Stock', short: 'Check', icon: ScanSearch },
+  { id: 'stock-check', label: 'Stock Close', short: 'Close', icon: ScanSearch },
   { id: 'daily-report', label: 'Daily Report', short: 'Report', icon: ClipboardList },
   { id: 'dashboard', label: 'Dashboard', short: 'Dashboard', icon: BarChart3 },
 ]
@@ -189,7 +189,7 @@ export function AppShell({ active, onNavigate, sync, account, isAuthLoading, onS
         aria-label="Main"
         className="safe-bottom fixed inset-x-0 bottom-0 z-50 border-t border-line bg-surface/95 backdrop-blur md:hidden"
       >
-        <div className="grid h-[var(--tabbar-h)] grid-cols-6 text-[10px] min-[360px]:text-[11px] min-[400px]:text-xs">
+        <div className="grid h-[var(--tabbar-h)] grid-cols-6 text-[11px] min-[360px]:text-xs">
           {[HOME_ITEM, ...NAV_ITEMS].map((item) => {
             const Icon = item.icon
             const selected = item.id === active

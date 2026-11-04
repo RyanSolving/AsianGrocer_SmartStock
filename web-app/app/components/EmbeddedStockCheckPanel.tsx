@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
-import { Check, Download, FileImage, Loader2, Plus, Save, Search, Undo2, X } from 'lucide-react'
+import { Check, ChevronDown, Download, FileImage, Loader2, Plus, Save, Search, Undo2, X } from 'lucide-react'
 import { NumberInput, fieldClass } from './ui/Input'
 import { focusNextQuantityInput, parseTypedQuantity, rankSuggestions } from '../../lib/entry-chain'
 import { friendlyError, toast } from '../../lib/toast-store'
@@ -1663,7 +1663,7 @@ export function EmbeddedStockCheckPanel({
   if (phase === 'landing') {
     return (
       <SectionLandingState
-        sectionLabel="Closing count"
+        sectionLabel="Stock close"
         subtitle="Count what is left at 4 PM, then save and export."
         hasDraft={hasStockCheckLocalDraft}
         draftAge={getOfflineDraftAge('stock-check')}
@@ -1687,7 +1687,7 @@ export function EmbeddedStockCheckPanel({
             startManualEntry()
             setLastAddedCheck(null)
             setTouchedRowIndexes(new Set())
-            toast.success('Closing count draft removed')
+            toast.success('Stock close draft removed')
           } else if (action === 'continue') {
             setPhase('editing')
             // draft restore effect will handle it
@@ -1704,7 +1704,7 @@ export function EmbeddedStockCheckPanel({
     <div className="space-y-4">
       <section className="keypad-editor rounded-card border border-line bg-surface p-3 sm:p-6">
         <EditorTopBar
-          title={loadedHistoryUid ? 'Edit closing count' : 'Closing count'}
+          title={loadedHistoryUid ? 'Edit stock close' : 'Stock close'}
           showTitleOnPhone={!!loadedHistoryUid}
           onBack={() => setPhase('landing')}
           dateId="check-stock-date"
@@ -1752,7 +1752,7 @@ export function EmbeddedStockCheckPanel({
                         setShowItemSuggestions(event.target.value.trim().length > 0)
                       }}
                       onKeyDown={handleStockCheckItemInputKeyDown}
-                      placeholder="Search item"
+                      placeholder="Search by name or code"
                       autoComplete="off"
                       autoCorrect="off"
                       spellCheck={false}
@@ -1797,7 +1797,7 @@ export function EmbeddedStockCheckPanel({
                 </div>
 
                 <div className="flex items-end gap-2">
-                  <div className="min-w-0 flex-1">
+                  <div className="w-1/2 min-w-0">
                     <label htmlFor="check-qty" className="mb-1.5 block text-[14px] font-medium text-ink">Quantity</label>
                     <NumberInput
                       id="check-qty"
@@ -1818,10 +1818,10 @@ export function EmbeddedStockCheckPanel({
                     type="button"
                     onClick={submitStockCheckManualEntry}
                     disabled={!stockDate || newItemName.trim().length === 0 || manualCheckQuantity.trim().length === 0}
-                    className="inline-flex min-h-12 shrink-0 items-center justify-center gap-1.5 rounded-control bg-forest px-5 text-[16px] font-semibold text-white transition-colors duration-150 hover:bg-forest-700 disabled:cursor-not-allowed disabled:bg-forest/30"
+                    className="inline-flex min-h-12 flex-1 items-center justify-center gap-1.5 rounded-control bg-forest px-3 text-[16px] font-semibold text-white transition-colors duration-150 hover:bg-forest-700 disabled:cursor-not-allowed disabled:bg-forest/30"
                   >
                     <Plus className="h-5 w-5" aria-hidden="true" />
-                    Add
+                    Add item
                   </button>
                 </div>
 
@@ -1863,10 +1863,11 @@ export function EmbeddedStockCheckPanel({
               <button
                 type="button"
                 onClick={() => setIsItemProfilesExpanded(!isItemProfilesExpanded)}
-                className="mb-2 inline-flex items-center justify-between gap-2 text-[13px] font-medium text-muted hover:text-brand-700"
+                aria-expanded={isItemProfilesExpanded}
+                className="mb-2 inline-flex min-h-11 items-center gap-1.5 text-[14px] font-medium text-muted hover:text-ink"
               >
-                <span>Item Profiles</span>
-                <span className="text-sm">{isItemProfilesExpanded ? '▼' : '▶'}</span>
+                <span>Item profile</span>
+                <ChevronDown className={`h-4 w-4 transition-transform duration-150 ${isItemProfilesExpanded ? 'rotate-180' : ''}`} aria-hidden="true" />
               </button>
 
               {isItemProfilesExpanded && (

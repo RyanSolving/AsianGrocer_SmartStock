@@ -50,17 +50,17 @@ function toLocalDate(iso: string) {
 }
 
 function dayShort(iso: string) {
-  return toLocalDate(iso).toLocaleDateString(undefined, { weekday: 'short' })
+  return toLocalDate(iso).toLocaleDateString('en-AU', { weekday: 'short' })
 }
 
 function dayLong(iso: string) {
-  return toLocalDate(iso).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })
+  return toLocalDate(iso).toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })
 }
 
 function timeOf(iso: string | null | undefined) {
   if (!iso) return null
   const value = new Date(iso)
-  return Number.isNaN(value.getTime()) ? null : value.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+  return Number.isNaN(value.getTime()) ? null : value.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' })
 }
 
 function greeting(now: Date) {
@@ -258,7 +258,7 @@ function HomeContent({ catalogItems, onNavigate, refreshKey = 0, now }: HomePane
     <div className="space-y-5">
       <header className="pt-1">
         <p className="text-[13px] text-muted">
-          {now.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}
+          {now.toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' })}
         </p>
         <h1 className="mt-0.5 text-[28px] font-semibold leading-tight tracking-[-0.02em] text-ink">{greeting(now)}</h1>
       </header>

@@ -233,7 +233,7 @@ export function CreateCatalogItemModal({
       open={isOpen}
       onClose={onClose}
       title="New catalog item"
-      description="Add it once here; it then shows up in search for Stock In and Check Stock."
+      description="Add it once here; it then shows up in search for Stock In and Stock Close."
       size="md"
       dismissible={!isSaving}
       footer={

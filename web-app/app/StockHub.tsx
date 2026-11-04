@@ -19,6 +19,7 @@ import {
   Check,
   Undo2,
   Tag,
+  ChevronDown,
 } from 'lucide-react'
 import { ToastViewport } from './components/ui/Toast'
 import { Sheet } from './components/ui/Sheet'
@@ -211,7 +212,7 @@ type SidebarHistoryCardProps = {
 }
 
 function formatSidebarHistoryDate(timestamp: string) {
-  return new Date(timestamp).toLocaleDateString('en-US', {
+  return new Date(timestamp).toLocaleDateString('en-AU', {
     month: 'short',
     day: 'numeric',
   })
@@ -666,7 +667,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     if (!nextVisible) {
       const confirmed = await confirmAction({
         title: `Hide ${target.official_name}?`,
-        message: 'It will no longer appear in Stock In or Check Stock. You can show it again from Catalog.',
+        message: 'It will no longer appear in Stock In or Stock Close. You can show it again from Catalog.',
         confirmLabel: 'Hide item',
       })
       if (!confirmed) {
@@ -801,7 +802,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       const payload = await response.json()
 
       if (!response.ok) {
-        throw new Error(payload?.error ?? 'Failed to load stock check history.')
+        throw new Error(payload?.error ?? 'Could not load stock close history.')
       }
 
       setStockCheckHistory(Array.isArray(payload.history) ? payload.history : [])
@@ -811,7 +812,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       }
 
       if (!silent) {
-        setApiError(error instanceof Error ? error.message : 'Failed to load stock check history.')
+        setApiError(error instanceof Error ? error.message : 'Could not load stock close history.')
       }
     } finally {
       if (!silent) setIsStockCheckHistoryLoading(false)
@@ -1341,7 +1342,8 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     if (dataEntrySelectedCatalogCode) return
     if (dataEntryAddSuggestions.length > 0) return
 
-    setIsItemProfilesExpanded(true)
+    // Prefill the new-item profile, but leave it closed: opening an 8-field form
+    // mid-typing (a typo is enough) pushed the count list off the screen.
     setInlineCreateForm((current) => ({
       ...current,
       official_name: current.official_name.trim().length > 0 ? current.official_name : term,
@@ -2474,7 +2476,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
 
   async function deleteStockCheckHistory(uid: string) {
     const confirmed = await confirmAction({
-      title: 'Delete this stock check?',
+      title: 'Delete this stock close?',
       message: 'It is removed from the app history for good. This cannot be undone.',
       confirmLabel: 'Delete',
       variant: 'danger',
@@ -2596,7 +2598,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     const searchMatches =
       term.length === 0
       || entry.filename.toLowerCase().includes(term)
-      || new Date(entry.timestamp).toLocaleDateString('en-US').toLowerCase().includes(term)
+      || new Date(entry.timestamp).toLocaleDateString('en-AU').toLowerCase().includes(term)
 
     return statusMatches && searchMatches
   })
@@ -2950,6 +2952,9 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                                 })}
                               </div>
                             )}
+                            {searchOpen && dataEntryNewItemName.trim().length > 0 && dataEntryAddSuggestions.length === 0 && parsedData && !dataEntrySelectedCatalogCode && (
+                              <p className="mt-1.5 text-[13px] text-muted">Not in the catalog. Add it with a quantity to review later.</p>
+                            )}
                           </div>
 
                           <div className="flex items-end gap-2">
@@ -3024,17 +3029,16 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                         <button
                           type="button"
                           onClick={() => setIsItemProfilesExpanded((current) => !current)}
-                          className="flex w-full items-center justify-between gap-3 rounded-md text-left"
+                          aria-expanded={isItemProfilesExpanded}
+                          className="flex min-h-11 w-full items-center justify-between gap-3 rounded-md text-left"
                         >
                           <div>
-                            <p className="text-sm font-semibold text-slate-800">Item Profiles</p>
-                            <p className="mt-0.5 text-xs text-slate-500">
-                              {editableDataEntryCatalogItem ? 'Edit this catalog profile.' : 'Create a catalog profile if it is new.'}
+                            <p className="text-[14px] font-semibold text-ink">Item profile</p>
+                            <p className="mt-0.5 text-[13px] text-muted">
+                              {editableDataEntryCatalogItem ? 'Edit this item in the catalog.' : 'New item? Add it to the catalog.'}
                             </p>
                           </div>
-                          <span className="rounded-full border border-slate-300 bg-slate-50 px-2 py-1 text-[12px] font-medium text-muted">
-                            {isItemProfilesExpanded ? 'Collapse' : 'Expand'}
-                          </span>
+                          <ChevronDown className={`h-5 w-5 shrink-0 text-muted transition-transform duration-150 ${isItemProfilesExpanded ? 'rotate-180' : ''}`} aria-hidden="true" />
                         </button>
 
                         {isItemProfilesExpanded && (
@@ -3436,7 +3440,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
         title="Load history record?"
         message="Loading this record will replace your current work. Unsaved changes will be lost."
         variant="danger"
-        confirmLabel="Load and replace"
+        confirmLabel="Open and replace"
         onConfirm={() => {
           if (pendingHistoryLoad) {
             void loadDataEntryHistoryToEditor(pendingHistoryLoad)
@@ -3447,10 +3451,10 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       />
       <ConfirmDialog
         isOpen={pendingStockCheckHistoryLoad !== null}
-        title="Load stock check history?"
-        message="Loading this record will replace your current stock check view. Unsaved changes will be lost."
+        title="Open this saved stock close?"
+        message="It replaces the sheet you have open now. Changes you have not saved will be lost."
         variant="danger"
-        confirmLabel="Load and replace"
+        confirmLabel="Open and replace"
         onConfirm={() => {
           if (pendingStockCheckHistoryLoad) {
             setSelectedStockCheckHistoryRecord(pendingStockCheckHistoryLoad)
