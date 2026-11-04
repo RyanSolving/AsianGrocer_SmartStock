@@ -5,8 +5,6 @@ import {
   BarChart3,
   Database,
   Download,
-  Eye,
-  EyeOff,
   FileImage,
   History,
   Loader2,
@@ -15,8 +13,17 @@ import {
   Search,
   Settings,
   X,
-  Plus
+  Plus,
+  Check,
+  Undo2,
+  ChevronLeft,
 } from 'lucide-react'
+import { ToastViewport } from './components/ui/Toast'
+import { Sheet } from './components/ui/Sheet'
+import { fieldClass, inputClass, NumberInput } from './components/ui/Input'
+import { focusNextQuantityInput, isRowListed, rankSuggestions } from '../lib/entry-chain'
+import { AppShell } from './components/AppShell'
+import { friendlyError, toast } from '../lib/toast-store'
 
 import { DailyReportPanel } from './components/DailyReportPanel'
 import { DashboardPanel } from './components/DashboardPanel'
@@ -25,7 +32,7 @@ import { CreateCatalogItemModal, type CreateCatalogItemPayload } from './compone
 import { EmbeddedStockCheckPanel } from './components/EmbeddedStockCheckPanel'
 import { EntryMethodToggle } from './components/EntryMethodToggle'
 import { StockPaperCardSection, StockPaperSectionTable, StockPaperThreeColumnTable } from './components/StockPaperTables'
-import { ConfirmDialog } from './components/ConfirmDialog'
+import { ConfirmDialog, useConfirm } from './components/ConfirmDialog'
 import { SectionLandingState } from './components/SectionLandingState'
 import type { SelectedStockCheckHistoryRecord } from './components/EmbeddedStockCheckPanel'
 import { StockCheckHistoryDialog } from './components/StockCheckHistoryDialog'
@@ -41,6 +48,7 @@ import {
   isNetworkRequestError,
   loadOfflineDraft,
   saveOfflineDraft,
+  scheduleDraftSave,
   subscribeOfflineDraftUpdates,
   subscribeOfflineQueueUpdates,
   syncOfflineQueue,
@@ -169,12 +177,6 @@ type HistoryCardBadge = {
   className: string
 }
 
-type AppToast = {
-  id: number
-  tone: 'success' | 'error'
-  message: string
-}
-
 type CatalogInnerUnit = 'box' | 'bag' | 'punnet' | 'piece' | 'tray' | 'bunch' | 'pack' | 'kg' | 'g'
 
 type StockInOfflineDraft = {
@@ -209,14 +211,14 @@ function SidebarHistoryCard({ title, timestamp, badges, selected = false, onClic
     <button
       type="button"
       onClick={onClick}
-      className={`w-full min-h-11 rounded-lg border px-2.5 py-2 text-left transition ${selected
-          ? 'border-brand-500 bg-brand-50'
-          : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
+      className={`w-full min-h-14 rounded-control border px-3 py-2.5 text-left transition-colors duration-150 ${selected
+          ? 'border-forest-600 bg-forest-50'
+          : 'border-line bg-surface hover:bg-slate-50 active:bg-slate-100'
         }`}
     >
-      <p className="truncate text-xs font-semibold text-slate-700">{title}</p>
+      <p className="truncate text-[15px] font-medium text-ink">{title}</p>
       <div className="mt-1 flex items-center justify-between gap-2">
-        <p className="truncate text-[11px] text-slate-500">{formatSidebarHistoryDate(timestamp)}</p>
+        <p className="truncate text-[13px] text-muted">{formatSidebarHistoryDate(timestamp)}</p>
         <div className="flex items-center gap-1.5">
           {badges.map((badge) => (
             <span key={badge.label} className={badge.className}>
@@ -236,6 +238,13 @@ type IndexedItem = {
 }
 
 type HubSection = 'data-entry' | 'stock-check' | 'daily-report' | 'dashboard' | 'catalog'
+type LastAddedEntry = {
+  id: number
+  name: string
+  quantity: number
+  note?: string
+  snapshot: { parsedData: ParsedPayload | null; missing: CatalogItem[]; unknown: UnknownItem[] }
+}
 type DataEntryMode = 'manual' | 'photo'
 type InlineCreateItemForm = {
   official_name: string
@@ -480,51 +489,13 @@ function mapHistoryEntryToEditablePayload(entry: HistoryEntry, fallbackDate: str
   }
 }
 
-function ToastStack({
-  toasts,
-  onDismiss,
-}: {
-  toasts: AppToast[]
-  onDismiss: (id: number) => void
-}) {
-  return (
-    <div role="alert" aria-live="polite" className="pointer-events-none fixed left-1/2 top-4 z-[70] flex w-[min(92vw,360px)] -translate-x-1/2 flex-col gap-2">
-      {toasts.map((toast) => {
-        const toneClass = toast.tone === 'success'
-          ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-          : 'border-red-200 bg-red-50 text-red-900'
-        const tagClass = toast.tone === 'success'
-          ? 'bg-emerald-600 text-white'
-          : 'bg-red-600 text-white'
-
-        return (
-          <div key={toast.id} className={`pointer-events-auto rounded-lg border px-3 py-2 shadow-lg ${toneClass}`}>
-            <div className="flex items-start gap-2">
-              <span className={`mt-0.5 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${tagClass}`}>
-                {toast.tone}
-              </span>
-              <p className="flex-1 text-sm leading-5">{toast.message}</p>
-              <button
-                type="button"
-                onClick={() => onDismiss(toast.id)}
-                aria-label="Dismiss notification"
-                className="rounded p-0.5 text-slate-500 hover:bg-white/70 hover:text-slate-700"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
 export default function Home() {
   const today = useMemo(() => getLocalTodayDate(), [])
   const stockMode: StockMode = 'stock-in'
   const [activeSection, setActiveSection] = useState<HubSection>('data-entry')
   const [stockInPhase, setStockInPhase] = useState<'landing' | 'editing'>('landing')
+  const [isHistorySheetOpen, setIsHistorySheetOpen] = useState(false)
+  const [visitedSections, setVisitedSections] = useState<Set<HubSection>>(() => new Set<HubSection>(['data-entry']))
   const [dataEntryMode, setDataEntryMode] = useState<DataEntryMode>('manual')
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [activeCatalog, setActiveCatalog] = useState<CatalogItem[] | null>(null)
@@ -545,8 +516,6 @@ export default function Home() {
   const [latestGenerateUid, setLatestGenerateUid] = useState<string | null>(null)
   const [apiError, setApiError] = useState<string | null>(null)
   const [apiStatus, setApiStatus] = useState<string | null>(null)
-  const [toasts, setToasts] = useState<AppToast[]>([])
-  const toastIdRef = useRef(0)
   const [isHistoryOpen, setIsHistoryOpen] = useState(false)
   const [isStockCheckHistoryOpen, setIsStockCheckHistoryOpen] = useState(false)
   const [historyData, setHistoryData] = useState<HistoryEntry[]>([])
@@ -572,6 +541,11 @@ export default function Home() {
   const [dataEntryAddHighlightIndex, setDataEntryAddHighlightIndex] = useState<number>(-1)
   const [dataEntrySelectedCatalogCode, setDataEntrySelectedCatalogCode] = useState<string | null>(null)
   const [manualEntryQuantity, setManualEntryQuantity] = useState('')
+  const [dataEntryTouchedIndexes, setDataEntryTouchedIndexes] = useState<Set<number>>(() => new Set())
+  const [lastAddedEntry, setLastAddedEntry] = useState<LastAddedEntry | null>(null)
+  const hadParsedDataRef = useRef(false)
+  const dataEntryItemInputRef = useRef<HTMLInputElement | null>(null)
+  const dataEntryQtyInputRef = useRef<HTMLInputElement | null>(null)
   const [dataEntryCreatePrefillName, setDataEntryCreatePrefillName] = useState('')
   const [showCreateDataEntryItemModal, setShowCreateDataEntryItemModal] = useState(false)
   const [isItemProfilesExpanded, setIsItemProfilesExpanded] = useState(false)
@@ -606,10 +580,25 @@ export default function Home() {
   const dataEntryHighlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const isManualEntryMode = dataEntryMode === 'manual'
+  const [confirmAction, confirmElement] = useConfirm()
+
+  useEffect(() => {
+    setVisitedSections((current) => (current.has(activeSection) ? current : new Set(current).add(activeSection)))
+    setIsHistorySheetOpen(false)
+  }, [activeSection])
+
+  const signOut = useCallback(async () => {
+    await fetch('/api/auth/logout', { method: 'POST' })
+    window.location.href = '/login'
+  }, [])
 
   const addToast = useCallback((variant: 'success' | 'error', message: string) => {
-    const id = ++toastIdRef.current
-    setToasts((prev) => [...prev, { id, tone: variant, message }])
+    if (variant === 'error') {
+      const friendly = friendlyError(message)
+      toast.error(friendly.message, { details: friendly.details })
+    } else {
+      toast.success(message)
+    }
   }, [])
 
   const visibleCatalog = useMemo(() => filterVisibleCatalogItems(activeCatalog), [activeCatalog])
@@ -651,7 +640,11 @@ export default function Home() {
     }
 
     if (!nextVisible) {
-      const confirmed = window.confirm(`Hide "${target.official_name}" from Stock In and Stock Check views?`)
+      const confirmed = await confirmAction({
+        title: `Hide ${target.official_name}?`,
+        message: 'It will no longer appear in Stock In or Check Stock. You can show it again from Catalog.',
+        confirmLabel: 'Hide item',
+      })
       if (!confirmed) {
         return false
       }
@@ -710,7 +703,7 @@ export default function Home() {
 
       throw error
     }
-  }, [activeCatalog])
+  }, [activeCatalog, confirmAction])
 
   async function loadCatalogFromApi() {
     try {
@@ -872,6 +865,16 @@ export default function Home() {
     }
   }, [refreshOfflineQueueState, runOfflineSync])
 
+  // Count from the saved draft itself: on the start screen the editor is still empty.
+  const stockInDraftItemCount = useMemo(() => {
+    if (!hasStockInLocalDraft || stockInPhase !== 'landing') return 0
+    const draft = loadOfflineDraft<StockInOfflineDraft>('stock-in')
+    if (!draft?.parsedData) return 0
+    const counted = (items: Array<{ quantity?: number | null }> | undefined) =>
+      (items ?? []).filter((item) => item.quantity !== null && item.quantity !== undefined).length
+    return counted(draft.parsedData.items) + counted(draft.missingCatalogItems) + counted(draft.unknownItems)
+  }, [hasStockInLocalDraft, stockInPhase])
+
   const restoreStockInDraft = useCallback(() => {
     if (typeof window === 'undefined') return
 
@@ -894,23 +897,32 @@ export default function Home() {
     if (typeof window === 'undefined') return
 
     if (!parsedData) {
-      clearOfflineDraft('stock-in')
-      setHasStockInLocalDraft(false)
+      // Only clear when work in this session was cleared. On a fresh load parsedData starts
+      // empty, and the saved draft must survive so "Continue draft" can restore it.
+      if (hadParsedDataRef.current) {
+        clearOfflineDraft('stock-in')
+        setHasStockInLocalDraft(false)
+      }
       return
     }
+    hadParsedDataRef.current = true
 
-    saveOfflineDraft('stock-in', {
-      dataEntryMode,
-      parsedData,
-      unknownItems,
-      missingCatalogItems,
-      latestGenerateUid,
-      editingHistoryUid,
-      isValidatedByStaff,
-      hasSavedToSupabase,
-      hasLoadedToDb,
-    })
-    setHasStockInLocalDraft(true)
+    // Debounced so typing stays smooth on slow phones; flushed when the app is hidden or closed.
+    const save = () => {
+      saveOfflineDraft('stock-in', {
+        dataEntryMode,
+        parsedData,
+        unknownItems,
+        missingCatalogItems,
+        latestGenerateUid,
+        editingHistoryUid,
+        isValidatedByStaff,
+        hasSavedToSupabase,
+        hasLoadedToDb,
+      })
+      setHasStockInLocalDraft(true)
+    }
+    return scheduleDraftSave(save)
   }, [
     dataEntryMode,
     editingHistoryUid,
@@ -1049,31 +1061,17 @@ export default function Home() {
 
   useEffect(() => {
     if (!apiError) return
-
-    toastIdRef.current += 1
-    const id = toastIdRef.current
-    setToasts((current) => [...current, { id, tone: 'error', message: apiError }])
+    const friendly = friendlyError(apiError)
+    toast.error(friendly.message, { details: friendly.details })
     setApiError(null)
   }, [apiError])
 
   useEffect(() => {
     if (!apiStatus) return
-
-    toastIdRef.current += 1
-    const id = toastIdRef.current
-    setToasts((current) => [...current, { id, tone: 'success', message: apiStatus }])
+    // Ambient "ready" messages are obvious from the screen itself.
+    if (apiStatus !== STATUS.READY_MANUAL && apiStatus !== STATUS.STARTING_FRESH) toast.success(apiStatus)
     setApiStatus(null)
   }, [apiStatus])
-
-  useEffect(() => {
-    if (toasts.length === 0) return
-
-    const timer = setTimeout(() => {
-      setToasts((current) => current.slice(1))
-    }, 3800)
-
-    return () => clearTimeout(timer)
-  }, [toasts])
 
   useEffect(() => {
     const handleOutsideFindClick = (event: MouseEvent | TouchEvent) => {
@@ -1213,12 +1211,10 @@ export default function Home() {
       source: 'unknown' as const
     }))
 
-    return [...allItems, ...missingItems, ...unknownMapped].filter((row) => {
-      if (row.item.quantity !== null) return true
-      if (row.item.quantity_conflict_flag) return true
-      return (row.item.quantity_raw ?? '').trim().length > 0
-    })
-  }, [activeCatalog, missingCatalogItems, parsedData, unknownItems, visibleCatalogCodes])
+    return [...allItems, ...missingItems, ...unknownMapped].filter((row) =>
+      isRowListed(row.item, dataEntryTouchedIndexes.has(row.index))
+    )
+  }, [activeCatalog, dataEntryTouchedIndexes, missingCatalogItems, parsedData, unknownItems, visibleCatalogCodes])
 
   const paperSections = useMemo(() => {
     const insideRows = indexedItems.filter((row) => row.item.location === 'Inside Coolroom' && row.source !== 'unknown')
@@ -1432,19 +1428,17 @@ export default function Home() {
   }, [missingCatalogItems, parsedData])
 
   const dataEntryAddSuggestions = useMemo(() => {
-    const term = dataEntryNewItemName.trim().toLowerCase()
-    if (!term) return []
-
-    return visibleCatalog
-      .filter((item) => {
-        return (
-          item.official_name.toLowerCase().includes(term)
-          || item.stocklist_name.toLowerCase().includes(term)
-          || item.product.toLowerCase().includes(term)
-        )
-      })
-      .slice(0, 6)
+    return rankSuggestions(visibleCatalog, dataEntryNewItemName)
   }, [dataEntryNewItemName, visibleCatalog])
+
+  const dataEntryQtyByCode = useMemo(() => {
+    const map = new Map<string, number>()
+    indexedItems.forEach((row) => {
+      const code = (row.item.catalog_code ?? '').trim().toUpperCase()
+      if (code && row.item.quantity !== null) map.set(code, row.item.quantity)
+    })
+    return map
+  }, [indexedItems])
 
   useEffect(() => {
     if (dataEntryNewItemName.trim().length === 0) {
@@ -1528,18 +1522,18 @@ export default function Home() {
     setIsValidatedByStaff(false)
   }, [])
 
-  const addKnownDataEntryItem = useCallback((catalogItem: CatalogItem, quantityOverride: number | null = null) => {
+  const addKnownDataEntryItem = useCallback((catalogItem: CatalogItem, quantityOverride: number | null = null): boolean => {
     if (!parsedData) {
       setApiError('Please start manual entry or parse a photo before adding items.')
-      return
+      return false
     }
 
     const codeKey = catalogItem.code.trim().toUpperCase()
     if (existingKnownCodes.has(codeKey)) {
-      setApiStatus(`${catalogItem.official_name} is already in the table.`)
+      setApiStatus(`${catalogItem.official_name} is already in the list.`)
       setApiError(null)
       setDataEntryNewItemName('')
-      return
+      return false
     }
 
     setParsedData((current) => {
@@ -1583,7 +1577,7 @@ export default function Home() {
     setHasLoadedToDb(false)
     setIsValidatedByStaff(false)
     setApiError(null)
-    setApiStatus(`${catalogItem.official_name} and its quantity were updated to the table below. Continue and recheck at the table below.`)
+    return true
   }, [existingKnownCodes, parsedData])
 
   const selectDataEntryCatalogSuggestion = useCallback((catalogItem: CatalogItem) => {
@@ -1592,10 +1586,18 @@ export default function Home() {
     syncItemProfilesFromCatalogItem(catalogItem)
     setDataEntryAddHighlightIndex(-1)
     setApiError(null)
+    // Chain: item picked -> keypad opens on Qty
+    requestAnimationFrame(() => dataEntryQtyInputRef.current?.focus())
   }, [syncItemProfilesFromCatalogItem])
 
   const handleItemInputKeyDown = useCallback((event: KeyboardEvent<HTMLInputElement>) => {
-    if (dataEntryAddSuggestions.length === 0) return
+    if (dataEntryAddSuggestions.length === 0 || dataEntrySelectedCatalogCode) {
+      if (event.key === 'Enter' && event.currentTarget.value.trim()) {
+        event.preventDefault()
+        dataEntryQtyInputRef.current?.focus()
+      }
+      return
+    }
 
     if (event.key === 'ArrowDown') {
       event.preventDefault()
@@ -1630,12 +1632,16 @@ export default function Home() {
         selectDataEntryCatalogSuggestion(selected)
       }
     }
-  }, [dataEntryAddHighlightIndex, dataEntryAddSuggestions, selectDataEntryCatalogSuggestion])
+  }, [dataEntryAddHighlightIndex, dataEntryAddSuggestions, dataEntrySelectedCatalogCode, selectDataEntryCatalogSuggestion])
 
   const updateItem = useCallback((index: number, patch: Partial<StockItem>) => {
     setIsValidatedByStaff(false)
     setHasSavedToSupabase(false)
     setHasLoadedToDb(false)
+    if (patch.quantity !== undefined || patch.quantity_raw !== undefined) {
+      setDataEntryTouchedIndexes((current) => (current.has(index) ? current : new Set(current).add(index)))
+      setLastAddedEntry(null)
+    }
 
     // Handle missing items (index: -1000, -1001, -1002, ...)
     if (index <= -1000 && index > -2000) {
@@ -1687,27 +1693,51 @@ export default function Home() {
     })
   }, [])
 
-  const addManualKnownItem = useCallback(() => {
+  const noteAdded = useCallback((name: string, quantity: number, snapshot: LastAddedEntry['snapshot'], note?: string) => {
+    setLastAddedEntry({ id: Date.now(), name, quantity, note, snapshot })
+    setDataEntryTouchedIndexes(new Set())
+  }, [])
+
+  const undoLastAdded = useCallback(() => {
+    if (!lastAddedEntry) return
+    setParsedData(lastAddedEntry.snapshot.parsedData)
+    setMissingCatalogItems(lastAddedEntry.snapshot.missing)
+    setUnknownItems(lastAddedEntry.snapshot.unknown)
+    setLastAddedEntry(null)
+    setHasSavedToSupabase(false)
+    setHasLoadedToDb(false)
+    setIsValidatedByStaff(false)
+    dataEntryItemInputRef.current?.focus()
+  }, [lastAddedEntry])
+
+  const addManualKnownItem = useCallback((): boolean => {
     if (!parsedData) {
       setApiError('Please start manual entry or parse a photo before adding items.')
-      return
+      return false
     }
 
     if (!parsedData.stock_date || !isIsoDate(parsedData.stock_date)) {
       setApiError('Please set a valid stock date before adding items.')
-      return
+      return false
     }
 
     const itemName = dataEntryNewItemName.trim()
     if (!itemName) {
       setApiError('Enter an item name before adding.')
-      return
+      return false
     }
 
     const quantity = parseWholeQuantity(manualEntryQuantity)
     if (quantity === null) {
       setApiError('Enter a whole-number quantity before adding.')
-      return
+      return false
+    }
+
+    // Copies, because updateItem edits missing/unknown rows in place
+    const snapshot: LastAddedEntry['snapshot'] = {
+      parsedData,
+      missing: missingCatalogItems.map((entry) => ({ ...entry })),
+      unknown: unknownItems.map((entry) => ({ ...entry })),
     }
 
     const chosen = selectedDataEntryCatalogItem
@@ -1741,8 +1771,8 @@ export default function Home() {
       setDataEntrySelectedCatalogCode(null)
       setManualEntryQuantity('')
       setApiError(null)
-      setApiStatus(`${itemName} was added as an offline review row. You can save when internet is available.`)
-      return
+      noteAdded(itemName, quantity, snapshot, 'not in catalog')
+      return true
     }
 
     const chosenCode = chosen.code.trim().toUpperCase()
@@ -1758,8 +1788,8 @@ export default function Home() {
       setDataEntrySelectedCatalogCode(null)
       setManualEntryQuantity('')
       setApiError(null)
-      setApiStatus(`${chosen.official_name} and its quantity were updated to the table below. Continue and recheck at the table below.`)
-      return
+      noteAdded(chosen.official_name, quantity, snapshot)
+      return true
     }
 
     const existingMissingIndex = missingCatalogItems.findIndex((item) => item.code.trim().toUpperCase() === chosenCode)
@@ -1775,13 +1805,17 @@ export default function Home() {
       setDataEntrySelectedCatalogCode(null)
       setManualEntryQuantity('')
       setApiError(null)
-      setApiStatus(`${chosen.official_name} and its quantity were updated to the table below. Continue and recheck at the table below.`)
-      return
+      noteAdded(chosen.official_name, quantity, snapshot)
+      return true
     }
 
-    addKnownDataEntryItem(chosen, quantity)
+    const added = addKnownDataEntryItem(chosen, quantity)
+    if (added) noteAdded(chosen.official_name, quantity, snapshot)
+    return added
   }, [
     addKnownDataEntryItem,
+    noteAdded,
+    unknownItems,
     dataEntryAddSuggestions,
     dataEntryNewItemName,
     manualEntryQuantity,
@@ -1792,6 +1826,13 @@ export default function Home() {
     updateItem,
     visibleCatalog,
   ])
+
+  const submitManualEntry = useCallback(() => {
+    if (addManualKnownItem()) {
+      // Chain: added -> back to an empty search for the next item
+      requestAnimationFrame(() => dataEntryItemInputRef.current?.focus())
+    }
+  }, [addManualKnownItem])
 
   const openDataEntryCreateItemModal = useCallback(() => {
     if (!parsedData) {
@@ -2198,8 +2239,8 @@ export default function Home() {
       setCatalogItemCount(typeof json.catalog_item_count === 'number' ? json.catalog_item_count : null)
       setHasSavedToSupabase(false)
 
-      // Keep sidebar history in sync without requiring a page reload.
-      await loadTranscriptionHistory()
+      // Keep history in sync in the background; realtime also refreshes it.
+      void loadTranscriptionHistory({ silent: true })
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
         setApiError('Parsing timed out after 5 minutes. The AI is taking longer than expected to process all items.')
@@ -2227,25 +2268,22 @@ export default function Home() {
 
   function getClasses(row: IndexedItem | undefined, baseCls: string) {
     if (!row) return baseCls
-    if (row.index === highlightedDataEntryIndex) return `${baseCls} !bg-emerald-100 transition-colors duration-700`
-    if (row.source === 'missing') return `${baseCls} !text-amber-600`
+    if (row.index === highlightedDataEntryIndex) return `${baseCls} !bg-success-soft transition-colors duration-700`
+    if (row.source === 'missing') return `${baseCls} !text-warning`
     if (row.source === 'unknown') return `${baseCls} !text-red-600 font-semibold`
     return baseCls
   }
 
   function getCardClasses(row: IndexedItem | undefined) {
     if (!row) return ''
-    if (row.index === highlightedDataEntryIndex) return 'ring-2 ring-emerald-400 bg-emerald-50'
-    if (row.source === 'missing') return 'border-amber-300 bg-amber-50'
+    if (row.index === highlightedDataEntryIndex) return 'ring-2 ring-accent bg-success-soft'
+    if (row.source === 'missing') return 'border-warning/30 bg-warning-soft'
     if (row.source === 'unknown') return 'border-red-300 bg-red-50'
     return ''
   }
 
   function renderDataEntryLabelCell(row: IndexedItem, className: string) {
     const code = row.item.catalog_code?.trim().toUpperCase() ?? ''
-    const canToggleVisibility = code.length > 0 && catalogVisibilityByCode.has(code)
-    const isVisible = canToggleVisibility ? (catalogVisibilityByCode.get(code) ?? true) : true
-
     const latestCatalogItem = code ? visibleCatalog.find(c => c.code.trim().toUpperCase() === code) : null;
     const displayName = latestCatalogItem?.official_name ?? row.item.official_name ?? row.item.product_raw ?? '';
 
@@ -2260,22 +2298,6 @@ export default function Home() {
             updateItem(row.index, { official_name: event.target.value })
           }
         />
-        {canToggleVisibility && (
-          <button
-            type="button"
-            aria-label={isVisible ? 'Hide item' : 'Show item'}
-            title={isVisible ? 'Hide item' : 'Show item'}
-            className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-slate-300 bg-white text-slate-500 hover:border-slate-400 hover:text-slate-700"
-            onClick={(event) => {
-              event.stopPropagation()
-              void toggleCatalogItemVisibility(code, !isVisible).catch((error) => {
-                setApiError(error instanceof Error ? error.message : 'Failed to update visibility.')
-              })
-            }}
-          >
-            {isVisible ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-          </button>
-        )}
       </div>
     )
   }
@@ -2283,8 +2305,11 @@ export default function Home() {
   function renderDataEntryQuantityCell(row: IndexedItem) {
     return (
       <input
-        type="number"
-        step="any"
+        type="text"
+        inputMode="decimal"
+        enterKeyHint="next"
+        autoComplete="off"
+        onKeyDown={focusNextQuantityInput}
         data-entry-row-index={row.index}
         className={getClasses(row, 'stock-qty-input')}
         aria-label={`Quantity for ${row.item.official_name}`}
@@ -2461,6 +2486,32 @@ export default function Home() {
     }
   }
 
+  // Re-push mode: the API reads the saved Supabase record by uid, so Retry is always safe.
+  const syncStockInToWarehouse = useCallback((uid: string, toastId?: number) => {
+    const id = toastId ?? toast.progress('Saved · syncing to warehouse…')
+    if (toastId) toast.update(id, { tone: 'progress', message: 'Syncing to warehouse…', action: undefined, details: undefined })
+    void (async () => {
+      try {
+        const response = await fetch('/api/save-to-bigquery', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ uid_generate: uid }),
+        })
+        const payload = await response.json().catch(() => null)
+        if (!response.ok) throw new Error(payload?.error ?? 'Warehouse sync failed.')
+        setHasLoadedToDb(true)
+        toast.update(id, { tone: 'success', message: 'Stock in saved and synced' })
+      } catch (error) {
+        toast.update(id, {
+          tone: 'error',
+          message: 'Saved. Warehouse sync failed.',
+          details: error instanceof Error ? error.message : undefined,
+          action: { label: 'Retry', onClick: () => syncStockInToWarehouse(uid) },
+        })
+      }
+    })()
+  }, [])
+
   const handleStockInDone = useCallback(async () => {
     if (!parsedData) {
       setApiError('No data to save.')
@@ -2471,24 +2522,23 @@ export default function Home() {
     const valid = normalizeAndMarkValidated(false)
     if (!valid) return
 
-    // Step 2: save to Supabase
+    // Step 2: save to Supabase (the only step staff wait for)
     const saved = await saveToSupabase()
     if (!saved) return
 
-    // Step 3: load to BigQuery (awaited so user sees "All done!" only after both saves complete)
-    if (window.navigator.onLine) {
-      const loaded = await loadToBigQuery(saved)
-      if (!loaded) return
-    }
-
-    // Step 4: clear draft
+    // Step 3: clear draft and return to the menu right away
     clearOfflineDraft('stock-in')
     setHasStockInLocalDraft(false)
-
-    // Step 5: return to landing
-    addToast('success', '✅ All done!')
     setStockInPhase('landing')
-  }, [parsedData, normalizeAndMarkValidated, loadToBigQuery, addToast, saveToSupabase])
+
+    // Step 4: warehouse (BigQuery) sync runs in the background with its own progress toast
+    const uid = typeof saved === 'string' ? saved : latestGenerateUid
+    if (uid && window.navigator.onLine) {
+      syncStockInToWarehouse(uid)
+    } else if (window.navigator.onLine) {
+      toast.success('Stock in saved')
+    }
+  }, [parsedData, normalizeAndMarkValidated, latestGenerateUid, saveToSupabase, syncStockInToWarehouse])
 
   async function loadToBigQuery(overrideUidOrSaved?: string | boolean) {
     if (!parsedData) {
@@ -2584,7 +2634,12 @@ export default function Home() {
   }
 
   async function deleteTranscriptionHistory(uid: string) {
-    const confirmed = window.confirm('Delete this history record permanently from app history?')
+    const confirmed = await confirmAction({
+      title: 'Delete this stock-in record?',
+      message: 'It is removed from the app history for good. This cannot be undone.',
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    })
     if (!confirmed) return
 
     setIsDeletingHistoryUid(uid)
@@ -2631,7 +2686,12 @@ export default function Home() {
   }
 
   async function deleteStockCheckHistory(uid: string) {
-    const confirmed = window.confirm('Delete this stock-check record permanently from app history?')
+    const confirmed = await confirmAction({
+      title: 'Delete this stock check?',
+      message: 'It is removed from the app history for good. This cannot be undone.',
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    })
     if (!confirmed) return
 
     setIsDeletingStockCheckHistoryUid(uid)
@@ -2772,154 +2832,53 @@ export default function Home() {
   const showSidebarHistory = activeSection === 'data-entry' || activeSection === 'stock-check'
 
   return (
-    <main className="min-h-screen px-2 py-2 sm:px-3 sm:py-3 md:px-8 md:py-7">
-      <ToastStack
-        toasts={toasts}
-        onDismiss={(id) => {
-          setToasts((current) => current.filter((toast) => toast.id !== id))
-        }}
-      />
-      <div className="mx-auto mb-3 flex w-full max-w-7xl flex-col gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between sm:px-4">
-        <p className="w-full truncate sm:w-auto">
-          {isAuthLoading
-            ? 'Checking sign-in session...'
-            : session
-              ? `Signed in as ${session.user.email ?? session.user.id} (${session.roles.join(', ') || 'no role'})`
-              : 'Not signed in'}
-        </p>
-        <div className="flex w-full items-center gap-2 sm:w-auto sm:justify-end">
-          {!session ? (
-            <a href="/login" className="rounded-md border border-slate-300 px-3 py-1.5 text-slate-700 hover:bg-slate-50">
-              Sign in
-            </a>
-          ) : (
-            <button
-              type="button"
-              onClick={async () => {
-                await fetch('/api/auth/logout', { method: 'POST' })
-                window.location.href = '/login'
-              }}
-              className="rounded-md border border-slate-300 px-3 py-1.5 text-slate-700 hover:bg-slate-50"
-            >
-              Sign out
-            </button>
-          )}
-        </div>
-      </div>
-      <div className="mx-auto mb-3 flex w-full max-w-7xl flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs sm:px-4">
-        <span className={`rounded-full px-2 py-1 font-semibold ${isOnline ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-          {isOnline ? 'Online' : 'Offline'}
-        </span>
-        <span className="text-slate-600">
-          Pending offline saves: <strong>{offlineQueueCount}</strong>
-        </span>
-        {isOfflineSyncing && (
-          <span className="rounded-full bg-blue-100 px-2 py-1 font-semibold text-blue-700">
-            Syncing queued saves...
-          </span>
-        )}
-      </div>
-      <div className="mx-auto flex max-w-7xl flex-col gap-3 md:flex-row md:gap-4">
-        <aside className="card-surface rounded-2xl p-3 sm:p-4 md:min-h-[85vh] md:w-72 md:p-6">
-          <div className="mb-5 md:mb-8">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-600">Smart Stock</p>
-            <h2 className="mt-2 text-xl font-bold text-slate-900">Operations Hub</h2>
-          </div>
-
-          <nav className="space-y-2">
-            <button
-              type="button"
-              onClick={() => setActiveSection('data-entry')}
-              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm ${activeSection === 'data-entry'
-                  ? 'bg-brand-50 font-semibold text-brand-700'
-                  : 'text-slate-600 hover:bg-slate-100'
-                }`}
-            >
-              <FileImage className="h-4 w-4" />
-              Stock In
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveSection('stock-check')}
-              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm ${activeSection === 'stock-check'
-                  ? 'bg-brand-50 font-semibold text-brand-700'
-                  : 'text-slate-600 hover:bg-slate-100'
-                }`}
-            >
-              <Search className="h-4 w-4" />
-              Check Stock
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveSection('daily-report')}
-              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm ${activeSection === 'daily-report'
-                  ? 'bg-brand-50 font-semibold text-brand-700'
-                  : 'text-slate-600 hover:bg-slate-100'
-                }`}
-            >
-              <ClipboardList className="h-4 w-4" />
-              Daily Report
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveSection('dashboard')}
-              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm ${activeSection === 'dashboard'
-                  ? 'bg-brand-50 font-semibold text-brand-700'
-                  : 'text-slate-600 hover:bg-slate-100'
-                }`}
-            >
-              <BarChart3 className="h-4 w-4" />
-              Dashboard
-            </button>
-
-            <div className="pt-3">
-              <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                Management
-              </p>
-              <button
-                type="button"
-                onClick={() => setActiveSection('catalog')}
-                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm ${activeSection === 'catalog'
-                    ? 'bg-brand-50 font-semibold text-brand-700'
-                    : 'text-slate-600 hover:bg-slate-100'
-                  }`}
-              >
-                <Database className="h-4 w-4" />
-                Catalog
-              </button>
-            </div>
-          </nav>
-
-          {showSidebarHistory && (
-            <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3 md:mt-5">
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                  {isStockCheckTab ? 'Stock Check Record' : 'Stock In History'}
-                </p>
+    <AppShell
+      active={activeSection}
+      onNavigate={(section) => setActiveSection(section)}
+      sync={{ isOnline, pendingCount: offlineQueueCount, isSyncing: isOfflineSyncing }}
+      account={session ? { email: session.user.email ?? null, roles: session.roles } : null}
+      isAuthLoading={isAuthLoading}
+      onSignOut={signOut}
+      onOpenHistory={showSidebarHistory ? () => setIsHistorySheetOpen(true) : undefined}
+      historyLabel={isStockCheckTab ? 'Stock check history' : 'Stock in history'}
+    >
+      <ToastViewport />
+      {confirmElement}
+      <Sheet
+        open={isHistorySheetOpen && showSidebarHistory}
+        onClose={() => setIsHistorySheetOpen(false)}
+        title={isStockCheckTab ? 'Stock check history' : 'Stock in history'}
+        size="md"
+      >
+            <div>
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-[14px] text-muted">Tap a record to open it.</p>
                 {isStockCheckTab ? (
                   <button
                     type="button"
                     onClick={() => {
+                      setIsHistorySheetOpen(false)
                       void openStockCheckHistory()
                     }}
-                    className="text-xs font-semibold text-brand-600 hover:text-brand-700"
+                    className="inline-flex min-h-10 items-center rounded-control px-2 text-[14px] font-semibold text-forest-800 hover:bg-forest-50"
                   >
-                    View all
+                    Manage all
                   </button>
                 ) : (
                   <button
                     type="button"
                     onClick={() => {
+                      setIsHistorySheetOpen(false)
                       void openHistory()
                     }}
-                    className="text-xs font-semibold text-brand-600 hover:text-brand-700"
+                    className="inline-flex min-h-10 items-center rounded-control px-2 text-[14px] font-semibold text-forest-800 hover:bg-forest-50"
                   >
-                    View all
+                    Manage all
                   </button>
                 )}
               </div>
 
-              <div className="mb-2 space-y-2">
+              <div className="mb-3 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
                 <input
                   type="text"
                   value={isStockCheckTab ? stockCheckSearchTerm : dataEntrySearchTerm}
@@ -2930,8 +2889,8 @@ export default function Home() {
                       setDataEntrySearchTerm(event.target.value)
                     }
                   }}
-                  placeholder={isStockCheckTab ? 'Filter by date/UID' : 'Filter by file/date'}
-                  className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-700 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none"
+                  placeholder={isStockCheckTab ? 'Search date or ID' : 'Search file or date'}
+                  className={fieldClass}
                 />
                 <select
                   value={isStockCheckTab ? stockCheckStatusFilter : dataEntryStatusFilter}
@@ -2942,9 +2901,9 @@ export default function Home() {
                       setDataEntryStatusFilter(event.target.value as 'all' | 'pending' | 'pushed')
                     }
                   }}
-                  className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-700 focus:border-brand-500 focus:outline-none"
+                  className={`${inputClass} w-auto pr-8`}
                 >
-                  <option value="all">All status</option>
+                  <option value="all">All</option>
                   {isStockCheckTab ? (
                     <>
                       <option value="validated">Validated</option>
@@ -2961,11 +2920,11 @@ export default function Home() {
 
               {isStockCheckTab ? (
                 isStockCheckHistoryLoading ? (
-                  <p className="text-xs text-slate-500">Loading history...</p>
+                  <p className="py-6 text-center text-[15px] text-muted">Loading history…</p>
                 ) : sidebarStockCheckHistory.length === 0 ? (
-                  <p className="text-xs text-slate-500">No records yet.</p>
+                  <p className="py-6 text-center text-[15px] text-muted">No records yet.</p>
                 ) : (
-                  <div className="max-h-48 space-y-2 overflow-y-auto pr-1 md:max-h-72">
+                  <div className="space-y-2">
                     {sidebarStockCheckHistory.map((entry) => {
                       const isSelected = selectedStockCheckHistoryRecord?.uid_stock_check === entry.uid_stock_check
                       const modeLabel = entry.mode === 'closing_check' ? 'Closing' : entry.mode || 'Unknown'
@@ -2977,6 +2936,7 @@ export default function Home() {
                           timestamp={entry.timestamp}
                           selected={isSelected}
                           onClick={() => {
+                            setIsHistorySheetOpen(false)
                             if (activeSection === 'stock-check' && selectedStockCheckHistoryRecord) {
                                 setPendingStockCheckHistoryLoad(entry)
                             } else {
@@ -2986,13 +2946,13 @@ export default function Home() {
                           badges={[
                             {
                               label: modeLabel,
-                              className: 'rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-700',
+                              className: 'rounded-full bg-slate-100 px-2 py-0.5 text-[12px] font-medium text-slate-700',
                             },
                             {
                               label: entry.validated ? 'Validated' : 'Unvalidated',
-                              className: `rounded-full px-2 py-0.5 text-[10px] font-semibold ${entry.validated
-                                  ? 'bg-emerald-100 text-emerald-700'
-                                  : 'bg-amber-100 text-amber-700'
+                              className: `rounded-full px-2 py-0.5 text-[12px] font-medium ${entry.validated
+                                  ? 'bg-success-soft text-success'
+                                  : 'bg-warning-soft text-warning'
                                 }`,
                             },
                           ]}
@@ -3002,11 +2962,11 @@ export default function Home() {
                   </div>
                 )
               ) : isHistoryLoading ? (
-                <p className="text-xs text-slate-500">Loading history...</p>
+                <p className="py-6 text-center text-[15px] text-muted">Loading history…</p>
               ) : sidebarDataEntryHistory.length === 0 ? (
-                <p className="text-xs text-slate-500">No records yet.</p>
+                <p className="py-6 text-center text-[15px] text-muted">No records yet.</p>
               ) : (
-                <div className="max-h-48 space-y-2 overflow-y-auto pr-1 md:max-h-72">
+                <div className="space-y-2">
                   {sidebarDataEntryHistory.map((entry) => {
                     const modeLabel = entry.stockMode === 'closing_check' ? 'Closing' : 'Arrival'
 
@@ -3017,6 +2977,8 @@ export default function Home() {
                         timestamp={entry.timestamp}
                         selected={selectedHistoryUid === entry.uid_generate}
                         onClick={() => {
+                          setIsHistorySheetOpen(false)
+                          if (activeSection === 'data-entry' && stockInPhase === 'landing') setStockInPhase('editing')
                           if (parsedData && parsedData.items.some(i => i.quantity !== null) && !editingHistoryUid) {
                             setPendingHistoryLoad(entry.uid_generate)
                           } else {
@@ -3026,13 +2988,13 @@ export default function Home() {
                         badges={[
                           {
                             label: modeLabel,
-                            className: 'rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-700',
+                            className: 'rounded-full bg-slate-100 px-2 py-0.5 text-[12px] font-medium text-slate-700',
                           },
                           {
                             label: entry.isPushed ? 'Pushed' : 'Pending',
-                            className: `rounded-full px-2 py-0.5 text-[10px] font-semibold ${entry.isPushed
-                                ? 'bg-emerald-100 text-emerald-700'
-                                : 'bg-amber-100 text-amber-700'
+                            className: `rounded-full px-2 py-0.5 text-[12px] font-medium ${entry.isPushed
+                                ? 'bg-success-soft text-success'
+                                : 'bg-warning-soft text-warning'
                               }`,
                           },
                         ]}
@@ -3042,29 +3004,42 @@ export default function Home() {
                 </div>
               )}
             </div>
-          )}
-        </aside>
+      </Sheet>
 
-        <div className="flex-1">
-          {activeSection === 'catalog' ? (
-            <CatalogManagementView embedded />
-          ) : activeSection === 'stock-check' ? (
-            <EmbeddedStockCheckPanel
-              catalogItems={visibleCatalog}
-              selectedHistoryRecord={selectedStockCheckHistoryRecord}
-              historyRecords={stockCheckHistory}
-              onToggleCatalogVisibility={toggleCatalogItemVisibility}
-            />
-          ) : activeSection === 'daily-report' ? (
-            <DailyReportPanel catalogItems={visibleCatalog} />
-          ) : activeSection === 'dashboard' ? (
-            <DashboardPanel catalogItems={visibleCatalog} />
-          ) : stockInPhase === 'landing' ? (
+          {visitedSections.has('catalog') ? (
+            <div hidden={activeSection !== 'catalog'}>
+              <CatalogManagementView embedded />
+            </div>
+          ) : null}
+          {visitedSections.has('stock-check') ? (
+            <div hidden={activeSection !== 'stock-check'}>
+              <EmbeddedStockCheckPanel
+                catalogItems={visibleCatalog}
+                selectedHistoryRecord={selectedStockCheckHistoryRecord}
+                historyRecords={stockCheckHistory}
+                onToggleCatalogVisibility={toggleCatalogItemVisibility}
+                onOpenHistory={() => setIsHistorySheetOpen(true)}
+              />
+            </div>
+          ) : null}
+          {visitedSections.has('daily-report') ? (
+            <div hidden={activeSection !== 'daily-report'}>
+              <DailyReportPanel catalogItems={visibleCatalog} />
+            </div>
+          ) : null}
+          {visitedSections.has('dashboard') ? (
+            <div hidden={activeSection !== 'dashboard'}>
+              <DashboardPanel catalogItems={visibleCatalog} />
+            </div>
+          ) : null}
+          <div hidden={activeSection !== 'data-entry'}>
+          {stockInPhase === 'landing' ? (
             <SectionLandingState
-              sectionLabel="Receive Stock"
+              sectionLabel="Stock in"
+              subtitle="Count what arrived this morning."
               hasDraft={hasStockInLocalDraft}
               draftAge={getOfflineDraftAge('stock-in')}
-              draftItemCount={parsedData?.items.filter(i => i.quantity !== null).length || 0}
+              draftItemCount={stockInDraftItemCount}
               historyCount={historyData.length}
               onAction={(action) => {
                 if (action === 'new') {
@@ -3080,46 +3055,35 @@ export default function Home() {
             />
           ) : (
             <div className="space-y-4">
-              <section className="card-surface rounded-2xl p-6 pb-24 md:p-8 md:pb-8">
-                <div className="mb-4 sticky top-0 z-20 flex items-center justify-between rounded-lg bg-slate-800 px-4 py-2 text-white shadow-lg">
-                  <div className="flex items-center gap-2 text-sm">
-                    {editingHistoryUid ? '📂' : '📝'}
-                    <span className="font-medium">
-                      {editingHistoryUid
-                        ? `Editing ${formatSheetDate(parsedData?.stock_date)} record`
-                        : `New · ${formatSheetDate(parsedData?.stock_date || today)}`}
-                    </span>
-                    <span className="text-slate-400">·</span>
-                    <span className="text-slate-300">
-                      {parsedData?.items.filter(i => i.quantity !== null).length || 0} items
-                    </span>
-                  </div>
-                  <button 
-                    onClick={() => setStockInPhase('landing')} 
-                    className="text-xs text-slate-400 hover:text-white transition-colors"
+              <section className="rounded-card border border-line bg-surface p-4 sm:p-6">
+                <div className="mb-4">
+                  <button
+                    type="button"
+                    onClick={() => setStockInPhase('landing')}
+                    className="-ml-2 inline-flex min-h-10 items-center gap-1 rounded-control px-2 text-[15px] text-muted hover:bg-slate-100 hover:text-ink"
                   >
-                    ✕ Back to Menu
+                    <ChevronLeft className="h-5 w-5" aria-hidden="true" />
+                    Menu
                   </button>
-                </div>
-
-                <div className="mb-4 mt-4">
-                  <h1 className="text-2xl font-bold text-slate-900 md:text-3xl">Stock In</h1>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Stock In is for stock-in input. For stock-closing (manual or parse from photo), use Check Stock.
-                  </p>
+                  <div className="mt-1 flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
+                    <h1 className="text-[24px] font-semibold leading-tight tracking-[-0.01em] text-ink">
+                      {editingHistoryUid ? 'Edit stock in' : 'Stock in'}
+                    </h1>
+                    <p className="text-[14px] text-muted tabular">
+                      {formatSheetDate(parsedData?.stock_date || today)} · {filledItemCount} {filledItemCount === 1 ? 'item' : 'items'} counted
+                    </p>
+                  </div>
                 </div>
 
                 {editingHistoryUid && (
-                  <div className="mb-4 flex flex-col gap-2 rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-sm text-brand-800 sm:flex-row sm:items-center sm:justify-between">
-                    <p>
-                      Editing history record <strong>{editingHistoryUid}</strong>. Save will overwrite this record.
-                    </p>
+                  <div className="mb-4 flex items-center gap-3 rounded-control bg-forest-50 px-3 py-2 text-[14px] text-forest-900">
+                    <p className="min-w-0 flex-1">Saving will update the saved record.</p>
                     <button
                       type="button"
                       onClick={startNewDraftFromCurrent}
-                      className="rounded-md border border-brand-300 bg-white px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-100"
+                      className="inline-flex min-h-9 shrink-0 items-center rounded-[8px] px-2.5 text-[14px] font-semibold text-forest-800 hover:bg-forest-100"
                     >
-                      New Draft
+                      Save as new
                     </button>
                   </div>
                 )}
@@ -3129,83 +3093,131 @@ export default function Home() {
                     value={isManualEntryMode ? 'manual' : 'photo'}
                     onManual={confirmStartManualEntry}
                     onPhoto={confirmStartPhotoEntry}
-                    manualLabel="Manual Entry"
-                    photoLabel="Photo Entry"
-                    manualHelpText="Enter stock values manually and review them in the stocklist viewer."
-                    photoHelpText="Upload a photo, parse it, then review values in the stocklist viewer."
+                    manualLabel="Type"
+                    photoLabel="Photo"
+                    manualHelpText="Search an item, type the count, press Enter."
+                    photoHelpText="Take or choose a photo of the paper sheet, then check the numbers."
                   />
 
                   {isManualEntryMode ? (
-                    <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-2">
-                      <div className="rounded-lg bg-white p-3">
-                        <p className="text-sm font-semibold text-slate-800">Input</p>
-                        <div className="mt-2 space-y-2">
-                          <div className="flex w-full flex-col gap-1">
-                            <label htmlFor="paper-stock-date" className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Date</label>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="md:rounded-card md:border md:border-line md:p-4">
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <label htmlFor="paper-stock-date" className="whitespace-nowrap text-[14px] font-medium text-ink">Stock date</label>
                             <input
                               id="paper-stock-date"
                               type="date"
                               value={parsedData?.stock_date ?? ''}
                               onChange={(event) => updateParsedStockDate(event.target.value)}
                               disabled={!parsedData}
-                              className="min-h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 focus:border-brand-500 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-100"
+                              className={`${inputClass} w-auto tabular`}
                             />
                           </div>
 
                           <div ref={dataEntryAddContainerRef} className="relative">
-                            <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Item</label>
-                            <input
-                              type="text"
-                              value={dataEntryNewItemName}
-                              onChange={(event) => {
-                                setDataEntryNewItemName(event.target.value)
-                                setDataEntrySelectedCatalogCode(null)
-                              }}
-                              onKeyDown={handleItemInputKeyDown}
-                              placeholder="Search or type item name"
-                              disabled={!parsedData}
-                              className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base text-slate-700 focus:border-brand-500 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-100"
-                            />
+                            <label htmlFor="stock-in-item-search" className="mb-1.5 block text-[14px] font-medium text-ink">Item</label>
+                            <div className="relative">
+                              <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                              <input
+                                id="stock-in-item-search"
+                                ref={dataEntryItemInputRef}
+                                type="search"
+                                value={dataEntryNewItemName}
+                                onChange={(event) => {
+                                  setDataEntryNewItemName(event.target.value)
+                                  setDataEntrySelectedCatalogCode(null)
+                                }}
+                                onKeyDown={handleItemInputKeyDown}
+                                placeholder="Search item"
+                                autoComplete="off"
+                                autoCorrect="off"
+                                spellCheck={false}
+                                enterKeyHint="next"
+                                disabled={!parsedData}
+                                className={`${fieldClass} min-h-12 pl-10`}
+                              />
+                            </div>
 
                             {dataEntryNewItemName.trim().length > 0 && dataEntryAddSuggestions.length > 0 && parsedData && !dataEntrySelectedCatalogCode && (
-                              <div className="absolute z-20 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg">
-                                {dataEntryAddSuggestions.map((item) => (
-                                  <button
-                                    key={item.code}
-                                    type="button"
-                                    onClick={() => selectDataEntryCatalogSuggestion(item)}
-                                    className={`block w-full border-b border-slate-100 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 last:border-b-0 ${dataEntryAddSuggestions[dataEntryAddHighlightIndex]?.code === item.code ? 'bg-brand-50 text-brand-700' : ''}`}
-                                  >
-                                    {item.official_name} ({item.code})
-                                  </button>
-                                ))}
+                              <div role="listbox" className="absolute z-30 mt-1 w-full overflow-hidden rounded-control border border-line bg-surface shadow-raised">
+                                {dataEntryAddSuggestions.map((item, suggestionIndex) => {
+                                  const currentQty = dataEntryQtyByCode.get(item.code.trim().toUpperCase())
+                                  const highlighted = suggestionIndex === dataEntryAddHighlightIndex
+                                  return (
+                                    <button
+                                      key={item.code}
+                                      type="button"
+                                      role="option"
+                                      aria-selected={highlighted}
+                                      onPointerDown={(event) => event.preventDefault()}
+                                      onClick={() => selectDataEntryCatalogSuggestion(item)}
+                                      className={`flex min-h-12 w-full items-center gap-3 border-b border-line px-3 text-left last:border-b-0 ${highlighted ? 'bg-forest-50' : 'hover:bg-slate-50 active:bg-slate-100'}`}
+                                    >
+                                      <span className="min-w-0 flex-1">
+                                        <span className="block truncate text-[15px] text-ink">{item.official_name}</span>
+                                        <span className="block truncate text-[12px] text-muted">{item.category || item.code}</span>
+                                      </span>
+                                      {currentQty !== undefined ? (
+                                        <span className="shrink-0 rounded-full bg-forest-50 px-2 py-0.5 text-[12px] font-medium text-forest-800 tabular">has {currentQty}</span>
+                                      ) : null}
+                                    </button>
+                                  )
+                                })}
                               </div>
                             )}
-                            <p className="mt-1 text-[11px] text-slate-500">Use arrow keys + Enter to select a suggestion.</p>
                           </div>
 
-                          <div>
-                            <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Qty</label>
-                            <input
-                              type="number"
-                              step="any"
-                              value={manualEntryQuantity}
-                              onChange={(event) => setManualEntryQuantity(event.target.value)}
-                              placeholder="e.g. 6"
-                              disabled={!parsedData}
-                              className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base text-slate-700 focus:border-brand-500 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-100"
-                            />
+                          <div className="flex items-end gap-2">
+                            <div className="min-w-0 flex-1">
+                              <label htmlFor="stock-in-qty" className="mb-1.5 block text-[14px] font-medium text-ink">Quantity</label>
+                              <NumberInput
+                                id="stock-in-qty"
+                                ref={dataEntryQtyInputRef}
+                                inputMode="numeric"
+                                enterKeyHint="done"
+                                value={manualEntryQuantity}
+                                onChange={(event) => setManualEntryQuantity(event.target.value)}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter') {
+                                    event.preventDefault()
+                                    submitManualEntry()
+                                  }
+                                }}
+                                placeholder="0"
+                                disabled={!parsedData}
+                                className="min-h-12 text-[18px] font-semibold"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={submitManualEntry}
+                              disabled={!parsedData || !parsedData.stock_date || dataEntryNewItemName.trim().length === 0 || parseWholeQuantity(manualEntryQuantity) === null}
+                              className="inline-flex min-h-12 shrink-0 items-center justify-center gap-1.5 rounded-control bg-forest-900 px-5 text-[16px] font-semibold text-white transition-colors duration-150 hover:bg-forest-700 disabled:cursor-not-allowed disabled:bg-forest-900/30"
+                            >
+                              <Plus className="h-5 w-5" aria-hidden="true" />
+                              Add
+                            </button>
                           </div>
 
-                          <button
-                            type="button"
-                            onClick={addManualKnownItem}
-                            disabled={!parsedData || !parsedData.stock_date || dataEntryNewItemName.trim().length === 0 || parseWholeQuantity(manualEntryQuantity) === null}
-                            className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-slate-400"
-                          >
-                            <Plus className="h-4 w-4" />
-                            Add
-                          </button>
+                          {lastAddedEntry ? (
+                            <div key={lastAddedEntry.id} className="flex animate-fade-in items-center gap-2 rounded-control bg-forest-50 py-1.5 pl-3 pr-1.5" role="status">
+                              <Check className="h-4 w-4 shrink-0 text-success" aria-hidden="true" />
+                              <p className="min-w-0 flex-1 truncate text-[14px] text-ink">
+                                <span className="font-medium">{lastAddedEntry.name}</span>
+                                <span className="tabular"> · {lastAddedEntry.quantity}</span>
+                                {lastAddedEntry.note ? <span className="text-muted"> · {lastAddedEntry.note}</span> : null}
+                              </p>
+                              <button
+                                type="button"
+                                onClick={undoLastAdded}
+                                className="inline-flex min-h-9 shrink-0 items-center gap-1 rounded-[8px] px-2.5 text-[14px] font-semibold text-forest-800 hover:bg-forest-100"
+                              >
+                                <Undo2 className="h-4 w-4" aria-hidden="true" />
+                                Undo
+                              </button>
+                            </div>
+                          ) : null}
                         </div>
                       </div>
 
@@ -3221,7 +3233,7 @@ export default function Home() {
                               {editableDataEntryCatalogItem ? 'Edit this catalog profile.' : 'Create a catalog profile if it is new.'}
                             </p>
                           </div>
-                          <span className="rounded-full border border-slate-300 bg-slate-50 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600">
+                          <span className="rounded-full border border-slate-300 bg-slate-50 px-2 py-1 text-[12px] font-medium text-muted">
                             {isItemProfilesExpanded ? 'Collapse' : 'Expand'}
                           </span>
                         </button>
@@ -3229,7 +3241,7 @@ export default function Home() {
                         {isItemProfilesExpanded && (
                           <>
                             <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                              <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                              <label className="text-[13px] font-medium text-muted">
                                 Official Name
                                 <input
                                   type="text"
@@ -3239,7 +3251,7 @@ export default function Home() {
                                   className="mt-1 min-h-10 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal normal-case tracking-normal text-slate-700 focus:border-brand-500 focus:outline-none"
                                 />
                               </label>
-                              <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                              <label className="text-[13px] font-medium text-muted">
                                 Origin
                                 <input
                                   type="text"
@@ -3249,7 +3261,7 @@ export default function Home() {
                                   className="mt-1 min-h-10 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal normal-case tracking-normal text-slate-700 focus:border-brand-500 focus:outline-none"
                                 />
                               </label>
-                              <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                              <label className="text-[13px] font-medium text-muted">
                                 Category
                                 <select
                                   value={inlineCreateForm.category}
@@ -3262,7 +3274,7 @@ export default function Home() {
                                   ))}
                                 </select>
                               </label>
-                              <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                              <label className="text-[13px] font-medium text-muted">
                                 Location
                                 <select
                                   value={inlineCreateForm.location}
@@ -3280,7 +3292,7 @@ export default function Home() {
                                   <option value="Outside Coolroom">Outside Coolroom</option>
                                 </select>
                               </label>
-                              <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                              <label className="text-[13px] font-medium text-muted">
                                 Sub-location
                                 <select
                                   value={inlineCreateForm.sub_location}
@@ -3294,7 +3306,7 @@ export default function Home() {
                               </label>
                             </div>
                             <div className="mt-2 flex flex-wrap items-center gap-2">
-                              <label className="min-w-[150px] flex-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                              <label className="min-w-[150px] flex-1 text-[13px] font-medium text-muted">
                                 Attribute
                                 <input
                                   type="text"
@@ -3304,7 +3316,7 @@ export default function Home() {
                                   className="mt-1 min-h-10 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal normal-case tracking-normal text-slate-700 focus:border-brand-500 focus:outline-none"
                                 />
                               </label>
-                              <label className="w-32 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                              <label className="w-32 text-[13px] font-medium text-muted">
                                 Quantity / Weight (items)
                                 <input
                                   type="number"
@@ -3316,7 +3328,7 @@ export default function Home() {
                                   className="mt-1 min-h-10 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal normal-case tracking-normal text-slate-700 focus:border-brand-500 focus:outline-none"
                                 />
                               </label>
-                              <label className="w-32 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                              <label className="w-32 text-[13px] font-medium text-muted">
                                 Unit
                                 <select
                                   value={inlineCreateForm.inner_unit}
@@ -3354,7 +3366,7 @@ export default function Home() {
                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 md:p-5">
                       <div className="grid gap-3 md:grid-cols-[220px_1fr_auto] md:items-end">
                         <div className="flex w-full flex-col gap-1">
-                          <label htmlFor="paper-stock-date" className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Date</label>
+                          <label htmlFor="paper-stock-date" className="text-[13px] font-medium text-muted">Date</label>
                           <input
                             id="paper-stock-date"
                             type="date"
@@ -3400,33 +3412,26 @@ export default function Home() {
                 </div>
               </section>
 
-              <section className="card-surface rounded-2xl p-6 md:p-8">
-                <div className="mb-4 grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
-                  <div>
-                    <h2 className="text-xl font-semibold text-slate-900">Editable Stocklist Layout</h2>
-                    <p className="mt-1 text-xs text-slate-600">
-                      {stockInQueueCount > 0
-                        ? `${stockInQueueCount} stock-in save${stockInQueueCount > 1 ? 's' : ''} queued for sync.`
-                        : hasStockInLocalDraft
-                          ? 'Local draft is active and visible in review table.'
-                          : 'No local draft yet.'}
-                    </p>
-                  </div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                    {!isOnline ? 'Offline mode active.' : isOfflineSyncing ? 'Syncing queued saves...' : 'Search items above the stocklist viewer.'}
+              <section className="rounded-card border border-line bg-surface p-4 sm:p-6">
+                <div className="mb-3 flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
+                  <h2 className="text-[20px] font-semibold tracking-[-0.01em] text-ink">Counted items</h2>
+                  <p className="text-[14px] text-muted tabular">
+                    {stockInQueueCount > 0
+                      ? `${stockInQueueCount} save${stockInQueueCount > 1 ? 's' : ''} waiting to upload`
+                      : `${filledItemCount} ${filledItemCount === 1 ? 'item' : 'items'} · tap a number to change it`}
                   </p>
                 </div>
 
                 <div className="mobile-sticky-add mb-4 space-y-3">
                   <div ref={dataEntryFindContainerRef} className="relative">
-                    <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Search</label>
-                    <Search className="pointer-events-none absolute left-3 top-8 h-4 w-4 text-slate-400" />
+                    <Search className="pointer-events-none absolute left-3 top-[22px] h-5 w-5 -translate-y-1/2 text-slate-400" aria-hidden="true" />
                     <input
-                      type="text"
+                      type="search"
                       value={dataEntryFindTerm}
                       onChange={(event) => setDataEntryFindTerm(event.target.value)}
-                      placeholder="Search in stocklist viewer"
-                      className="min-h-11 w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-9 pr-10 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
+                      placeholder="Find in this list"
+                      aria-label="Find in this list"
+                      className={`${fieldClass} pl-10 pr-10`}
                     />
 
                     {dataEntryFindTerm.trim().length > 0 && (
@@ -3434,7 +3439,7 @@ export default function Home() {
                         type="button"
                         onClick={() => setDataEntryFindTerm('')}
                         aria-label="Clear stocklist search"
-                        className="absolute right-2 top-8 inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                        className="absolute right-1 top-0.5 inline-flex h-10 w-10 items-center justify-center rounded-control text-slate-500 hover:bg-slate-100 hover:text-slate-700"
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
@@ -3471,8 +3476,8 @@ export default function Home() {
 
                 <div className="space-y-6">
                   {isDataEntryMobileViewport && (
-                    <div className="mb-3 flex items-center justify-between rounded-lg border border-slate-200 bg-white p-2 md:hidden">
-                      <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Mobile View</span>
+                    <div className="mb-3 flex items-center justify-between gap-2 md:hidden">
+                      <span className="text-[14px] text-muted">View</span>
                       <div className="flex items-center gap-2">
                         <div className="grid grid-cols-2 gap-1 rounded-md bg-slate-100 p-1">
                           <button
@@ -3615,25 +3620,29 @@ export default function Home() {
                     type="button"
                     onClick={handleStockInDone}
                     disabled={!parsedData || isSavingSupabase || isLoadingBigQuery || isExporting}
-                    className="flex-1 min-h-12 rounded-lg bg-emerald-600 px-6 py-3
-                               text-base font-semibold text-white hover:bg-emerald-700
-                               disabled:bg-slate-300 transition-colors shadow-md"
+                    aria-busy={isSavingSupabase || undefined}
+                    className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-control bg-forest-900 px-5 text-[16px] font-semibold text-white transition-colors duration-150 hover:bg-forest-700 disabled:cursor-not-allowed disabled:bg-forest-900/40"
                   >
                     {isSavingSupabase ? (
-                      <div className="flex items-center justify-center gap-2">
-                        <Loader2 className="h-5 w-5 animate-spin" />
-                        <span>Saving...</span>
-                      </div>
+                      <>
+                        <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+                        <span>Saving…</span>
+                      </>
                     ) : (
-                      `✅ Done (${filledItemCount} items)`
+                      <>
+                        <Check className="h-5 w-5" aria-hidden="true" />
+                        <span>Done · {filledItemCount} {filledItemCount === 1 ? 'item' : 'items'}</span>
+                      </>
                     )}
                   </button>
 
                   <div className="relative">
-                    <button 
+                    <button
+                      type="button"
                       onClick={() => setShowOverflow(v => !v)}
-                      className="min-h-12 rounded-lg border border-slate-300 bg-white px-4 py-3 text-slate-600 hover:bg-slate-50 transition-colors"
+                      className="inline-flex min-h-12 w-12 items-center justify-center rounded-control border border-line bg-surface text-ink hover:bg-slate-100"
                       aria-label="More actions"
+                      aria-expanded={showOverflow}
                     >
                       <Settings className="h-5 w-5" />
                     </button>
@@ -3660,8 +3669,7 @@ export default function Home() {
               </section>
             </div>
           )}
-        </div>
-      </div>
+          </div>
 
       {isCatalogOpen && activeCatalog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
@@ -3864,6 +3872,6 @@ export default function Home() {
         onCancel={() => setPendingStockCheckHistoryLoad(null)}
       />
 
-    </main>
+    </AppShell>
   )
 }

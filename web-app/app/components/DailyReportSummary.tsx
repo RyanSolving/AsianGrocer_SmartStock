@@ -15,6 +15,7 @@ import {
 import { formatQuantity, summarizeInsights } from '../../lib/report-insights'
 import { formatSheetDate } from '../../lib/stock-paper-utils'
 import { squarify } from '../../lib/treemap'
+import { BrandTile } from './BrandMark'
 
 /**
  * Daily summary (Dashboard tab + exported photo for the owner).
@@ -272,14 +273,7 @@ export function DailyReportSummary({ containerRef, photoMode = false, date, prev
       {/* Title row: product mark, the screen's name, the finding, the date */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 items-center gap-3">
-          <div
-            aria-hidden="true"
-            className="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-lg text-[13px] font-bold leading-[1.15] text-white"
-            style={{ backgroundColor: C.brand }}
-          >
-            <span>新興</span>
-            <span>雜貨</span>
-          </div>
+          <BrandTile size="md" />
           <div className="min-w-0">
             <p className="text-[13px] font-medium" style={{ color: C.muted }}>Asian Grocer</p>
             <h2 className="text-[24px] font-semibold leading-tight">Daily summary</h2>

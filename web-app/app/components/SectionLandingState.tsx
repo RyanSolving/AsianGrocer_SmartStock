@@ -1,17 +1,27 @@
 'use client'
-import { PlusCircle, FileText, History, ArrowRight } from 'lucide-react'
+import { ChevronRight, FileClock, History, Plus } from 'lucide-react'
 
 type LandingAction = 'new' | 'continue' | 'history'
 
 type SectionLandingStateProps = {
-  sectionLabel: string           // "Receive Stock" or "Count Stock"
-  hasDraft: boolean              // from hasOfflineDraft('stock-in')
-  draftAge?: string | null       // e.g. "2h ago"
-  draftItemCount?: number        // count of items with non-null qty in the draft
-  historyCount: number           // how many history records exist
+  sectionLabel: string // "Receive Stock" or "Count Stock"
+  hasDraft: boolean // from hasOfflineDraft('stock-in')
+  draftAge?: string | null // e.g. "2h ago"
+  draftItemCount?: number // count of items with non-null qty in the draft
+  historyCount: number // how many history records exist
   onAction: (action: LandingAction) => void
+  /** One line under the title, e.g. "Count what arrived this morning." */
+  subtitle?: string
 }
 
+function todayLabel() {
+  return new Date().toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' })
+}
+
+/**
+ * Start screen for Stock In and Check Stock: one large primary action,
+ * the saved draft as a resumable card, and history as a quiet row.
+ */
 export function SectionLandingState({
   sectionLabel,
   hasDraft,
@@ -19,66 +29,66 @@ export function SectionLandingState({
   draftItemCount,
   historyCount,
   onAction,
+  subtitle,
 }: SectionLandingStateProps) {
   return (
-    <div className="flex flex-col items-center justify-center py-8 px-4 max-w-2xl mx-auto space-y-8">
-      <div className="text-center">
-        <h1 className="text-3xl font-bold text-slate-900">{sectionLabel}</h1>
-        <p className="mt-2 text-slate-500">Choose how you want to start your session.</p>
+    <div className="mx-auto w-full max-w-xl space-y-4 py-2 sm:py-6">
+      <div>
+        <p className="text-[14px] text-muted">{todayLabel()}</p>
+        <h1 className="mt-0.5 text-[28px] font-semibold leading-tight tracking-[-0.015em] text-ink">{sectionLabel}</h1>
+        {subtitle ? <p className="mt-1 text-[15px] text-muted">{subtitle}</p> : null}
       </div>
 
-      <div className="grid gap-4 w-full sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-1">
-        {/* Start New Card */}
+      {hasDraft ? (
         <button
-          onClick={() => onAction('new')}
-          className="group relative flex items-center gap-4 rounded-2xl border-2 border-slate-200 bg-white p-5 text-left transition-all hover:border-brand-500 hover:shadow-md active:scale-[0.98]"
+          type="button"
+          onClick={() => onAction('continue')}
+          className="group flex w-full items-center gap-4 rounded-card bg-forest-900 p-5 text-left text-white transition-colors duration-150 hover:bg-forest-800 active:bg-forest-950"
         >
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 transition-colors group-hover:bg-brand-100">
-            <PlusCircle className="h-6 w-6" />
-          </div>
-          <div className="flex-1">
-            <h3 className="font-bold text-slate-900">Start New</h3>
-            <p className="text-sm text-slate-500">Fresh session with today&apos;s date.</p>
-          </div>
-          <ArrowRight className="h-5 w-5 text-slate-300 transition-transform group-hover:translate-x-1 group-hover:text-brand-500" />
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-control bg-white/10">
+            <FileClock className="h-6 w-6" aria-hidden="true" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[18px] font-semibold">Continue draft</span>
+            <span className="mt-0.5 block text-[14px] text-white/75 tabular">
+              {draftItemCount || 0} {draftItemCount === 1 ? 'item' : 'items'} counted · {draftAge || 'recently'}
+            </span>
+          </span>
+          <ChevronRight className="h-6 w-6 text-white/60 transition-transform duration-150 group-hover:translate-x-0.5" aria-hidden="true" />
         </button>
+      ) : null}
 
-        {/* Continue Draft Card */}
-        {hasDraft && (
-          <button
-            onClick={() => onAction('continue')}
-            className="group relative flex items-center gap-4 rounded-2xl border-2 border-amber-200 bg-amber-50/30 p-5 text-left transition-all hover:border-amber-500 hover:shadow-md active:scale-[0.98]"
-          >
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-600 transition-colors group-hover:bg-amber-200">
-              <FileText className="h-6 w-6" />
-            </div>
-            <div className="flex-1">
-              <h3 className="font-bold text-slate-900">Continue Draft</h3>
-              <p className="text-sm text-slate-500">
-                Resumed {draftAge || 'recently'} · {draftItemCount || 0} items filled
-              </p>
-            </div>
-            <ArrowRight className="h-5 w-5 text-slate-300 transition-transform group-hover:translate-x-1 group-hover:text-amber-500" />
-          </button>
-        )}
+      <button
+        type="button"
+        onClick={() => onAction('new')}
+        className={`group flex w-full items-center gap-4 rounded-card p-5 text-left transition-colors duration-150 ${
+          hasDraft
+            ? 'border border-line bg-surface text-ink hover:bg-slate-50 active:bg-slate-100'
+            : 'bg-forest-900 text-white hover:bg-forest-800 active:bg-forest-950'
+        }`}
+      >
+        <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-control ${hasDraft ? 'bg-forest-50 text-forest-800' : 'bg-white/10'}`}>
+          <Plus className="h-6 w-6" aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[18px] font-semibold">Start new</span>
+          <span className={`mt-0.5 block text-[14px] ${hasDraft ? 'text-muted' : 'text-white/75'}`}>
+            {hasDraft ? 'Replaces the draft with an empty sheet' : 'Empty sheet for today'}
+          </span>
+        </span>
+        <ChevronRight className={`h-6 w-6 transition-transform duration-150 group-hover:translate-x-0.5 ${hasDraft ? 'text-slate-400' : 'text-white/60'}`} aria-hidden="true" />
+      </button>
 
-        {/* Load History Card */}
-        <button
-          onClick={() => onAction('history')}
-          className="group relative flex items-center gap-4 rounded-2xl border-2 border-slate-200 bg-white p-5 text-left transition-all hover:border-brand-500 hover:shadow-md active:scale-[0.98]"
-        >
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600 transition-colors group-hover:bg-slate-200">
-            <History className="h-6 w-6" />
-          </div>
-          <div className="flex-1">
-            <h3 className="font-bold text-slate-900">History</h3>
-            <p className="text-sm text-slate-500">
-              {historyCount > 0 ? `${historyCount} records available` : 'No past records found'}
-            </p>
-          </div>
-          <ArrowRight className="h-5 w-5 text-slate-300 transition-transform group-hover:translate-x-1 group-hover:text-brand-500" />
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={() => onAction('history')}
+        className="flex min-h-14 w-full items-center gap-3 rounded-card border border-line bg-surface px-5 text-left text-ink transition-colors duration-150 hover:bg-slate-50 active:bg-slate-100"
+      >
+        <History className="h-5 w-5 text-muted" aria-hidden="true" />
+        <span className="flex-1 text-[16px]">History</span>
+        <span className="text-[14px] text-muted tabular">{historyCount > 0 ? `${historyCount} records` : 'None yet'}</span>
+        <ChevronRight className="h-5 w-5 text-slate-400" aria-hidden="true" />
+      </button>
     </div>
   )
 }

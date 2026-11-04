@@ -1,9 +1,11 @@
 'use client'
 
 import { FormEvent, useMemo, useState } from 'react'
-import Link from 'next/link'
 
 import { createSupabaseBrowserClient } from '../../lib/supabase/client'
+import { BrandMark } from '../components/BrandMark'
+import { Button } from '../components/ui/Button'
+import { fieldClass, inputClass } from '../components/ui/Input'
 
 export default function LoginPage() {
   const supabase = useMemo(() => createSupabaseBrowserClient(), [])
@@ -11,14 +13,12 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [message, setMessage] = useState<string | null>(null)
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
     setIsSubmitting(true)
     setError(null)
-    setMessage(null)
 
     try {
       const { error: loginError } = await supabase.auth.signInWithPassword({ email, password })
@@ -26,67 +26,72 @@ export default function LoginPage() {
       const nextPath = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('next') : null
       window.location.href = nextPath && nextPath.startsWith('/') ? nextPath : '/'
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : 'Unexpected auth error.')
+      const raw = submitError instanceof Error ? submitError.message : ''
+      setError(/invalid login credentials/i.test(raw) ? 'Email or password is not right.' : raw || 'Could not sign in. Please try again.')
     } finally {
       setIsSubmitting(false)
     }
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-100 px-4 py-10">
-      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="text-xs font-semibold uppercase tracking-[0.15em] text-brand-600">Smart Stock Access</p>
-        <h1 className="mt-2 text-2xl font-bold text-slate-900">Sign in</h1>
-        <p className="mt-2 text-sm text-slate-600">Accounts are provisioned manually by an administrator.</p>
+    <main className="flex min-h-dvh flex-col bg-forest-900">
+      <div className="safe-top flex flex-1 flex-col justify-end px-6 pb-10 pt-16 sm:items-center sm:justify-center sm:pb-16">
+        <div className="w-full sm:max-w-sm">
+          <BrandMark size="lg" withWordmark onDark eyebrow="Stock" title="Asian Grocer" />
+          <p className="mt-6 text-[15px] leading-relaxed text-white/70">
+            Stock in, closing counts and the daily report, in one place.
+          </p>
+        </div>
+      </div>
 
-        <form onSubmit={onSubmit} className="mt-6 space-y-4">
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700" htmlFor="email">
+      <div className="safe-bottom rounded-t-[24px] bg-surface px-6 pb-8 pt-7 sm:mx-auto sm:mb-16 sm:w-full sm:max-w-sm sm:rounded-card sm:pb-7">
+        <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-ink">Sign in</h1>
+        <form onSubmit={onSubmit} className="mt-5 space-y-4">
+          <div className="space-y-1.5">
+            <label className="block text-[14px] font-medium text-ink" htmlFor="email">
               Email
             </label>
             <input
               id="email"
               type="email"
+              inputMode="email"
+              autoComplete="email"
+              autoCapitalize="none"
               required
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-brand-500 transition focus:ring-2"
+              className={`${fieldClass} min-h-12`}
             />
           </div>
 
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700" htmlFor="password">
+          <div className="space-y-1.5">
+            <label className="block text-[14px] font-medium text-ink" htmlFor="password">
               Password
             </label>
             <input
               id="password"
               type="password"
+              autoComplete="current-password"
               required
               minLength={8}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-brand-500 transition focus:ring-2"
+              className={`${fieldClass} min-h-12`}
             />
           </div>
 
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="inline-flex w-full items-center justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
-          >
-            {isSubmitting ? 'Processing...' : 'Sign in'}
-          </button>
+          {error ? (
+            <p role="alert" className="rounded-control bg-danger-soft px-3 py-2 text-[14px] text-danger">
+              {error}
+            </p>
+          ) : null}
+
+          <Button type="submit" size="lg" block loading={isSubmitting} loadingLabel="Signing in…">
+            Sign in
+          </Button>
         </form>
 
-        {error && <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-        {message && <p className="mt-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{message}</p>}
-
-        <div className="mt-5 flex items-center justify-between text-sm">
-          <p className="text-slate-500">Contact admin to create your account.</p>
-          <Link href="/" className="text-slate-500 hover:text-slate-700">
-            Back to app
-          </Link>
-        </div>
+        <p className="mt-5 text-[13px] text-muted">Accounts are created by the store admin.</p>
       </div>
     </main>
   )

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { X, RefreshCw, Clock, FileImage, Trash2 } from 'lucide-react'
+import { Sheet } from './ui/Sheet'
 
 type HistoryEntry = {
   uid_generate: string
@@ -176,29 +177,8 @@ export function TranscriptionHistoryDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-      <div className="card-surface relative max-h-[90vh] w-full max-w-2xl rounded-2xl p-6 shadow-xl">
-        {/* Header */}
-        <div className="mb-6 flex items-center justify-between border-b border-slate-200 pb-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-brand-100">
-              <Clock className="h-5 w-5 text-brand-600" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-slate-900">Transcription History</h2>
-              <p className="text-xs text-slate-500">View and manage previous transcriptions</p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="rounded-lg p-1 text-slate-500 hover:bg-slate-100"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="max-h-[calc(90vh-150px)] space-y-3 overflow-y-auto">
+    <Sheet open={isOpen} onClose={onClose} title="Stock in history" description="Open a saved stock in to edit it, re-sync it, or delete it." size="lg">
+        <div className="space-y-3">
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
               <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-brand-600"></div>
@@ -213,7 +193,7 @@ export function TranscriptionHistoryDialog({
             history.map((entry) => (
               <div
                 key={entry.uid_generate}
-                className="rounded-lg border border-slate-200 bg-white p-4 transition hover:border-slate-300"
+                className="rounded-card border border-line bg-surface p-4"
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1">
@@ -225,8 +205,8 @@ export function TranscriptionHistoryDialog({
                       <span
                         className={`rounded-full px-2 py-1 text-xs font-semibold ${
                           entry.isPushed
-                            ? 'bg-emerald-100 text-emerald-700'
-                            : 'bg-amber-100 text-amber-700'
+                            ? 'bg-success-soft text-success'
+                            : 'bg-warning-soft text-warning'
                         }`}
                       >
                         {entry.isPushed ? 'Pushed' : 'Pending'}
@@ -240,14 +220,14 @@ export function TranscriptionHistoryDialog({
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <button
                       onClick={() => onLoadToEdit(entry.uid_generate)}
-                      className="rounded-lg border border-brand-300 bg-brand-50 px-3 py-2 text-sm font-medium text-brand-700 transition hover:bg-brand-100"
+                      className="inline-flex min-h-11 items-center justify-center rounded-control bg-forest-900 px-4 text-[15px] font-semibold text-white transition-colors hover:bg-forest-700"
                     >
                       Load to Edit
                     </button>
                     <button
                       onClick={() => onRepush(entry.uid_generate)}
                       disabled={isRepushing}
-                      className="flex items-center justify-center gap-2 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-100 disabled:opacity-50"
+                      className="flex items-center justify-center gap-2 rounded-lg border border-forest-200 bg-forest-50 px-3 py-2 text-sm font-medium text-forest-800 transition hover:bg-forest-50 disabled:opacity-50"
                     >
                       <RefreshCw className="h-4 w-4" />
                       Re-push
@@ -255,7 +235,7 @@ export function TranscriptionHistoryDialog({
                     <button
                       onClick={() => onDeleteHistory(entry.uid_generate)}
                       disabled={Boolean(deletingUid)}
-                      className="flex items-center justify-center gap-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:opacity-50"
+                      className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control px-3 text-[15px] font-medium text-danger transition-colors hover:bg-danger-soft disabled:opacity-50"
                     >
                       <Trash2 className="h-4 w-4" />
                       {deletingUid === entry.uid_generate ? 'Deleting...' : 'Delete'}
@@ -267,7 +247,7 @@ export function TranscriptionHistoryDialog({
                 {expandedId === entry.uid_generate && (
                   <div className="mt-4 border-t border-slate-200 pt-4">
                     <div className="rounded-md bg-slate-50 p-3">
-                      <p className="text-xs font-semibold uppercase tracking-wider text-slate-600">
+                      <p className="text-[13px] font-medium text-muted">
                         Paper Format
                       </p>
                       {renderPaperDetails(entry.transcriptionData, entry.stockMode)}
@@ -288,17 +268,6 @@ export function TranscriptionHistoryDialog({
             ))
           )}
         </div>
-
-        {/* Footer */}
-        <div className="mt-6 border-t border-slate-200 pt-4">
-          <button
-            onClick={onClose}
-            className="w-full rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-200"
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
+    </Sheet>
   )
 }

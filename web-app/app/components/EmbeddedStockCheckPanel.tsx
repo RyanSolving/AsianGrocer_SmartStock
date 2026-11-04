@@ -1,7 +1,10 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Database, Download, Eye, EyeOff, FileImage, Loader2, Plus, Save, Search, X } from 'lucide-react'
+import { Check, ChevronLeft, Download, FileImage, Loader2, Plus, Save, Search, Undo2, X } from 'lucide-react'
+import { NumberInput, fieldClass, inputClass } from './ui/Input'
+import { focusNextQuantityInput, parseTypedQuantity, rankSuggestions } from '../../lib/entry-chain'
+import { friendlyError, toast } from '../../lib/toast-store'
 import { toPng } from 'html-to-image'
 import { filterVisibleCatalogItems } from '../../lib/catalog-visibility'
 import {
@@ -12,6 +15,7 @@ import {
   isNetworkRequestError,
   loadOfflineDraft,
   saveOfflineDraft,
+  scheduleDraftSave,
   subscribeOfflineDraftUpdates,
   subscribeOfflineQueueUpdates,
 } from '../../lib/offline/queue'
@@ -28,6 +32,8 @@ import {
 } from '../../lib/stock-paper-layout'
 import { STATUS } from '../../lib/status-messages'
 import { ConfirmDialog } from './ConfirmDialog'
+import { Button } from './ui/Button'
+import { Sheet } from './ui/Sheet'
 import { SectionLandingState } from './SectionLandingState'
 import { getOfflineDraftAge } from '../../lib/offline/queue'
 import { getLocalTodayDate } from '../../lib/date-utils'
@@ -394,16 +400,26 @@ function getTouchDistance(
   return Math.hypot(touchA.clientX - touchB.clientX, touchA.clientY - touchB.clientY)
 }
 
+/** Ambient messages that do not need a toast. */
+const QUIET_STATUSES = new Set<string>([
+  STATUS.READY_MANUAL,
+  'Saving stock check...',
+  'Switching to paper view for photo export...',
+  'Photo closing entry is ready. Choose a photo to parse.',
+])
+
 export function EmbeddedStockCheckPanel({
   catalogItems,
   selectedHistoryRecord,
   historyRecords,
   onToggleCatalogVisibility,
+  onOpenHistory,
 }: {
   catalogItems: CatalogItem[] | null
   selectedHistoryRecord?: SelectedStockCheckHistoryRecord | null
   historyRecords?: StockCheckHistoryRecord[]
   onToggleCatalogVisibility?: (code: string, nextVisible: boolean) => Promise<boolean>
+  onOpenHistory?: () => void
 }) {
   const today = useMemo(() => getLocalTodayDate(), [])
   const stockPaperRef = useRef<HTMLDivElement | null>(null)
@@ -420,6 +436,7 @@ export function EmbeddedStockCheckPanel({
   const [isOnline, setIsOnline] = useState(true)
   const [phase, setPhase] = useState<'landing' | 'editing'>('landing')
   const [pendingModeSwitch, setPendingModeSwitch] = useState<'manual' | 'photo' | null>(null)
+  const [pendingStartNew, setPendingStartNew] = useState(false)
   const [stockCheckQueueCount, setStockCheckQueueCount] = useState(0)
   const [hasStockCheckLocalDraft, setHasStockCheckLocalDraft] = useState(false)
   const [hasRestoredOfflineDraft, setHasRestoredOfflineDraft] = useState(false)
@@ -428,6 +445,20 @@ export function EmbeddedStockCheckPanel({
   const [showCreateCatalogItemModal, setShowCreateCatalogItemModal] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [isSyncingWarehouse, setIsSyncingWarehouse] = useState(false)
+
+  useEffect(() => {
+    if (!error) return
+    const friendly = friendlyError(error)
+    toast.error(friendly.message, { details: friendly.details })
+    setError(null)
+  }, [error])
+
+  useEffect(() => {
+    if (!status) return
+    if (!QUIET_STATUSES.has(status)) toast.success(status)
+    setStatus(null)
+  }, [status])
   const [recheckWarnings, setRecheckWarnings] = useState<RecheckWarning[]>([])
   const [showRecheckWarningModal, setShowRecheckWarningModal] = useState(false)
   const [hasPassedRecheck, setHasPassedRecheck] = useState(false)
@@ -436,13 +467,16 @@ export function EmbeddedStockCheckPanel({
   const [paperZoom, setPaperZoom] = useState(1)
   const [isMobileViewport, setIsMobileViewport] = useState(false)
   const [stockMobileView, setStockMobileView] = useState<'card' | 'paper'>('card')
-  const [stockExportType, setStockExportType] = useState<'csv' | 'photo'>('csv')
   const [isExportSnapshotMode, setIsExportSnapshotMode] = useState(false)
   const [stockCheckExpandedSections, setStockCheckExpandedSections] = useState<Set<string>>(new Set())
   const [storedExpandedSectionKeys, setStoredExpandedSectionKeys] = useState<string[] | null>(null)
   const [hasLoadedExpandedSectionPrefs, setHasLoadedExpandedSectionPrefs] = useState(false)
   const [hasInitializedExpandedSections, setHasInitializedExpandedSections] = useState(false)
   const [manualCheckQuantity, setManualCheckQuantity] = useState('')
+  const [touchedRowIndexes, setTouchedRowIndexes] = useState<Set<number>>(() => new Set())
+  const [lastAddedCheck, setLastAddedCheck] = useState<{ id: number; name: string; quantity: number; note?: string; snapshot: StockCheckRow[] } | null>(null)
+  const checkItemInputRef = useRef<HTMLInputElement | null>(null)
+  const checkQtyInputRef = useRef<HTMLInputElement | null>(null)
   const [manualCheckRedMarked, setManualCheckRedMarked] = useState(false)
   const [manualCheckHighlightIndex, setManualCheckHighlightIndex] = useState(0)
   const [isItemProfilesExpanded, setIsItemProfilesExpanded] = useState(false)
@@ -670,20 +704,24 @@ export function EmbeddedStockCheckPanel({
   useEffect(() => {
     if (!hasRestoredOfflineDraft) return
 
-    if (rows.length === 0) {
+    // A sheet with nothing counted yet (the catalog pre-fill) is not a draft worth resuming.
+    if (rows.length === 0 || !rows.some((row) => row.quantity !== null)) {
       clearOfflineDraft('stock-check')
       setHasStockCheckLocalDraft(false)
       return
     }
 
-    saveOfflineDraft('stock-check', {
-      stockEntryMode,
-      stockDate,
-      rows,
-      isValidated,
-      hasPassedRecheck,
+    // Debounced so typing stays smooth on slow phones; flushed when the app is hidden or closed.
+    return scheduleDraftSave(() => {
+      saveOfflineDraft('stock-check', {
+        stockEntryMode,
+        stockDate,
+        rows,
+        isValidated,
+        hasPassedRecheck,
+      })
+      setHasStockCheckLocalDraft(true)
     })
-    setHasStockCheckLocalDraft(true)
   }, [hasPassedRecheck, hasRestoredOfflineDraft, isValidated, rows, stockDate, stockEntryMode])
 
   const startManualEntry = useCallback(() => {
@@ -908,17 +946,8 @@ export function EmbeddedStockCheckPanel({
   }, [rows, stockDate])
 
   const suggestions = useMemo(() => {
-    if (!newItemName.trim() || visibleCatalogItems.length === 0) return []
-    const q = newItemName.toLowerCase()
-    return visibleCatalogItems
-      .filter((item) => {
-        return (
-          item.official_name.toLowerCase().includes(q)
-          || item.stocklist_name.toLowerCase().includes(q)
-          || item.product.toLowerCase().includes(q)
-        )
-      })
-      .slice(0, 6)
+    if (visibleCatalogItems.length === 0) return []
+    return rankSuggestions(visibleCatalogItems, newItemName)
   }, [newItemName, visibleCatalogItems])
 
   const activeProfileItem = useMemo(() => {
@@ -945,8 +974,16 @@ export function EmbeddedStockCheckPanel({
       return indexedRows
     }
 
-    return indexedRows.filter((entry) => entry.row.quantity !== null)
-  }, [indexedRows, stockEntryMode])
+    return indexedRows.filter((entry) => entry.row.quantity !== null || touchedRowIndexes.has(entry.index))
+  }, [indexedRows, stockEntryMode, touchedRowIndexes])
+
+  const quantityByCode = useMemo(() => {
+    const map = new Map<string, number>()
+    rows.forEach((row) => {
+      if (row.code && row.quantity !== null) map.set(row.code.trim().toUpperCase(), row.quantity)
+    })
+    return map
+  }, [rows])
 
   const findSuggestions = useMemo(() => {
     const term = findTerm.trim().toLowerCase()
@@ -965,7 +1002,7 @@ export function EmbeddedStockCheckPanel({
     if (index === undefined || index !== highlightedRowIndex) {
       return ''
     }
-    return 'bg-emerald-100 transition-colors duration-700'
+    return 'bg-success-soft transition-colors duration-700'
   }, [highlightedRowIndex])
 
   const focusAndHighlightRow = useCallback((index: number) => {
@@ -1140,8 +1177,8 @@ export function EmbeddedStockCheckPanel({
     if (index === undefined) return ''
     const target = indexedRows[index]
     if (!target) return ''
-    if (index === highlightedRowIndex) return 'ring-2 ring-emerald-400 bg-emerald-50'
-    if (target.row.source === 'unknown') return 'border-amber-300 bg-amber-50'
+    if (index === highlightedRowIndex) return 'ring-2 ring-accent bg-success-soft'
+    if (target.row.source === 'unknown') return 'border-warning/30 bg-warning-soft'
     if (target.row.red_marked) return 'border-red-300 bg-red-50'
     return ''
   }, [highlightedRowIndex, indexedRows])
@@ -1168,8 +1205,10 @@ export function EmbeddedStockCheckPanel({
   }
 
   function setQuantity(index: number, value: string) {
-    const next = value.trim().length === 0 ? null : Number(value)
-    updateRow(index, { quantity: Number.isNaN(next) ? null : next })
+    const next = value.trim().length === 0 ? null : Number(value.replace(',', '.'))
+    setTouchedRowIndexes((current) => (current.has(index) ? current : new Set(current).add(index)))
+    setLastAddedCheck(null)
+    updateRow(index, { quantity: next === null || Number.isNaN(next) ? null : next })
   }
 
   function toggleRed(index: number) {
@@ -1199,7 +1238,6 @@ export function EmbeddedStockCheckPanel({
     setNewItemName('')
     setShowItemSuggestions(false)
     setSelectedProfileItem(item)
-    setStatus(`Added ${item.official_name} from catalog.`)
     setError(null)
   }
 
@@ -1236,7 +1274,13 @@ export function EmbeddedStockCheckPanel({
 
   const handleStockCheckItemInputKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>) => {
-      if (suggestions.length === 0) return
+      if (suggestions.length === 0 || !showItemSuggestions) {
+        if (event.key === 'Enter' && event.currentTarget.value.trim()) {
+          event.preventDefault()
+          checkQtyInputRef.current?.focus()
+        }
+        return
+      }
 
       if (event.key === 'ArrowDown') {
         event.preventDefault()
@@ -1253,7 +1297,8 @@ export function EmbeddedStockCheckPanel({
         setShowItemSuggestions(false)
       }
     },
-    [suggestions, manualCheckHighlightIndex]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [suggestions, manualCheckHighlightIndex, showItemSuggestions]
   )
 
   function selectStockCheckCatalogSuggestion(item: CatalogItem) {
@@ -1262,23 +1307,26 @@ export function EmbeddedStockCheckPanel({
     setShowItemSuggestions(false)
     setSelectedProfileItem(item)
     setError(null)
+    // Chain: item picked -> keypad opens on Quantity
+    requestAnimationFrame(() => checkQtyInputRef.current?.focus())
   }
 
-  function addStockCheckManualKnownItem() {
+  function addStockCheckManualKnownItem(): boolean {
     const trimmedItem = newItemName.trim()
     const trimmedQty = manualCheckQuantity.trim()
 
     if (!stockDate) {
       setError('Please select a stock date first.')
-      return
+      return false
     }
     if (!trimmedItem) {
       setError('Please select an item from suggestion or enter an item code.')
-      return
+      return false
     }
-    if (!trimmedQty || isNaN(Number(trimmedQty))) {
+    const typedQuantity = parseTypedQuantity(trimmedQty)
+    if (typedQuantity === null) {
       setError('Please enter a valid quantity.')
-      return
+      return false
     }
 
     const normalizedInput = normalizeCompareKey(trimmedItem)
@@ -1294,11 +1342,15 @@ export function EmbeddedStockCheckPanel({
     if (!matchedItem) {
       matchedItem = visibleCatalogItems.find((item) => {
         return normalizeCompareKey(item.code) === normalizedInput
+          || normalizeCompareKey(item.official_name) === normalizedInput
+          || normalizeCompareKey(item.stocklist_name) === normalizedInput
       }) ?? null
     }
 
+    const snapshot = rows
+
     if (matchedItem) {
-      addKnownFromSuggestion(matchedItem, Number(trimmedQty), manualCheckRedMarked)
+      addKnownFromSuggestion(matchedItem, typedQuantity, manualCheckRedMarked)
     } else {
       setRows((prev) => [
         ...prev,
@@ -1317,30 +1369,51 @@ export function EmbeddedStockCheckPanel({
           stocklist_name: trimmedItem,
           navigation_guide: '',
           row_position: 'single',
-          quantity: Number(trimmedQty),
+          quantity: typedQuantity,
           red_marked: manualCheckRedMarked,
           notes: 'Manual offline entry',
           source: 'unknown',
         },
       ])
-      setStatus(`${trimmedItem} was added as an offline review row. You can save when internet is available.`)
       setError(null)
     }
+
+    setLastAddedCheck({
+      id: Date.now(),
+      name: matchedItem?.official_name ?? trimmedItem,
+      quantity: typedQuantity,
+      note: matchedItem ? undefined : 'not in catalog',
+      snapshot,
+    })
+    setTouchedRowIndexes(new Set())
 
     setNewItemName('')
     setManualCheckQuantity('')
     setManualCheckRedMarked(false)
     setManualCheckHighlightIndex(0)
+    return true
   }
 
-  function compareWithPreviousValidatedStockCheck() {
+  function submitStockCheckManualEntry() {
+    if (addStockCheckManualKnownItem()) {
+      // Chain: added -> back to an empty search for the next item
+      requestAnimationFrame(() => checkItemInputRef.current?.focus())
+    }
+  }
+
+  function undoLastAddedCheck() {
+    if (!lastAddedCheck) return
+    setRows(lastAddedCheck.snapshot)
+    setLastAddedCheck(null)
+    checkItemInputRef.current?.focus()
+  }
+
+  function compareWithPreviousValidatedStockCheck(): number {
     if (!latestPreviousValidatedRecord?.record_data) {
       setRecheckWarnings([])
       setHasPassedRecheck(true)
       setShowRecheckWarningModal(false)
-      setStatus('No previous validated stock-check found. Recheck passed. You can save now.')
-      setError(null)
-      return
+      return 0
     }
 
     const currentKnownByCode = new Map<string, StockCheckRow>()
@@ -1401,16 +1474,13 @@ export function EmbeddedStockCheckPanel({
       setRecheckWarnings([])
       setHasPassedRecheck(true)
       setShowRecheckWarningModal(false)
-      setStatus('Recheck complete. No potential missed items found. You can save now.')
-      setError(null)
-      return
+      return 0
     }
 
     setRecheckWarnings(warnings)
     setHasPassedRecheck(false)
     setShowRecheckWarningModal(true)
-    setStatus(`Recheck found ${warnings.length} potential missed item(s). Review warnings before save.`)
-    setError(null)
+    return warnings.length
   }
 
   function applyValidatedState() {
@@ -1519,7 +1589,7 @@ export function EmbeddedStockCheckPanel({
     }
   }
 
-  async function saveStockCheck() {
+  async function saveStockCheck(): Promise<'saved' | 'queued' | 'failed'> {
     const requestEnvelope = buildWarehouseEnvelopePayload(rows, true)
 
     applyValidatedState()
@@ -1533,9 +1603,9 @@ export function EmbeddedStockCheckPanel({
         endpoint: '/api/stock-check/save-to-supabase',
         payload: requestEnvelope,
       })
-      setStatus('Offline detected. Stock check save queued and will auto-sync when network returns.')
+      setStatus('Saved on this phone. It will upload when the connection is back.')
       setIsSaving(false)
-      return
+      return 'queued'
     }
 
     try {
@@ -1550,11 +1620,10 @@ export function EmbeddedStockCheckPanel({
         throw new Error(responsePayload?.error ?? 'Save failed.')
       }
 
-      setStatus(`Saved (UID: ${responsePayload?.uid_stock_check ?? '-'}) to Supabase. Load and export are enabled.`)
-      
       // Clear the local draft so it doesn't get incorrectly restored next time
       clearOfflineDraft('stock-check')
       setHasStockCheckLocalDraft(false)
+      return 'saved'
     } catch (e) {
       if (isNetworkRequestError(e)) {
         enqueueOfflineRequest({
@@ -1562,15 +1631,61 @@ export function EmbeddedStockCheckPanel({
           endpoint: '/api/stock-check/save-to-supabase',
           payload: requestEnvelope,
         })
-        setStatus('Network unavailable. Stock check save queued and will auto-sync when network returns.')
-        return
+        setStatus('Saved on this phone. It will upload when the connection is back.')
+        return 'queued'
       }
 
-      setError(e instanceof Error ? e.message : 'Save failed.')
-      setStatus('Save to Supabase failed, please retry Save.')
+      setError(e instanceof Error ? `Save failed: ${e.message}` : 'Save failed.')
+      return 'failed'
     } finally {
       setIsSaving(false)
     }
+  }
+
+  /**
+   * Pushes the saved closing to the warehouse (BigQuery) without blocking the screen.
+   * The envelope is captured once, so Retry sends exactly what was saved.
+   */
+  function syncToWarehouse(envelope: ReturnType<typeof buildWarehouseEnvelopePayload>, toastId?: number) {
+    const id = toastId ?? toast.progress('Saved · syncing to warehouse…')
+    if (toastId) toast.update(id, { tone: 'progress', message: 'Syncing to warehouse…', action: undefined, details: undefined })
+    setIsSyncingWarehouse(true)
+    void (async () => {
+      try {
+        const response = await fetch('/api/stock-check/save-to-db', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(envelope),
+        })
+        const payload = await response.json().catch(() => null)
+        if (!response.ok) throw new Error(payload?.error ?? 'Warehouse sync failed.')
+        toast.update(id, { tone: 'success', message: 'Closing saved and synced' })
+      } catch (e) {
+        toast.update(id, {
+          tone: 'error',
+          message: 'Saved. Warehouse sync failed.',
+          details: e instanceof Error ? e.message : undefined,
+          action: { label: 'Retry', onClick: () => syncToWarehouse(envelope) },
+        })
+      } finally {
+        setIsSyncingWarehouse(false)
+      }
+    })()
+  }
+
+  /** One Save: recheck -> (warnings sheet if needed) -> save -> background warehouse sync. */
+  function handleSave() {
+    if (isSaving) return
+    const warningCount = compareWithPreviousValidatedStockCheck()
+    if (warningCount > 0) return
+    void saveAndSync()
+  }
+
+  async function saveAndSync() {
+    setShowRecheckWarningModal(false)
+    const envelope = buildWarehouseEnvelopePayload(rows, true)
+    const outcome = await saveStockCheck()
+    if (outcome === 'saved') syncToWarehouse(envelope)
   }
 
   async function exportCsv() {
@@ -1600,7 +1715,7 @@ export function EmbeddedStockCheckPanel({
       link.remove()
       window.URL.revokeObjectURL(url)
 
-      setStatus('CSV exported.')
+      setStatus('CSV saved to your downloads.')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'CSV export failed.')
     } finally {
@@ -1663,7 +1778,7 @@ export function EmbeddedStockCheckPanel({
       link.click()
       link.remove()
 
-      setStatus('Stocklist photo exported as PNG.')
+      setStatus('Photo saved to your downloads.')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Photo export failed.')
     } finally {
@@ -1676,31 +1791,6 @@ export function EmbeddedStockCheckPanel({
         setStockMobileView('card')
       }
       setIsExporting(false)
-    }
-  }
-
-  async function saveToDb() {
-    setIsSaving(true)
-    setStatus(null)
-    setError(null)
-
-    try {
-      const response = await fetch('/api/stock-check/save-to-db', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildWarehouseEnvelopePayload(rows, isValidated)),
-      })
-
-      const payload = await response.json()
-      if (!response.ok) {
-        throw new Error(payload?.error ?? 'Push to BigQuery failed.')
-      }
-
-      setStatus(`Loaded to BigQuery (UID: ${payload?.uid_stock_check ?? '-'})`)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Load to BigQuery failed.')
-    } finally {
-      setIsSaving(false)
     }
   }
 
@@ -1765,22 +1855,6 @@ export function EmbeddedStockCheckPanel({
           readOnly
           onChange={(event) => updateRow(item.index, { official_name: event.target.value })}
         />
-        {canToggleVisibility && (
-          <button
-            type="button"
-            aria-label={isVisible ? 'Hide item' : 'Show item'}
-            title={isVisible ? 'Hide item' : 'Show item'}
-            className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-slate-300 bg-white text-slate-500 hover:border-slate-400 hover:text-slate-700"
-            onClick={(event) => {
-              event.stopPropagation()
-              void toggleStockCheckVisibility(code, !isVisible).catch((toggleError) => {
-                setError(toggleError instanceof Error ? toggleError.message : 'Failed to update visibility.')
-              })
-            }}
-          >
-            {isVisible ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-          </button>
-        )}
       </div>
     )
   }
@@ -1800,8 +1874,11 @@ export function EmbeddedStockCheckPanel({
 
     return (
       <input
-        type="number"
-        step="any"
+        type="text"
+        inputMode="decimal"
+        enterKeyHint="next"
+        autoComplete="off"
+        onKeyDown={focusNextQuantityInput}
         data-stock-row-index={item.index}
         className={`stock-qty-input ${item.row.red_marked ? 'text-red-600' : ''}`}
         aria-label={`Quantity for ${item.row.official_name}`}
@@ -1811,26 +1888,37 @@ export function EmbeddedStockCheckPanel({
     )
   }
 
+  // Count from the saved draft: on the start screen the rows are the empty catalog pre-fill.
+  const stockCheckDraftItemCount = (() => {
+    if (!hasStockCheckLocalDraft) return 0
+    const draft = loadOfflineDraft<{ rows?: Array<{ quantity: number | null }> }>('stock-check')
+    return (draft?.rows ?? []).filter((row) => row.quantity !== null).length
+  })()
+
   if (phase === 'landing') {
     return (
       <SectionLandingState
-        sectionLabel="Count Stock"
+        sectionLabel="Closing count"
+        subtitle="Count what is left at 4 PM, then save and export."
         hasDraft={hasStockCheckLocalDraft}
         draftAge={getOfflineDraftAge('stock-check')}
-        draftItemCount={rows.filter(r => r.quantity !== null).length}
+        draftItemCount={stockCheckDraftItemCount}
         historyCount={historyRecords?.length || 0}
         onAction={(action) => {
           if (action === 'new') {
-            setRows([]) // startManualEntry will trigger via effect if needed, but we clear first
             setPhase('editing')
-            confirmStartManualEntry()
+            // Only a saved draft can be lost here; the rows pre-filled from the catalog are not work.
+            if (hasStockCheckLocalDraft) {
+              setPendingStartNew(true)
+            } else {
+              startManualEntry()
+            }
           } else if (action === 'continue') {
             setPhase('editing')
             // draft restore effect will handle it
           } else if (action === 'history') {
-            // How to open history? It's in the parent's sidebar
-            // We'll just set phase to editing and let them use the sidebar or whatever
-            setPhase('editing')
+            if (onOpenHistory) onOpenHistory()
+            else setPhase('editing')
           }
         }}
       />
@@ -1839,48 +1927,32 @@ export function EmbeddedStockCheckPanel({
 
   return (
     <div className="space-y-4">
-      <section className="card-surface rounded-2xl p-4 sm:p-6 md:p-8">
-        <div className="mb-4 sticky top-0 z-20 flex items-center justify-between rounded-lg bg-slate-800 px-4 py-2 text-white shadow-lg">
-          <div className="flex items-center gap-2 text-sm">
-            {loadedHistoryUid ? '📂' : '📝'}
-            <span className="font-medium">
-              {loadedHistoryUid
-                ? `Editing ${formatSheetDate(stockDate)} record`
-                : `New · ${formatSheetDate(stockDate || today)}`}
-            </span>
-            <span className="text-slate-400">·</span>
-            <span className="text-slate-300">
-              {rows.filter(r => r.quantity !== null).length} items
-            </span>
-          </div>
-          <button 
-            onClick={() => setPhase('landing')} 
-            className="text-xs text-slate-400 hover:text-white transition-colors"
-          >
-            ✕ Back to Menu
-          </button>
-        </div>
+      <section className="rounded-card border border-line bg-surface p-4 sm:p-6">
         <div className="mb-4">
-          <h1 className="text-xl font-bold text-slate-900 sm:text-2xl md:text-3xl">Stock Check</h1>
-          <p className="mt-1 text-sm text-slate-600">Paper layout for manual and photo entry, inline quantity checks, and red reorder markers.</p>
-          <p className="mt-1 text-xs text-slate-600">
-            {stockCheckQueueCount > 0
-              ? `${stockCheckQueueCount} stock-check save${stockCheckQueueCount > 1 ? 's' : ''} queued for sync.`
-              : hasStockCheckLocalDraft
-                ? 'Local draft is active and visible in review table.'
-                : 'No local draft yet.'}
-            {' '}
-            {!isOnline ? 'Offline mode active.' : ''}
-          </p>
-          {loadedHistoryUid && (
-            <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-brand-200 bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
-              <span>Loaded from history</span>
-              <span className="font-mono text-[11px]">{loadedHistoryUid}</span>
-            </div>
-          )}
+          <button
+            type="button"
+            onClick={() => setPhase('landing')}
+            className="-ml-2 inline-flex min-h-10 items-center gap-1 rounded-control px-2 text-[15px] text-muted hover:bg-slate-100 hover:text-ink"
+          >
+            <ChevronLeft className="h-5 w-5" aria-hidden="true" />
+            Menu
+          </button>
+          <div className="mt-1 flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
+            <h1 className="text-[24px] font-semibold leading-tight tracking-[-0.01em] text-ink">
+              {loadedHistoryUid ? 'Edit closing count' : 'Closing count'}
+            </h1>
+            <p className="text-[14px] text-muted tabular">
+              {formatSheetDate(stockDate || today)} · {rows.filter(r => r.quantity !== null).length} items counted
+            </p>
+          </div>
+          {stockCheckQueueCount > 0 || !isOnline ? (
+            <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-warning-soft px-2.5 py-1 text-[13px] font-medium text-warning">
+              {!isOnline ? 'Offline · saves stay on this phone' : `${stockCheckQueueCount} save${stockCheckQueueCount > 1 ? 's' : ''} waiting to upload`}
+            </p>
+          ) : null}
           {visibleCatalogItems.length === 0 && (
-            <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              Catalog is unavailable. You can still type item name and quantity, and rows will appear locally in review table.
+            <p className="mt-2 rounded-control bg-warning-soft px-3 py-2 text-[14px] text-warning">
+              The catalog did not load. You can still type item names and counts; they are kept for review.
             </p>
           )}
         </div>
@@ -1890,104 +1962,146 @@ export function EmbeddedStockCheckPanel({
             value={stockEntryMode}
             onManual={confirmStartManualEntry}
             onPhoto={confirmStartPhotoEntry}
-            manualHelpText="Manual entry is active. Adjust quantities directly in the paper view."
-            photoHelpText="Photo entry is active. Choose a stock-closing image and parse it into the same paper layout."
+            manualHelpText="Search an item, type the count, press Enter."
+            photoHelpText="Take or choose a photo of the closing sheet, then check the numbers."
           />
         </div>
 
         {stockEntryMode === 'manual' && (
-          <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-2">
-            <div className="relative">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-700">Input</p>
-
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="relative md:rounded-card md:border md:border-line md:p-4">
               <div className="space-y-3">
-                <div>
-                  <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Stock Date</label>
+                <div className="flex items-center justify-between gap-3">
+                  <label htmlFor="check-stock-date" className="whitespace-nowrap text-[14px] font-medium text-ink">Stock date</label>
                   <input
+                    id="check-stock-date"
                     type="date"
                     value={stockDate}
                     onChange={(event) => setStockDate(event.target.value || today)}
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
+                    className={`${inputClass} w-auto tabular`}
                   />
                 </div>
 
                 <div className="relative">
-                  <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Item</label>
-                  <input
-                    type="text"
-                    value={newItemName}
-                    onChange={(event) => {
-                      setNewItemName(event.target.value)
-                      setManualCheckHighlightIndex(0)
-                      setSelectedProfileItem(null)
-                      setShowItemSuggestions(event.target.value.trim().length > 0)
-                    }}
-                    onKeyDown={handleStockCheckItemInputKeyDown}
-                    placeholder="Type to match or add as new"
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
-                  />
+                  <label htmlFor="check-item-search" className="mb-1.5 block text-[14px] font-medium text-ink">Item</label>
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                    <input
+                      id="check-item-search"
+                      ref={checkItemInputRef}
+                      type="search"
+                      value={newItemName}
+                      onChange={(event) => {
+                        setNewItemName(event.target.value)
+                        setManualCheckHighlightIndex(0)
+                        setSelectedProfileItem(null)
+                        setShowItemSuggestions(event.target.value.trim().length > 0)
+                      }}
+                      onKeyDown={handleStockCheckItemInputKeyDown}
+                      placeholder="Search item"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      enterKeyHint="next"
+                      className={`${fieldClass} min-h-12 pl-10`}
+                    />
+                  </div>
 
                   {showItemSuggestions && newItemName.trim().length > 0 && suggestions.length > 0 && (
-                    <div className="absolute top-full left-0 right-0 z-20 mt-1 max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
-                      {suggestions.map((item, idx) => (
-                        <button
-                          key={item.code}
-                          type="button"
-                          onClick={() => {
-                            selectStockCheckCatalogSuggestion(item)
-                            setManualCheckQuantity('')
-                          }}
-                          className={`block w-full border-b border-slate-100 px-3 py-2 text-left text-sm last:border-b-0 transition-colors ${
-                            idx === manualCheckHighlightIndex
-                              ? 'bg-brand-100 text-brand-900 font-medium'
-                              : 'text-slate-700 hover:bg-slate-50'
-                          }`}
-                        >
-                          {item.official_name} <span className="text-xs text-slate-500">({item.code})</span>
-                        </button>
-                      ))}
+                    <div role="listbox" className="absolute left-0 right-0 top-full z-30 mt-1 overflow-hidden rounded-control border border-line bg-surface shadow-raised">
+                      {suggestions.map((item, idx) => {
+                        const currentQty = quantityByCode.get(item.code.trim().toUpperCase())
+                        const highlighted = idx === manualCheckHighlightIndex
+                        return (
+                          <button
+                            key={item.code}
+                            type="button"
+                            role="option"
+                            aria-selected={highlighted}
+                            onPointerDown={(event) => event.preventDefault()}
+                            onClick={() => {
+                              selectStockCheckCatalogSuggestion(item)
+                              setManualCheckQuantity('')
+                            }}
+                            className={`flex min-h-12 w-full items-center gap-3 border-b border-line px-3 text-left last:border-b-0 ${highlighted ? 'bg-forest-50' : 'hover:bg-slate-50 active:bg-slate-100'}`}
+                          >
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[15px] text-ink">{item.official_name}</span>
+                              <span className="block truncate text-[12px] text-muted">{item.category || item.code}</span>
+                            </span>
+                            {currentQty !== undefined ? (
+                              <span className="shrink-0 rounded-full bg-forest-50 px-2 py-0.5 text-[12px] font-medium text-forest-800 tabular">has {currentQty}</span>
+                            ) : null}
+                          </button>
+                        )
+                      })}
                     </div>
                   )}
                   {showItemSuggestions && newItemName.trim().length > 0 && suggestions.length === 0 && (
-                    <p className="mt-1 text-xs text-slate-500">No matching items. Use Qty and Add Button to create new.</p>
+                    <p className="mt-1.5 text-[13px] text-muted">Not in the catalog. Add it with a quantity to review later.</p>
                   )}
                 </div>
 
                 <div className="flex items-end gap-2">
-                  <div className="flex-1">
-                    <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Quantity</label>
-                    <input
-                      type="text"
+                  <div className="min-w-0 flex-1">
+                    <label htmlFor="check-qty" className="mb-1.5 block text-[14px] font-medium text-ink">Quantity</label>
+                    <NumberInput
+                      id="check-qty"
+                      ref={checkQtyInputRef}
                       value={manualCheckQuantity}
                       onChange={(event) => setManualCheckQuantity(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault()
+                          submitStockCheckManualEntry()
+                        }
+                      }}
                       placeholder="0"
-                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
+                      className="min-h-12 text-[18px] font-semibold"
                     />
                   </div>
                   <button
                     type="button"
-                    onClick={addStockCheckManualKnownItem}
+                    onClick={submitStockCheckManualEntry}
                     disabled={!stockDate || newItemName.trim().length === 0 || manualCheckQuantity.trim().length === 0}
-                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex min-h-12 shrink-0 items-center justify-center gap-1.5 rounded-control bg-forest-900 px-5 text-[16px] font-semibold text-white transition-colors duration-150 hover:bg-forest-700 disabled:cursor-not-allowed disabled:bg-forest-900/30"
                   >
-                    <Plus className="h-4 w-4" />
+                    <Plus className="h-5 w-5" aria-hidden="true" />
                     Add
                   </button>
                 </div>
 
-                <label className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-600">
+                <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-control px-1 text-[15px] text-ink">
                   <input
                     type="checkbox"
                     checked={manualCheckRedMarked}
                     onChange={(event) => setManualCheckRedMarked(event.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 text-red-600 focus:ring-red-500"
+                    className="h-5 w-5 rounded border-slate-300 text-danger focus:ring-danger"
                   />
-                  Fast Selling (Red Mark)
+                  <span className="inline-flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full bg-danger" aria-hidden="true" />
+                    Selling fast (red mark)
+                  </span>
                 </label>
 
-                <p className="text-xs text-slate-500">
-                  <span className="font-medium">Keyboard:</span> Use arrow keys + Enter to select from suggestions, or Esc to clear.
-                </p>
+                {lastAddedCheck ? (
+                  <div key={lastAddedCheck.id} className="flex animate-fade-in items-center gap-2 rounded-control bg-forest-50 py-1.5 pl-3 pr-1.5" role="status">
+                    <Check className="h-4 w-4 shrink-0 text-success" aria-hidden="true" />
+                    <p className="min-w-0 flex-1 truncate text-[14px] text-ink">
+                      <span className="font-medium">{lastAddedCheck.name}</span>
+                      <span className="tabular"> · {lastAddedCheck.quantity}</span>
+                      {lastAddedCheck.note ? <span className="text-muted"> · {lastAddedCheck.note}</span> : null}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={undoLastAddedCheck}
+                      className="inline-flex min-h-9 shrink-0 items-center gap-1 rounded-[8px] px-2.5 text-[14px] font-semibold text-forest-800 hover:bg-forest-100"
+                    >
+                      <Undo2 className="h-4 w-4" aria-hidden="true" />
+                      Undo
+                    </button>
+                  </div>
+                ) : null}
               </div>
             </div>
 
@@ -1995,7 +2109,7 @@ export function EmbeddedStockCheckPanel({
               <button
                 type="button"
                 onClick={() => setIsItemProfilesExpanded(!isItemProfilesExpanded)}
-                className="mb-2 inline-flex items-center justify-between gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-700 hover:text-brand-700"
+                className="mb-2 inline-flex items-center justify-between gap-2 text-[13px] font-medium text-muted hover:text-brand-700"
               >
                 <span>Item Profiles</span>
                 <span className="text-sm">{isItemProfilesExpanded ? '▼' : '▶'}</span>
@@ -2006,19 +2120,19 @@ export function EmbeddedStockCheckPanel({
                   {activeProfileItem ? (
                     <>
                       <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Official Name</p>
+                        <p className="text-[12px] font-medium text-muted">Official Name</p>
                         <p className="mt-1 text-sm font-medium text-slate-800">{activeProfileItem.official_name}</p>
                       </div>
                       <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Product</p>
+                        <p className="text-[12px] font-medium text-muted">Product</p>
                         <p className="mt-1 text-sm text-slate-700">{activeProfileItem.product || '-'}</p>
                       </div>
                       <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Category</p>
+                        <p className="text-[12px] font-medium text-muted">Category</p>
                         <p className="mt-1 text-sm text-slate-700">{activeProfileItem.category || '-'}</p>
                       </div>
                       <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Location</p>
+                        <p className="text-[12px] font-medium text-muted">Location</p>
                         <p className="mt-1 text-sm text-slate-700">{activeProfileItem.location || '-'}</p>
                       </div>
                     </>
@@ -2034,7 +2148,7 @@ export function EmbeddedStockCheckPanel({
         {isMobileViewport && (
           <div className="mt-3 mb-2 rounded-lg border border-slate-200 bg-white p-2 md:hidden">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Mobile View</span>
+              <span className="text-[14px] text-muted">View</span>
               <div className="flex items-center gap-2">
                 <div className="grid grid-cols-2 gap-1 rounded-md bg-slate-100 p-1">
                   <button
@@ -2108,12 +2222,6 @@ export function EmbeddedStockCheckPanel({
           </div>
         )}
 
-        {error && <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-        {status && <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{status}</p>}
-        {!hasPassedRecheck && !isValidated && (
-          <p className="mt-1 text-xs font-medium text-amber-700">Run Recheck before Save.</p>
-        )}
-
         {isMobileViewport && stockMobileView === 'paper' && (
           <div className="mt-4 flex justify-end">
             <div className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-2">
@@ -2156,15 +2264,16 @@ export function EmbeddedStockCheckPanel({
           onTouchCancel={clearPinchState}
         >
           <div className="mobile-sticky-top mb-3 rounded-lg border border-slate-200 bg-white p-3">
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Find In Stocklist</label>
+
             <div ref={stockFindContainerRef} className="relative">
-              <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+              <Search className="pointer-events-none absolute left-3 top-[22px] h-5 w-5 -translate-y-1/2 text-slate-400" aria-hidden="true" />
               <input
-                type="text"
+                type="search"
                 value={findTerm}
                 onChange={(event) => setFindTerm(event.target.value)}
-                placeholder="Search official or stocklist name"
-                className="min-h-11 w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-9 pr-10 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
+                placeholder="Find in this sheet"
+                aria-label="Find in this sheet"
+                className={`${fieldClass} pl-10 pr-10`}
               />
 
               {findTerm.trim().length > 0 && (
@@ -2172,7 +2281,7 @@ export function EmbeddedStockCheckPanel({
                   type="button"
                   onClick={() => setFindTerm('')}
                   aria-label="Clear stocklist search"
-                  className="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                  className="absolute right-1 top-0.5 inline-flex h-10 w-10 items-center justify-center rounded-control text-slate-500 hover:bg-slate-100 hover:text-slate-700"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
@@ -2313,65 +2422,40 @@ export function EmbeddedStockCheckPanel({
           )}
         </div>
 
-        <div className="mt-5 space-y-2">
-          <button
-            type="button"
-            onClick={compareWithPreviousValidatedStockCheck}
-            disabled={isExporting || isSaving || isParsing}
-            className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-100 disabled:text-slate-400 sm:w-auto"
-          >
-            Recheck
-          </button>
-
-          <div className="mobile-sticky-actions grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-center">
+        <div className="mobile-sticky-actions mt-5">
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={saveStockCheck}
-              disabled={!hasPassedRecheck || isExporting || isSaving || isParsing}
-              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-100 disabled:text-slate-400 sm:w-auto"
+              onClick={() => void exportPhoto()}
+              disabled={isExportActionDisabled}
+              aria-label="Export photo"
+              title="Export photo"
+              className="inline-flex min-h-12 min-w-12 shrink-0 items-center justify-center gap-2 rounded-control border border-line bg-surface px-3 text-[15px] font-semibold text-ink hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-ink/40"
             >
-              {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              {isSaving ? 'Saving...' : isValidated ? 'Saved' : 'Save'}
+              {isExporting ? <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" /> : <FileImage className="h-5 w-5" aria-hidden="true" />}
+              <span className="hidden sm:inline">Photo</span>
             </button>
-
             <button
               type="button"
-              onClick={saveToDb}
-              disabled={!isValidated || isExporting || isSaving || isParsing}
-              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-brand-300 sm:w-auto"
+              onClick={() => void exportCsv()}
+              disabled={isExportActionDisabled}
+              aria-label="Export CSV"
+              title="Export CSV"
+              className="inline-flex min-h-12 min-w-12 shrink-0 items-center justify-center gap-2 rounded-control border border-line bg-surface px-3 text-[15px] font-semibold text-ink hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-ink/40"
             >
-              {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Database className="h-4 w-4" />}
-              {isSaving ? 'Loading...' : 'Load'}
+              <Download className="h-5 w-5" aria-hidden="true" />
+              <span className="hidden sm:inline">CSV</span>
             </button>
-
-            <div className="flex w-full gap-2 sm:w-auto sm:flex-nowrap">
-              <select
-                value={stockExportType}
-                onChange={(event) => setStockExportType(event.target.value as 'csv' | 'photo')}
-                className="min-h-11 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none sm:w-[130px]"
-                aria-label="Choose export format"
-              >
-                <option value="csv">CSV file</option>
-                <option value="photo">Photo</option>
-              </select>
-
-              <button
-                type="button"
-                onClick={() => {
-                  if (stockExportType === 'csv') {
-                    void exportCsv()
-                    return
-                  }
-
-                  void exportPhoto()
-                }}
-                disabled={isExportActionDisabled}
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
-              >
-                {stockExportType === 'csv' ? <Download className="h-4 w-4" /> : <FileImage className="h-4 w-4" />}
-                {isExporting ? 'Exporting...' : 'Export'}
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={isExporting || isSaving || isParsing}
+              aria-busy={isSaving || undefined}
+              className="inline-flex min-h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-control bg-forest-900 px-4 text-[16px] font-semibold text-white transition-colors duration-150 hover:bg-forest-700 disabled:cursor-not-allowed disabled:bg-forest-900/40"
+            >
+              {isSaving ? <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" /> : isSyncingWarehouse ? <Loader2 className="h-5 w-5 animate-spin opacity-70" aria-hidden="true" /> : <Save className="h-5 w-5" aria-hidden="true" />}
+              <span className="truncate">{isSaving ? 'Saving…' : 'Save'}</span>
+            </button>
           </div>
         </div>
       </section>
@@ -2388,61 +2472,64 @@ export function EmbeddedStockCheckPanel({
         onCreated={addCreatedStockCheckItem}
       />
 
-      {showRecheckWarningModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="max-h-[88vh] w-full max-w-3xl overflow-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900">Recheck Warnings</h3>
-                <p className="text-sm text-slate-600">
-                  These items were in stock previously but are now 0 or blank. Confirm after rechecking physically.
-                </p>
+      <Sheet
+        open={showRecheckWarningModal}
+        onClose={() => setShowRecheckWarningModal(false)}
+        title={`Check ${recheckWarnings.length} item${recheckWarnings.length === 1 ? '' : 's'} before saving`}
+        description="These were in stock last time but are now 0 or blank. Count them again if you can."
+        size="md"
+        dismissible={!isSaving}
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              size="lg"
+              className="sm:min-h-11"
+              onClick={() => {
+                setShowRecheckWarningModal(false)
+                setHasPassedRecheck(false)
+              }}
+            >
+              Fix counts
+            </Button>
+            <Button size="lg" className="sm:min-h-11" loading={isSaving} loadingLabel="Saving…" onClick={() => void saveAndSync()}>
+              Save anyway
+            </Button>
+          </>
+        }
+      >
+        <ul className="divide-y divide-line rounded-control border border-line">
+          {recheckWarnings.map((warning) => (
+            <li key={warning.key} className="flex items-center gap-3 px-3 py-2.5">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[15px] font-medium text-ink">{warning.label}</p>
+                <p className="truncate text-[13px] text-muted">{warning.section}</p>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowRecheckWarningModal(false)}
-                className="rounded-md p-2 text-slate-500 hover:bg-slate-100"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+              <div className="shrink-0 text-right tabular">
+                <p className="text-[15px] text-ink">
+                  {warning.previousQuantity} <span className="text-muted">→</span>{' '}
+                  <span className="font-semibold text-warning">{warning.currentQuantity === null ? 'blank' : warning.currentQuantity}</span>
+                </p>
+                <p className="text-[12px] text-muted">last → now</p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </Sheet>
 
-            <div className="max-h-72 space-y-2 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-3">
-              {recheckWarnings.map((warning) => (
-                <div key={warning.key} className="rounded-md border border-amber-200 bg-white p-3">
-                  <p className="text-sm font-semibold text-slate-900">{warning.label}</p>
-                  <p className="mt-0.5 text-xs text-slate-600">{warning.section}</p>
-                  <p className="mt-1 text-xs text-amber-800">
-                    Previous: {warning.previousQuantity} | Current: {warning.currentQuantity === null ? 'blank' : warning.currentQuantity}
-                    {' '}({warning.reason === 'now_blank' ? 'now blank' : 'now 0'})
-                  </p>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowRecheckWarningModal(false)
-                  setHasPassedRecheck(false)
-                  setStatus('Recheck requires edits. Please update quantities and run Recheck again.')
-                }}
-                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:w-auto"
-              >
-                Back to Edit
-              </button>
-              <button
-                type="button"
-                onClick={saveStockCheck}
-                className="w-full rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 sm:w-auto"
-              >
-                Confirm Recheck & Save
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        isOpen={pendingStartNew}
+        title="Start a new sheet?"
+        message={`Your draft with ${stockCheckDraftItemCount} counted ${stockCheckDraftItemCount === 1 ? 'item' : 'items'} will be replaced by an empty sheet.`}
+        variant="danger"
+        confirmLabel="Replace draft"
+        cancelLabel="Keep draft"
+        onConfirm={() => {
+          startManualEntry()
+          setPendingStartNew(false)
+        }}
+        onCancel={() => setPendingStartNew(false)}
+      />
 
       <ConfirmDialog
         isOpen={pendingModeSwitch !== null}

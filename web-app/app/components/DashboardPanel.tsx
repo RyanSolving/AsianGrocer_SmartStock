@@ -1,12 +1,15 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Download, Loader2, RefreshCw, SlidersHorizontal } from 'lucide-react'
+import { AlertTriangle, Download, Loader2, RefreshCw } from 'lucide-react'
 import { toPng } from 'html-to-image'
 import { getLocalTodayDate } from '../../lib/date-utils'
 
 import type { DashboardResponseFilters, DashboardStockLevelItem } from '../../lib/dashboard-analytics'
 import { DailyReportSummary } from './DailyReportSummary'
+import { Button, IconButton } from './ui/Button'
+import { inputClass } from './ui/Input'
+import { ActionBar, ScreenHeader, SegmentedControl } from './ui/Primitives'
 import { useDailyReportData, type ReportCatalogItem } from './useDailyReportData'
 
 type DashboardStockLevelResponse = {
@@ -58,11 +61,11 @@ function DailySummaryTab({ catalogItems, date, refreshKey }: { catalogItems: Rep
   return (
     <div className="space-y-3">
       {shownError ? (
-        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{shownError}</div>
+        <div className="rounded-control bg-danger-soft px-4 py-3 text-[14px] text-danger">{shownError}</div>
       ) : null}
 
       {warnings.length > 0 ? (
-        <ul className="space-y-1 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        <ul className="space-y-1 rounded-control bg-warning-soft px-4 py-3 text-[14px] text-warning">
           {warnings.map((warning) => (
             <li key={warning} className="flex items-start gap-2">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -73,29 +76,18 @@ function DailySummaryTab({ catalogItems, date, refreshKey }: { catalogItems: Rep
       ) : null}
 
       {isLoading && !data ? (
-        <div className="flex min-h-[240px] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-white">
-          <div className="flex items-center gap-2 text-sm text-slate-500">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Loading daily summary...
+        <div className="flex min-h-[240px] items-center justify-center rounded-card border border-line bg-surface">
+          <div className="flex items-center gap-2 text-[15px] text-muted">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            Loading daily summary…
           </div>
         </div>
       ) : null}
 
       {hasReport ? (
         <>
-          <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={() => void exportPhoto()}
-              disabled={isExporting}
-              className="inline-flex min-h-9 items-center gap-2 rounded-md bg-[#1d1f20] px-3 py-2 text-sm font-medium text-white hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-              Export photo for owner
-            </button>
-          </div>
           {/* Refetch keeps the frame: hold the previous render at reduced opacity. */}
-          <div className={`overflow-x-auto rounded-lg border border-[#e8e8e8] transition-opacity ${isLoading ? 'opacity-60' : ''}`}>
+          <div className={`overflow-x-auto rounded-card border border-line transition-opacity ${isLoading ? 'opacity-60' : ''}`}>
             <DailyReportSummary
               containerRef={summaryRef}
               photoMode={isExporting}
@@ -104,6 +96,11 @@ function DailySummaryTab({ catalogItems, date, refreshKey }: { catalogItems: Rep
               entries={entries}
             />
           </div>
+          <ActionBar className="md:static md:flex md:justify-end md:border-0 md:bg-transparent md:p-0 md:backdrop-blur-none">
+            <Button size="lg" block className="md:w-auto" icon={<Download className="h-5 w-5" aria-hidden="true" />} loading={isExporting} loadingLabel="Exporting…" onClick={() => void exportPhoto()}>
+              Export photo for owner
+            </Button>
+          </ActionBar>
         </>
       ) : null}
     </div>
@@ -179,90 +176,75 @@ export function DashboardPanel({ catalogItems }: DashboardPanelProps) {
   }, [activeTab, selectedDate, selectedLocation, selectedCategory, refreshTick])
 
   return (
-    <section className="card-surface rounded-2xl p-5 md:p-8">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-600">Dashboard</p>
-          <h1 className="mt-2 text-2xl font-bold text-slate-900 md:text-3xl">Inventory analytics</h1>
-          <p className="mt-1 max-w-2xl text-sm text-slate-500">
-            Daily summary from the saved stock-in and closing (live from Supabase, no ETL wait), plus stock level management from the BigQuery snapshot.
-          </p>
-        </div>
+    <section className="space-y-4">
+      <ScreenHeader
+        title="Dashboard"
+        subtitle={activeTab === 'daily-summary' ? 'Sales and refill for the day, live from saved counts.' : 'Stock levels from the warehouse snapshot.'}
+        actions={
+          <IconButton
+            label="Refresh"
+            onClick={() => (activeTab === 'stock-level-manage' ? setRefreshTick((value) => value + 1) : setSummaryRefreshKey((value) => value + 1))}
+            className="border border-line bg-surface"
+          >
+            {isLoading && activeTab === 'stock-level-manage' ? <Loader2 className="h-5 w-5 animate-spin" /> : <RefreshCw className="h-5 w-5" />}
+          </IconButton>
+        }
+      />
 
-        <button
-          type="button"
-          onClick={() => (activeTab === 'stock-level-manage' ? setRefreshTick((value) => value + 1) : setSummaryRefreshKey((value) => value + 1))}
-          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-        >
-          {isLoading && activeTab === 'stock-level-manage' ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-          Refresh
-        </button>
-      </div>
-
-      {/* ── Tab bar ── */}
-      <div className="mt-5 flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-2">
-        <button
-          type="button"
-          onClick={() => setActiveTab('daily-summary')}
-          className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${activeTab === 'daily-summary' ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
-        >
-          Daily Summary
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('stock-level-manage')}
-          className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${activeTab === 'stock-level-manage' ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
-        >
-          Stock level manage
-        </button>
-
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
-              <SlidersHorizontal className="h-4 w-4 text-slate-400" />
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(event) => setSelectedDate(event.target.value)}
-                className="bg-transparent text-sm text-slate-700 focus:outline-none"
-              />
-            </div>
-
-            {activeTab === 'stock-level-manage' ? (
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <SegmentedControl<DashboardTab>
+          label="Dashboard view"
+          value={activeTab}
+          onChange={setActiveTab}
+          className="w-full sm:w-auto"
+          options={[
+            { value: 'daily-summary', label: 'Daily summary' },
+            { value: 'stock-level-manage', label: 'Stock levels' },
+          ]}
+        />
+        <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+          <input
+            type="date"
+            value={selectedDate}
+            onChange={(event) => setSelectedDate(event.target.value)}
+            aria-label="Report date"
+            className={`${inputClass} w-auto flex-1 tabular sm:flex-none`}
+          />
+          {activeTab === 'stock-level-manage' ? (
             <>
-            <select
-              value={selectedLocation}
-              onChange={(event) => setSelectedLocation(event.target.value)}
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
-            >
-              <option value="all">All locations</option>
-              {locations.map((location) => (
-                <option key={location} value={location}>{location}</option>
-              ))}
-            </select>
-
-            <select
-              value={selectedCategory}
-              onChange={(event) => setSelectedCategory(event.target.value)}
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
-            >
-              <option value="all">All categories</option>
-              {categories.map((category) => (
-                <option key={category} value={category}>{category}</option>
-              ))}
-            </select>
+              <select
+                value={selectedLocation}
+                onChange={(event) => setSelectedLocation(event.target.value)}
+                aria-label="Location"
+                className={`${inputClass} w-auto flex-1 sm:flex-none`}
+              >
+                <option value="all">All locations</option>
+                {locations.map((location) => (
+                  <option key={location} value={location}>{location}</option>
+                ))}
+              </select>
+              <select
+                value={selectedCategory}
+                onChange={(event) => setSelectedCategory(event.target.value)}
+                aria-label="Category"
+                className={`${inputClass} w-auto flex-1 sm:flex-none`}
+              >
+                <option value="all">All categories</option>
+                {categories.map((category) => (
+                  <option key={category} value={category}>{category}</option>
+                ))}
+              </select>
             </>
-            ) : null}
-          </div>
+          ) : null}
+        </div>
       </div>
 
       {error && activeTab === 'stock-level-manage' ? (
-        <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-          {error}
-        </div>
+        <div className="rounded-control bg-danger-soft px-4 py-3 text-[14px] text-danger">{error}</div>
       ) : null}
 
       {/* ── Tab content ── */}
-      <div className="mt-5">
+      <div>
         {activeTab === 'daily-summary' ? (
           <DailySummaryTab
             catalogItems={catalogItems}
@@ -270,14 +252,14 @@ export function DashboardPanel({ catalogItems }: DashboardPanelProps) {
             refreshKey={summaryRefreshKey}
           />
         ) : isLoading && !stockLevels ? (
-          <div className="flex min-h-[240px] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-white">
-            <div className="flex items-center gap-2 text-sm text-slate-500">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading dashboard metrics...
+          <div className="flex min-h-[240px] items-center justify-center rounded-card border border-line bg-surface">
+            <div className="flex items-center gap-2 text-[15px] text-muted">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              Loading stock levels…
             </div>
           </div>
         ) : (
-          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="overflow-hidden rounded-card border border-line bg-surface">
             <div className="border-b border-slate-200 px-4 py-3">
               <h2 className="text-sm font-semibold text-slate-900">Stock level management</h2>
               <p className="mt-1 text-sm text-slate-500">
@@ -288,7 +270,7 @@ export function DashboardPanel({ catalogItems }: DashboardPanelProps) {
             {stockLevels?.items.length ? (
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-slate-200">
-                  <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  <thead className="bg-slate-50 text-left text-[13px] font-medium text-muted">
                     <tr>
                       <th className="px-4 py-3">Product</th>
                       <th className="px-4 py-3">Category</th>
@@ -305,17 +287,17 @@ export function DashboardPanel({ catalogItems }: DashboardPanelProps) {
                         <td className="px-4 py-3 text-sm text-slate-600">{item.category}</td>
                         <td className="px-4 py-3 text-right text-sm text-slate-700">{item.current_quantity}</td>
                         <td className="px-4 py-3 text-right text-sm text-slate-700">{item.arrival_total_quantity}</td>
-                        <td className={`px-4 py-3 text-right text-sm font-semibold ${item.red_flag ? 'text-red-700' : 'text-emerald-700'}`}>
+                        <td className={`px-4 py-3 text-right text-sm font-semibold tabular ${item.red_flag ? 'text-danger' : 'text-success'}`}>
                           {formatPercent(item.sold_out_percent)}
                         </td>
                         <td className="px-4 py-3">
                           {item.red_flag ? (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-danger-soft px-2.5 py-1 text-xs font-semibold text-danger">
                               <AlertTriangle className="h-3.5 w-3.5" />
                               Red flag
                             </span>
                           ) : (
-                            <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                            <span className="inline-flex items-center rounded-full bg-success-soft px-2.5 py-1 text-xs font-semibold text-success">
                               OK
                             </span>
                           )}

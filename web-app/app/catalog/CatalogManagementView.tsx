@@ -91,17 +91,17 @@ function StatusBanner({
 }) {
   const isSuccess = tone === 'success'
   const classes = isSuccess
-    ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+    ? 'border-success/30 bg-success-soft text-success'
     : 'border-red-200 bg-red-50 text-red-900'
 
   return (
     <div className={`rounded-2xl border px-4 py-4 shadow-sm ${classes}`}>
       <div className="flex items-start gap-3">
-        <div className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${isSuccess ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'}`}>
+        <div className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${isSuccess ? 'bg-success text-white' : 'bg-red-600 text-white'}`}>
           {isSuccess ? <CheckCircle2 className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />}
         </div>
         <div>
-          <p className={`text-xs font-semibold uppercase tracking-[0.18em] ${isSuccess ? 'text-emerald-700' : 'text-red-700'}`}>
+          <p className={`text-xs font-semibold ${isSuccess ? 'text-success' : 'text-red-700'}`}>
             {isSuccess ? 'Saved' : 'Action failed'}
           </p>
           <h3 className="mt-1 text-base font-semibold">{title}</h3>
@@ -177,7 +177,7 @@ function ItemModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-forest-950/45 p-4">
       <div className="card-surface w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
           <h2 className="text-lg font-bold text-slate-900">
@@ -770,7 +770,7 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
                             onChange={(event) => void handleVisibilityToggle(item, event.target.checked)}
                             className="h-4 w-4 accent-brand-600 disabled:cursor-not-allowed"
                           />
-                          <span className={item.is_visible === false ? 'text-slate-500' : 'text-emerald-700'}>
+                          <span className={item.is_visible === false ? 'text-slate-500' : 'text-success'}>
                             {item.is_visible === false ? 'Hidden' : 'Visible'}
                           </span>
                         </label>
@@ -779,7 +779,7 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
                         <div className="flex items-center justify-end gap-1">
                           <button
                             onClick={() => openEdit(item)}
-                            className="rounded p-1.5 text-slate-400 hover:bg-blue-50 hover:text-blue-600"
+                            className="rounded p-1.5 text-slate-400 hover:bg-forest-50 hover:text-forest-800"
                             title="Edit"
                           >
                             <Pencil className="h-4 w-4" />

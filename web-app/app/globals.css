@@ -3,13 +3,15 @@
 @tailwind utilities;
 
 :root {
-	--bg: #f6f9ff;
-	--ink: #0f172a;
-	--muted: #475569;
+	--bg: #f6f5f1;
+	--ink: #14201b;
+	--muted: #5b6660;
 	--card: #ffffff;
-	--line: #dbe5f4;
-	--brand: #0070f3;
-	--danger: #ef4444;
+	--line: #e4e2dc;
+	--brand: #0e2a1f;
+	--accent: #2bb673;
+	--danger: #b42318;
+	--tabbar-h: 64px;
 }
 
 * {
@@ -22,18 +24,48 @@ body {
 	padding: 0;
 }
 
+html {
+	-webkit-text-size-adjust: 100%;
+	-webkit-tap-highlight-color: transparent;
+}
+
 body {
 	color: var(--ink);
-	background:
-		radial-gradient(circle at 15% 10%, rgba(0, 112, 243, 0.12), transparent 28%),
-		radial-gradient(circle at 85% 0%, rgba(37, 99, 235, 0.08), transparent 25%),
-		var(--bg);
+	background: var(--bg);
+	font-feature-settings: 'cv11', 'ss01';
+}
+
+input,
+select,
+textarea {
+	font-size: 16px;
+}
+
+.tabular {
+	font-variant-numeric: tabular-nums;
 }
 
 .card-surface {
 	background: var(--card);
 	border: 1px solid var(--line);
-	box-shadow: 0 8px 30px rgba(16, 24, 40, 0.08);
+	box-shadow: 0 1px 2px rgba(20, 32, 27, 0.04), 0 8px 24px rgba(20, 32, 27, 0.06);
+}
+
+.safe-top {
+	padding-top: env(safe-area-inset-top);
+}
+
+.safe-bottom {
+	padding-bottom: env(safe-area-inset-bottom);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		transition-duration: 0.01ms !important;
+	}
 }
 
 .stock-paper-wrap {
@@ -314,17 +346,18 @@ body {
 	box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
 }
 
+/* Primary actions sit in the thumb zone, just above the phone tab bar. */
 .mobile-sticky-actions {
 	position: sticky;
-	bottom: 0;
+	bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
 	z-index: 35;
-	background: #ffffff;
-	border-top: 1px solid #e2e8f0;
-	box-shadow: 0 -6px 18px rgba(15, 23, 42, 0.08);
-	padding-top: 8px;
-	padding-left: 4px;
-	padding-right: 4px;
-	padding-bottom: max(12px, env(safe-area-inset-bottom));
+	background: rgba(255, 255, 255, 0.96);
+	-webkit-backdrop-filter: blur(8px);
+	backdrop-filter: blur(8px);
+	border-top: 1px solid var(--line);
+	padding: 10px 12px;
+	margin-left: -16px;
+	margin-right: -16px;
 }
 
 @media (min-width: 768px) {
@@ -395,10 +428,12 @@ body {
 		border: 1px solid #d9e2ef;
 	}
 
+	/* Editable counts stay at 16px so iOS never zooms on focus; the narrow column gets less padding instead. */
 	.stock-qty-input {
-		font-size: 11px;
-		border: 2px dashed #5b9bff;
-		background: #eef6ff;
+		font-size: 16px;
+		padding: 4px 2px;
+		border: 1.5px dashed #8fb39b;
+		background: #f3f7f4;
 		text-align: center;
 	}
 
@@ -408,17 +443,22 @@ body {
 
 	.stock-mobile-card .stock-input,
 	.stock-mobile-card .stock-qty-input {
-		min-height: 35px;
-		padding: 5px 7px;
+		min-height: 44px;
+		padding: 6px 8px;
 	}
 
 	.stock-mobile-card .stock-input {
-		font-size: 12px;
+		font-size: 14px;
 	}
 
 	.stock-mobile-card .stock-qty-input {
-		font-size: 10px;
+		font-size: 16px;
 	}
+}
+
+/* Item names are display-only: taps pass through to the row/card (and never zoom the page). */
+.stock-input[readonly] {
+	pointer-events: none;
 }
 
 	.stock-paper-export .stock-collapse-indicator {

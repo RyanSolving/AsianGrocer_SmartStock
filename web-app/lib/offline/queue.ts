@@ -271,3 +271,38 @@ export async function syncOfflineQueue(): Promise<SyncOfflineQueueResult> {
     failed,
   }
 }
+
+export const DRAFT_SAVE_DELAY_MS = 400
+
+/**
+ * Runs `save` after a short pause, or right away when the page is hidden or closed
+ * (so a quick app switch never loses the last count). Returns a cleanup for useEffect.
+ */
+export function scheduleDraftSave(save: () => void, delayMs = DRAFT_SAVE_DELAY_MS) {
+  if (typeof window === 'undefined') {
+    save()
+    return () => {}
+  }
+  let done = false
+  const run = () => {
+    if (done) return
+    done = true
+    window.clearTimeout(timer)
+    window.removeEventListener('pagehide', run)
+    document.removeEventListener('visibilitychange', onVisibility)
+    save()
+  }
+  const onVisibility = () => {
+    if (document.visibilityState === 'hidden') run()
+  }
+  const timer = window.setTimeout(run, delayMs)
+  window.addEventListener('pagehide', run)
+  document.addEventListener('visibilitychange', onVisibility)
+  return () => {
+    if (done) return
+    done = true
+    window.clearTimeout(timer)
+    window.removeEventListener('pagehide', run)
+    document.removeEventListener('visibilitychange', onVisibility)
+  }
+}

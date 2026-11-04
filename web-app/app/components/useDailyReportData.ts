@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { ReportEntry } from '../../lib/report-aggregations'
 import { computeItemInsights, summarizeInsights } from '../../lib/report-insights'
@@ -58,13 +58,23 @@ function toReportRow(item: ReportCatalogItem, closing: number, redMarked: boolea
   }
 }
 
+/**
+ * Shared per-date cache (Dashboard and Daily Report read the same dates), so switching tabs
+ * or dates shows the last result at once and refreshes it quietly.
+ */
+const reportCache = new Map<string, DailyReportResponse>()
+
 /** `refreshKey`: bump it to refetch. The previous data stays on screen while reloading (no flash). */
 export function useDailyReportData(date: string, catalogItems: ReportCatalogItem[], refreshKey = 0) {
-  const [data, setData] = useState<DailyReportResponse | null>(null)
+  const [data, setData] = useState<DailyReportResponse | null>(() => reportCache.get(date) ?? null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const latestDateRef = useRef(date)
 
   const reload = useCallback(async () => {
+    latestDateRef.current = date
+    const cached = reportCache.get(date)
+    setData(cached ?? null)
     setIsLoading(true)
     setError(null)
 
@@ -76,12 +86,18 @@ export function useDailyReportData(date: string, catalogItems: ReportCatalogItem
         throw new Error(payload?.error ?? 'Failed to load the daily report.')
       }
 
-      setData(payload as DailyReportResponse)
+      reportCache.set(date, payload as DailyReportResponse)
+      if (latestDateRef.current === date) setData(payload as DailyReportResponse)
     } catch (loadError) {
-      setData(null)
-      setError(loadError instanceof Error ? loadError.message : 'Failed to load the daily report.')
+      if (latestDateRef.current !== date) return
+      // Keep the last good result on screen; just say the refresh failed.
+      setError(
+        cached
+          ? 'Could not refresh. Showing the last loaded numbers.'
+          : loadError instanceof Error ? loadError.message : 'Failed to load the daily report.',
+      )
     } finally {
-      setIsLoading(false)
+      if (latestDateRef.current === date) setIsLoading(false)
     }
   }, [date])
 

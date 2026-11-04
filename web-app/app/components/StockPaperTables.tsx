@@ -1,5 +1,13 @@
 import type { ReactNode } from 'react'
 
+const INTERACTIVE_SELECTOR = 'input:not([readonly]), textarea, select, button, a, [contenteditable="true"]'
+
+function isInteractiveTarget(target: EventTarget | null, container: Element) {
+  if (!(target instanceof Element)) return false
+  const hit = target.closest(INTERACTIVE_SELECTOR)
+  return hit !== null && hit !== container && container.contains(hit)
+}
+
 type IndexableRow = {
   index: number
 }
@@ -223,9 +231,14 @@ export function StockPaperCardSection<T extends IndexableRow>({
             key={`${keyPrefix}-${title}-card-${i}`}
             role={onPressRow ? 'button' : undefined}
             tabIndex={onPressRow ? 0 : undefined}
-            onClick={() => onPressRow?.(item)}
+            onClick={(event) => {
+              // Typing in the card's own fields must not scroll the page to the row.
+              if (isInteractiveTarget(event.target, event.currentTarget)) return
+              onPressRow?.(item)
+            }}
             onKeyDown={(event) => {
               if (!onPressRow) return
+              if (event.target !== event.currentTarget) return
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault()
                 onPressRow(item)
