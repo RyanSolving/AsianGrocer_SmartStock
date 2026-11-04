@@ -360,15 +360,20 @@ textarea {
 	margin-right: -16px;
 }
 
+/* Phone typing in Stock In and Check Stock (see lib/use-keypad-entry.ts). */
 @media (max-width: 767px) {
-	.stock-in-editor:has(#stock-in-item-search:focus, #stock-in-qty:focus)::after {
+	/* Room to scroll the entry fields up under the app bar, even on a short sheet. */
+	.keypad-editor:has(.keypad-entry input:focus)::after {
 		content: '';
 		display: block;
-		height: var(--stock-keypad-inset, 0px);
+		height: var(--keypad-inset, 0px);
 	}
 	/* Free the area above the keyboard for the current item and its Add button. */
-	.stock-in-editor:has(#stock-in-item-search:focus, #stock-in-qty:focus) .mobile-sticky-actions {
+	body:has(.keypad-entry input:focus) .mobile-sticky-actions {
 		position: static;
+	}
+	body:has(.keypad-entry input:focus) nav.safe-bottom {
+		display: none;
 	}
 }
 

@@ -19,14 +19,15 @@ import {
   Check,
   Undo2,
   Tag,
-  ChevronLeft,
 } from 'lucide-react'
 import { ToastViewport } from './components/ui/Toast'
 import { Sheet } from './components/ui/Sheet'
 import { fieldClass, inputClass, NumberInput } from './components/ui/Input'
 import { focusNextQuantityInput, isRowListed, rankSuggestions } from '../lib/entry-chain'
 import { AppShell, type ShellSection } from './components/AppShell'
+import { EditorTopBar } from './components/EditorTopBar'
 import { sectionFromQuery } from '../lib/hub-navigation'
+import { useKeypadEntry } from '../lib/use-keypad-entry'
 import { friendlyError, toast } from '../lib/toast-store'
 
 import { DailyReportPanel } from './components/DailyReportPanel'
@@ -1020,46 +1021,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     setApiStatus(null)
   }, [apiStatus])
 
-  // Android and iOS can shrink only the visual viewport when the keypad opens.
-  useEffect(() => {
-    const entry = stockEntryRef.current
-    if (!entry || activeSection !== 'data-entry' || stockInPhase !== 'editing') return
-    const viewport = window.visualViewport
-    let frame = 0
-    const fitEntry = () => {
-      if (window.innerWidth >= 768) return
-      const input = document.activeElement
-      if (input !== dataEntryItemInputRef.current && input !== dataEntryQtyInputRef.current) return
-      if (!(input instanceof HTMLInputElement)) return
-      const top = viewport?.offsetTop ?? 0
-      const height = viewport?.height ?? window.innerHeight
-      // A short, empty sheet otherwise has no scroll range above an overlay keyboard.
-      entry.closest<HTMLElement>('.stock-in-editor')?.style.setProperty(
-        '--stock-keypad-inset', `${Math.max(0, window.innerHeight - height)}px`,
-      )
-      const navTop = document.querySelector('nav.safe-bottom')?.getBoundingClientRect().top ?? Infinity
-      const bottom = Math.min(top + height, navTop) - 12
-      const field = input.getBoundingClientRect()
-      const searching = input === dataEntryItemInputRef.current
-      const allowance = searching ? Math.min(144, height / 3) : 0
-      const overflow = field.bottom + allowance - bottom
-      if (overflow > 0) window.scrollBy(0, Math.min(overflow, Math.max(0, field.top - top - 64)))
-      entry.style.setProperty('--stock-results-height', `${Math.max(48, bottom - input.getBoundingClientRect().bottom - 4)}px`)
-    }
-    const scheduleFit = () => {
-      cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(fitEntry)
-    }
-    entry.addEventListener('focusin', scheduleFit)
-    viewport?.addEventListener('resize', scheduleFit)
-    window.addEventListener('resize', scheduleFit)
-    return () => {
-      cancelAnimationFrame(frame)
-      entry.removeEventListener('focusin', scheduleFit)
-      viewport?.removeEventListener('resize', scheduleFit)
-      window.removeEventListener('resize', scheduleFit)
-    }
-  }, [activeSection, stockInPhase])
+  useKeypadEntry(stockEntryRef, activeSection === 'data-entry' && stockInPhase === 'editing')
 
   async function uploadCatalogToDatabase(file: File) {
     setIsCatalogUploading(true)
@@ -2896,28 +2858,16 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
             />
           ) : (
             <div className="space-y-4">
-              <section className="stock-in-editor rounded-card border border-line bg-surface p-3 sm:p-6">
-                <header className="mb-3 flex flex-wrap items-center justify-between gap-x-3 border-b border-line pb-2">
-                  <div>
-                    <button
-                      type="button"
-                      onClick={() => setStockInPhase('landing')}
-                      className="-ml-2 inline-flex min-h-11 items-center gap-1 rounded-control px-2 text-sm font-medium text-muted hover:bg-slate-100"
-                    >
-                      <ChevronLeft className="h-5 w-5" aria-hidden="true" />
-                      Menu
-                    </button>
-                    <h1 className={editingHistoryUid ? 'text-lg font-semibold' : 'sr-only md:not-sr-only md:text-2xl md:font-semibold'}>
-                      {editingHistoryUid ? 'Edit stock in' : 'Stock in'}
-                    </h1>
-                  </div>
-                  <label className="inline-flex items-center gap-2 text-xs font-medium text-muted">
-                    Stock date
-                    <input id="paper-stock-date" type="date" value={parsedData?.stock_date ?? ''}
-                      onChange={(event) => updateParsedStockDate(event.target.value)} disabled={!parsedData}
-                      className={`${inputClass} w-auto max-w-[10rem] tabular`} />
-                  </label>
-                </header>
+              <section className="stock-in-editor keypad-editor rounded-card border border-line bg-surface p-3 sm:p-6">
+                <EditorTopBar
+                  title={editingHistoryUid ? 'Edit stock in' : 'Stock in'}
+                  showTitleOnPhone={!!editingHistoryUid}
+                  onBack={() => setStockInPhase('landing')}
+                  dateId="paper-stock-date"
+                  dateValue={parsedData?.stock_date ?? ''}
+                  onDateChange={updateParsedStockDate}
+                  dateDisabled={!parsedData}
+                />
 
                 {editingHistoryUid && (
                   <div className="mb-4 flex items-center gap-3 rounded-control bg-forest-50 px-3 py-2 text-[14px] text-forest-900">
@@ -2936,7 +2886,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                 <div className="grid gap-4">
                     <div className="grid gap-3 md:grid-cols-2">
                       <div className="md:rounded-card md:border md:border-line md:p-4">
-                        <div ref={stockEntryRef} className="space-y-2">
+                        <div ref={stockEntryRef} className="keypad-entry space-y-2">
                           <div className="relative">
                             <label htmlFor="stock-in-item-search" className="mb-1.5 block text-[14px] font-medium text-ink">Item</label>
                             <div className="relative">

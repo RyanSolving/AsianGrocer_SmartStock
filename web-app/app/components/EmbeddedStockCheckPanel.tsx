@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
-import { Check, ChevronLeft, Download, FileImage, Loader2, Plus, Save, Search, Undo2, X } from 'lucide-react'
-import { NumberInput, fieldClass, inputClass } from './ui/Input'
+import { Check, Download, FileImage, Loader2, Plus, Save, Search, Undo2, X } from 'lucide-react'
+import { NumberInput, fieldClass } from './ui/Input'
 import { focusNextQuantityInput, parseTypedQuantity, rankSuggestions } from '../../lib/entry-chain'
 import { friendlyError, toast } from '../../lib/toast-store'
 import { toPng } from 'html-to-image'
@@ -21,6 +21,8 @@ import {
   subscribeOfflineQueueUpdates,
 } from '../../lib/offline/queue'
 import { EntryMethodToggle } from './EntryMethodToggle'
+import { EditorTopBar } from './EditorTopBar'
+import { useKeypadEntry } from '../../lib/use-keypad-entry'
 import { CreateCatalogItemModal, type CreateCatalogItemPayload } from './CreateCatalogItemModal'
 import { StockLedger, toLedgerAreas } from './StockLedger'
 import { LedgerPhotoSheet, type PhotoGroup, type PhotoRow } from './LedgerPhotoSheet'
@@ -474,6 +476,8 @@ export function EmbeddedStockCheckPanel({
   const [lastAddedCheck, setLastAddedCheck] = useState<{ id: number; name: string; quantity: number; note?: string; snapshot: StockCheckRow[] } | null>(null)
   const checkItemInputRef = useRef<HTMLInputElement | null>(null)
   const checkQtyInputRef = useRef<HTMLInputElement | null>(null)
+  const checkEntryRef = useRef<HTMLDivElement>(null)
+  useKeypadEntry(checkEntryRef, phase === 'editing' && stockEntryMode === 'manual')
   const [manualCheckRedMarked, setManualCheckRedMarked] = useState(false)
   const [manualCheckHighlightIndex, setManualCheckHighlightIndex] = useState(0)
   const [isItemProfilesExpanded, setIsItemProfilesExpanded] = useState(false)
@@ -1698,21 +1702,18 @@ export function EmbeddedStockCheckPanel({
 
   return (
     <div className="space-y-4">
-      <section className="rounded-card border border-line bg-surface p-4 sm:p-6">
-        <div className="mb-4">
-          <button
-            type="button"
-            onClick={() => setPhase('landing')}
-            className="-ml-2 inline-flex min-h-10 items-center gap-1 rounded-control px-2 text-[15px] text-muted hover:bg-slate-100 hover:text-ink"
-          >
-            <ChevronLeft className="h-5 w-5" aria-hidden="true" />
-            Menu
-          </button>
-          <h1 className="mt-1 text-[24px] font-semibold leading-tight tracking-[-0.01em] text-ink">
-            {loadedHistoryUid ? 'Edit closing count' : 'Closing count'}
-          </h1>
+      <section className="keypad-editor rounded-card border border-line bg-surface p-3 sm:p-6">
+        <EditorTopBar
+          title={loadedHistoryUid ? 'Edit closing count' : 'Closing count'}
+          showTitleOnPhone={!!loadedHistoryUid}
+          onBack={() => setPhase('landing')}
+          dateId="check-stock-date"
+          dateValue={stockDate}
+          onDateChange={(value) => setStockDate(value || today)}
+        />
+        <div className="mb-3 empty:hidden">
           {stockCheckQueueCount > 0 || !isOnline ? (
-            <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-warning-soft px-2.5 py-1 text-[13px] font-medium text-warning">
+            <p className="inline-flex items-center gap-1.5 rounded-full bg-warning-soft px-2.5 py-1 text-[13px] font-medium text-warning">
               {!isOnline ? 'Offline · saves stay on this phone' : `${stockCheckQueueCount} save${stockCheckQueueCount > 1 ? 's' : ''} waiting to upload`}
             </p>
           ) : null}
@@ -1723,7 +1724,7 @@ export function EmbeddedStockCheckPanel({
           )}
         </div>
 
-        <div className="mb-4">
+        <div className="mb-3">
           <EntryMethodToggle
             value={stockEntryMode}
             onManual={confirmStartManualEntry}
@@ -1734,18 +1735,7 @@ export function EmbeddedStockCheckPanel({
         {stockEntryMode === 'manual' && (
           <div className="grid gap-3 md:grid-cols-2">
             <div className="relative md:rounded-card md:border md:border-line md:p-4">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <label htmlFor="check-stock-date" className="whitespace-nowrap text-[14px] font-medium text-ink">Stock date</label>
-                  <input
-                    id="check-stock-date"
-                    type="date"
-                    value={stockDate}
-                    onChange={(event) => setStockDate(event.target.value || today)}
-                    className={`${inputClass} w-auto tabular`}
-                  />
-                </div>
-
+              <div ref={checkEntryRef} className="keypad-entry space-y-2">
                 <div className="relative">
                   <label htmlFor="check-item-search" className="mb-1.5 block text-[14px] font-medium text-ink">Item</label>
                   <div className="relative">
@@ -1772,7 +1762,7 @@ export function EmbeddedStockCheckPanel({
                   </div>
 
                   {showItemSuggestions && newItemName.trim().length > 0 && suggestions.length > 0 && (
-                    <div role="listbox" className="absolute left-0 right-0 top-full z-30 mt-1 overflow-hidden rounded-control border border-line bg-surface shadow-raised">
+                    <div role="listbox" className="absolute left-0 right-0 top-full z-30 mt-1 max-h-[min(15rem,var(--stock-results-height,15rem))] overflow-y-auto overscroll-contain rounded-control border border-line bg-surface shadow-raised">
                       {suggestions.map((item, idx) => {
                         const currentQty = quantityByCode.get(item.code.trim().toUpperCase())
                         const highlighted = idx === manualCheckHighlightIndex
