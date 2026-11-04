@@ -1,13 +1,13 @@
 'use client'
 
 import { useState, type ReactNode } from 'react'
-import { BarChart3, ClipboardList, Database, History, LogIn, LogOut, Menu, PackagePlus, ScanSearch } from 'lucide-react'
+import { BarChart3, ClipboardList, Database, History, House, LogIn, LogOut, Menu, PackagePlus, ScanSearch } from 'lucide-react'
 
 import { BrandLogo, BrandTile } from './BrandMark'
 import { IconButton } from './ui/Button'
 import { Sheet } from './ui/Sheet'
 
-export type ShellSection = 'data-entry' | 'stock-check' | 'daily-report' | 'dashboard' | 'catalog'
+export type ShellSection = 'home' | 'data-entry' | 'stock-check' | 'daily-report' | 'dashboard' | 'catalog'
 
 type NavItem = { id: ShellSection; label: string; short: string; icon: typeof BarChart3 }
 
@@ -19,6 +19,9 @@ export const NAV_ITEMS: NavItem[] = [
 ]
 
 const MANAGEMENT_ITEMS: NavItem[] = [{ id: 'catalog', label: 'Catalog', short: 'Catalog', icon: Database }]
+
+/** Home is reached from the logo on phones and from the top of the rail on desktop. */
+const HOME_ITEM: NavItem = { id: 'home', label: 'Home', short: 'Home', icon: House }
 
 export type SyncState = {
   isOnline: boolean
@@ -86,7 +89,7 @@ function AccountBlock({ account, isAuthLoading, onSignOut }: Pick<AppShellProps,
 
 export function AppShell({ active, onNavigate, sync, account, isAuthLoading, onSignOut, onOpenHistory, historyLabel = 'History', children }: AppShellProps) {
   const [isMoreOpen, setIsMoreOpen] = useState(false)
-  const activeItem = [...NAV_ITEMS, ...MANAGEMENT_ITEMS].find((item) => item.id === active)
+  const activeItem = [HOME_ITEM, ...NAV_ITEMS, ...MANAGEMENT_ITEMS].find((item) => item.id === active)
 
   const railButton = (item: NavItem) => {
     const Icon = item.icon
@@ -112,10 +115,11 @@ export function AppShell({ active, onNavigate, sync, account, isAuthLoading, onS
     <div className="min-h-dvh bg-ground md:flex">
       {/* Desktop rail */}
       <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col bg-forest px-3 py-5 md:flex">
-        <div className="px-2 pb-6">
+        <button type="button" onClick={() => onNavigate('home')} className="px-2 pb-6 text-left" aria-label="Asian Grocer home">
           <BrandLogo className="w-full" />
-        </div>
+        </button>
         <nav className="space-y-1" aria-label="Main">
+          {railButton(HOME_ITEM)}
           {NAV_ITEMS.map(railButton)}
           <p className="px-3 pb-1 pt-5 text-[13px] text-white/85">Manage</p>
           {MANAGEMENT_ITEMS.map(railButton)}
@@ -143,10 +147,16 @@ export function AppShell({ active, onNavigate, sync, account, isAuthLoading, onS
         {/* Phone top bar */}
         <header className="safe-top sticky top-0 z-40 bg-forest text-white md:hidden">
           <div className="flex h-14 items-center gap-2 pl-4 pr-1">
-            <div className="flex min-w-0 flex-1 items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => onNavigate('home')}
+              aria-label="Home"
+              aria-current={active === 'home' ? 'page' : undefined}
+              className="flex min-h-11 min-w-0 flex-1 items-center gap-2.5 rounded-control text-left"
+            >
               <BrandTile size="sm" />
-              <span className="truncate font-semibold">{activeItem?.label ?? 'Asian Grocer'}</span>
-            </div>
+              <span className="truncate font-semibold">{active === 'home' ? 'Asian Grocer' : activeItem?.label ?? 'Asian Grocer'}</span>
+            </button>
             <SyncDot sync={sync} onDark />
             {onOpenHistory ? (
               <IconButton label={historyLabel} tone="onDark" onClick={onOpenHistory}>

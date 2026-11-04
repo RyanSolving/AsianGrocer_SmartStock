@@ -30,6 +30,7 @@ import { friendlyError, toast } from '../lib/toast-store'
 
 import { DailyReportPanel } from './components/DailyReportPanel'
 import { DashboardPanel } from './components/DashboardPanel'
+import { HomePanel } from './components/HomePanel'
 import { CatalogManagementView } from './catalog/CatalogManagementView'
 import { CreateCatalogItemModal, type CreateCatalogItemPayload } from './components/CreateCatalogItemModal'
 import { EmbeddedStockCheckPanel } from './components/EmbeddedStockCheckPanel'
@@ -60,6 +61,7 @@ import { normalizeInsideSectionLabel } from '../lib/stock-paper-utils'
 import { STATUS } from '../lib/status-messages'
 import { getLocalTodayDate } from '../lib/date-utils'
 import { useHistoryRealtime } from '../lib/realtime/history-realtime'
+import { WAREHOUSE_SYNC_ENABLED } from '../lib/warehouse-sync'
 
 function shouldSilenceOfflineNetworkError(error: unknown) {
   if (typeof window === 'undefined' || window.navigator.onLine) {
@@ -244,7 +246,7 @@ type IndexedItem = {
   source: 'parsed' | 'missing' | 'unknown'
 }
 
-type HubSection = 'data-entry' | 'stock-check' | 'daily-report' | 'dashboard' | 'catalog'
+type HubSection = 'home' | 'data-entry' | 'stock-check' | 'daily-report' | 'dashboard' | 'catalog'
 type LastAddedEntry = {
   id: number
   name: string
@@ -496,10 +498,14 @@ function mapHistoryEntryToEditablePayload(entry: HistoryEntry, fallbackDate: str
 export default function Home() {
   const today = useMemo(() => getLocalTodayDate(), [])
   const stockMode: StockMode = 'stock-in'
-  const [activeSection, setActiveSection] = useState<HubSection>('data-entry')
+  const [activeSection, setActiveSection] = useState<HubSection>('home')
+  // Bumped each time Home opens, so its numbers refresh quietly behind the cached ones.
+  const [homeRefreshKey, setHomeRefreshKey] = useState(0)
+  const hasShownHomeRef = useRef(false)
+  const [reportDateRequest, setReportDateRequest] = useState<{ date: string; key: number } | null>(null)
   const [stockInPhase, setStockInPhase] = useState<'landing' | 'editing'>('landing')
   const [isHistorySheetOpen, setIsHistorySheetOpen] = useState(false)
-  const [visitedSections, setVisitedSections] = useState<Set<HubSection>>(() => new Set<HubSection>(['data-entry']))
+  const [visitedSections, setVisitedSections] = useState<Set<HubSection>>(() => new Set<HubSection>(['home', 'data-entry']))
   const [dataEntryMode, setDataEntryMode] = useState<DataEntryMode>('manual')
   const [activeCatalog, setActiveCatalog] = useState<CatalogItem[] | null>(null)
   const [isCatalogOpen, setIsCatalogOpen] = useState(false)
@@ -581,6 +587,11 @@ export default function Home() {
   useEffect(() => {
     setVisitedSections((current) => (current.has(activeSection) ? current : new Set(current).add(activeSection)))
     setIsHistorySheetOpen(false)
+    if (activeSection === 'home') {
+      // The first open already loads; only returning to Home refreshes.
+      if (hasShownHomeRef.current) setHomeRefreshKey((value) => value + 1)
+      hasShownHomeRef.current = true
+    }
   }, [activeSection])
 
   const signOut = useCallback(async () => {
@@ -2272,14 +2283,28 @@ export default function Home() {
     const saved = await saveToSupabase()
     if (!saved) return
 
-    // Step 3: clear draft and return to the menu right away
+    // Step 3: empty the sheet and return to the menu right away. Emptying the sheet (not only the
+    // stored draft) matters: saving updates the sheet, which schedules a draft auto-save, and that
+    // save would otherwise write the finished sheet back as "Continue draft" a moment later.
+    const uid = typeof saved === 'string' ? saved : latestGenerateUid
     clearOfflineDraft('stock-in')
     setHasStockInLocalDraft(false)
+    setParsedData(null)
+    setUnknownItems([])
+    setMissingCatalogItems([])
+    setLatestGenerateUid(null)
+    setEditingHistoryUid(null)
+    setSelectedHistoryUid(null)
+    setHasSavedToSupabase(false)
+    setHasLoadedToDb(false)
+    setIsValidatedByStaff(false)
+    setDataEntryTouchedIndexes(new Set())
+    setLastAddedEntry(null)
     setStockInPhase('landing')
 
-    // Step 4: warehouse (BigQuery) sync runs in the background with its own progress toast
-    const uid = typeof saved === 'string' ? saved : latestGenerateUid
-    if (uid && window.navigator.onLine) {
+    // Step 4: warehouse (BigQuery) sync runs in the background with its own progress toast.
+    // Paused for now (lib/warehouse-sync): Supabase is the only store.
+    if (WAREHOUSE_SYNC_ENABLED && uid && window.navigator.onLine) {
       syncStockInToWarehouse(uid)
     } else if (window.navigator.onLine) {
       toast.success('Stock in saved')
@@ -2752,6 +2777,18 @@ export default function Home() {
             </div>
       </Sheet>
 
+          {visitedSections.has('home') ? (
+            <div hidden={activeSection !== 'home'}>
+              <HomePanel
+                catalogItems={visibleCatalog}
+                refreshKey={homeRefreshKey}
+                onNavigate={(section, options) => {
+                  if (options?.reportDate) setReportDateRequest({ date: options.reportDate, key: Date.now() })
+                  setActiveSection(section)
+                }}
+              />
+            </div>
+          ) : null}
           {visitedSections.has('catalog') ? (
             <div hidden={activeSection !== 'catalog'}>
               <CatalogManagementView embedded />
@@ -2770,7 +2807,7 @@ export default function Home() {
           ) : null}
           {visitedSections.has('daily-report') ? (
             <div hidden={activeSection !== 'daily-report'}>
-              <DailyReportPanel catalogItems={visibleCatalog} />
+              <DailyReportPanel catalogItems={visibleCatalog} requestedDate={reportDateRequest} />
             </div>
           ) : null}
           {visitedSections.has('dashboard') ? (
@@ -3351,7 +3388,7 @@ export default function Home() {
           setIsHistoryOpen(false)
           void loadDataEntryHistoryToEditor(uid)
         }}
-        onRepush={repushToBigQuery}
+        onRepush={WAREHOUSE_SYNC_ENABLED ? repushToBigQuery : undefined}
         onDeleteHistory={deleteTranscriptionHistory}
         deletingUid={isDeletingHistoryUid}
         isRepushing={isRepushing}

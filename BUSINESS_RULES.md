@@ -140,6 +140,29 @@ quietest).
 Code: `web-app/lib/report-aggregations.ts` and
 `web-app/app/components/DailyReportSummary.tsx`.
 
+## 6b. Home screen
+
+The app opens on Home. Tap the logo to come back to it; on desktop it's also at the top of the
+sidebar.
+
+- **Yesterday** means the phone's calendar day before today.
+- **Units sold:** yesterday's figure, using the formula in §2. The change shown is against the
+  day before.
+- **7-day chart:** units sold for each of the last 7 days, worked out the same way. A day with
+  no closing, or no earlier closing, shows a flat line.
+- **Tiles:** stock in, the top seller with its share of sales, and the Stock-out and Low stock
+  counts. Badges changed by hand count. Tapping a flag tile opens yesterday's Daily Report.
+- **Today:**
+  - Daily Report shows "ready" when yesterday's closing exists.
+  - Stock in shows "Saved" when today's stock-in exists.
+  - Stock close shows "Saved" when today's closing exists, otherwise "Due 4 PM", or "Due now"
+    after 4 PM.
+- **Up next:** Stock in until today's stock-in is saved, then Stock close until today's
+  closing is saved, then Daily Report.
+
+Code: `HomePanel.tsx`; `/api/daily-report/trend` with `buildSalesTrend` in
+`web-app/lib/report-records.ts`.
+
 ## 7. Report notices
 
 Shown above the Daily Report and Dashboard.

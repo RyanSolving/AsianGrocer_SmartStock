@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { Download, Loader2, RefreshCw } from 'lucide-react'
 import { toPng } from 'html-to-image'
@@ -21,6 +21,8 @@ import { ActionBar, ScreenHeader } from './ui/Primitives'
 
 type DailyReportPanelProps = {
   catalogItems: ReportCatalogItem[]
+  /** Opens the report on this date (from Home). A new `key` applies it again. */
+  requestedDate?: { date: string; key: number } | null
 }
 
 function orderedRows(rows: PaperRowColumns<ReportRow>) {
@@ -107,8 +109,11 @@ function ReportArea({ title, groups, insights, onSelectItem }: {
   )
 }
 
-export function DailyReportPanel({ catalogItems }: DailyReportPanelProps) {
-  const [reportDate, setReportDate] = useState(() => getLocalTodayDate())
+export function DailyReportPanel({ catalogItems, requestedDate }: DailyReportPanelProps) {
+  const [reportDate, setReportDate] = useState(() => requestedDate?.date ?? getLocalTodayDate())
+  useEffect(() => {
+    if (requestedDate?.date) setReportDate(requestedDate.date)
+  }, [requestedDate])
   const [isExporting, setIsExporting] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
   const photoRef = useRef<HTMLDivElement | null>(null)

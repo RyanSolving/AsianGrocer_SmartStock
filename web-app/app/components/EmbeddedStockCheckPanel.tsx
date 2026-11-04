@@ -37,6 +37,7 @@ import { Sheet } from './ui/Sheet'
 import { SectionLandingState } from './SectionLandingState'
 import { getOfflineDraftAge } from '../../lib/offline/queue'
 import { getLocalTodayDate } from '../../lib/date-utils'
+import { WAREHOUSE_SYNC_ENABLED } from '../../lib/warehouse-sync'
 import { findUncountedItems } from '../../lib/closing-completeness'
 import { mergePhotoRows } from '../../lib/photo-merge'
 
@@ -1454,7 +1455,7 @@ export function EmbeddedStockCheckPanel({
     })()
   }
 
-  /** One Save: check for uncounted items -> (warnings sheet if needed) -> save -> background warehouse sync. */
+  /** One Save: check for uncounted items -> (warnings sheet if needed) -> save -> background warehouse sync (when on). */
   async function handleSave() {
     if (isSaving || isCheckingCounts) return
     setIsCheckingCounts(true)
@@ -1479,7 +1480,10 @@ export function EmbeddedStockCheckPanel({
     setShowRecheckWarningModal(false)
     const envelope = buildWarehouseEnvelopePayload(rows, true)
     const outcome = await saveStockCheck()
-    if (outcome === 'saved') syncToWarehouse(envelope)
+    if (outcome !== 'saved') return
+    // The warehouse copy is paused for now (lib/warehouse-sync): Supabase is the only store.
+    if (WAREHOUSE_SYNC_ENABLED) syncToWarehouse(envelope)
+    else toast.success('Closing saved')
   }
 
   async function exportCsv() {

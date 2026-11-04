@@ -2,62 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { getAuthContext } from '../../../lib/supabase/route-auth'
 import { isMissingTableError } from '../../../lib/supabase/errors'
+import { readClosingItems, readStockInItems } from '../../../lib/report-records'
 
 export const runtime = 'nodejs'
 
-type QuantityByCode = Record<string, number>
-
 function isValidDate(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(new Date(`${value}T00:00:00Z`).getTime())
-}
-
-function toQuantity(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  if (typeof value === 'string' && value.trim() !== '') {
-    const parsed = Number(value)
-    return Number.isFinite(parsed) ? parsed : null
-  }
-  return null
-}
-
-function readClosingItems(itemData: unknown) {
-  const items = (itemData as { items?: unknown } | null)?.items
-  const quantities: QuantityByCode = {}
-  const redMarked: Record<string, boolean> = {}
-
-  if (!Array.isArray(items)) return { quantities, redMarked }
-
-  for (const entry of items) {
-    if (!entry || typeof entry !== 'object') continue
-    const item = entry as { code?: unknown; quantity?: unknown; red_marked?: unknown }
-    const code = typeof item.code === 'string' ? item.code.trim() : ''
-    const quantity = toQuantity(item.quantity)
-    if (!code || quantity === null) continue
-
-    quantities[code] = (quantities[code] ?? 0) + quantity
-    if (item.red_marked === true) redMarked[code] = true
-  }
-
-  return { quantities, redMarked }
-}
-
-function readStockInItems(finalOutput: unknown) {
-  const items = (finalOutput as { items?: unknown } | null)?.items
-  const quantities: QuantityByCode = {}
-
-  if (!Array.isArray(items)) return quantities
-
-  for (const entry of items) {
-    if (!entry || typeof entry !== 'object') continue
-    const item = entry as { catalog_code?: unknown; quantity?: unknown }
-    const code = typeof item.catalog_code === 'string' ? item.catalog_code.trim() : ''
-    const quantity = toQuantity(item.quantity)
-    if (!code || quantity === null) continue
-
-    quantities[code] = (quantities[code] ?? 0) + quantity
-  }
-
-  return quantities
 }
 
 export async function GET(request: NextRequest) {

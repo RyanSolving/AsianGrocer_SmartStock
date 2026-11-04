@@ -19,7 +19,8 @@ type TranscriptionHistoryDialogProps = {
   history: HistoryEntry[]
   isLoading: boolean
   onLoadToEdit: (uid: string) => void
-  onRepush: (uid: string) => void
+  /** Omit to hide Re-push (while the warehouse sync is paused). */
+  onRepush?: (uid: string) => void
   onDeleteHistory: (uid: string) => void
   deletingUid?: string | null
   isRepushing: boolean
@@ -224,6 +225,7 @@ export function TranscriptionHistoryDialog({
                     >
                       Load to Edit
                     </button>
+                    {onRepush ? (
                     <button
                       onClick={() => onRepush(entry.uid_generate)}
                       disabled={isRepushing}
@@ -232,6 +234,7 @@ export function TranscriptionHistoryDialog({
                       <RefreshCw className="h-4 w-4" />
                       Re-push
                     </button>
+                    ) : null}
                     <button
                       onClick={() => onDeleteHistory(entry.uid_generate)}
                       disabled={Boolean(deletingUid)}
