@@ -16,6 +16,22 @@ export type InsightStatus = 'ok' | 'no-baseline' | 'negative' | 'no-closing'
 /** ORDER = expected demand tomorrow (today's sold) is not covered by closing stock. */
 export type OrderFlag = 'ORDER' | null
 
+export const stockFlags = ['Stock-out', 'Low stock', 'Over-stock', 'No sell today'] as const
+export type StockFlag = typeof stockFlags[number]
+
+export function getStockFlag(closing: number | null, sold: number | null): StockFlag | null {
+  if (closing === null || !Number.isFinite(closing) || closing < 0) return null
+  if (closing === 0) return 'Stock-out'
+  if (sold === null || !Number.isFinite(sold) || sold < 0) return null
+  if (sold === 0) return 'No sell today'
+
+  // Ignore binary floating-point noise at the exact thresholds for fractional quantities.
+  const cover = Number((closing / sold).toPrecision(14))
+  if (cover < 3) return 'Low stock'
+  if (cover > 7) return 'Over-stock'
+  return null
+}
+
 export type ItemInsight = {
   code: string
   prevClosing: number | null
@@ -26,6 +42,7 @@ export type ItemInsight = {
   status: InsightStatus
   suggestedQty: number
   flag: OrderFlag
+  stockFlag: StockFlag | null
   /** Sold at least FAST_SELL_THROUGH of available stock. Independent of ORDER. */
   fast: boolean
 }
@@ -35,6 +52,12 @@ export type QuantityMap = Record<string, number | null | undefined>
 function toNumber(value: number | null | undefined): number | null {
   if (value === null || value === undefined) return null
   return Number.isFinite(value) ? value : null
+}
+
+export function unitsSold(available: number, closing: number) {
+  const difference = available - closing
+  const roundingError = Number.EPSILON * Math.max(Math.abs(available), Math.abs(closing))
+  return Math.abs(difference) <= roundingError ? 0 : difference
 }
 
 export function computeItemInsight(
@@ -55,6 +78,7 @@ export function computeItemInsight(
     status: 'ok',
     suggestedQty: 0,
     flag: null,
+    stockFlag: getStockFlag(closing, null),
     fast: false,
   }
 
@@ -68,7 +92,7 @@ export function computeItemInsight(
   }
 
   const available = prevClosing + stockIn
-  const sold = available - closing
+  const sold = unitsSold(available, closing)
 
   if (sold < 0) {
     // Closing is higher than what could have been available: entry error or missing stock-in.
@@ -77,12 +101,12 @@ export function computeItemInsight(
 
   const sellThroughPct = available > 0 ? sold / available : null
   const suggestedQty = Math.max(0, Math.ceil(sold - closing))
-  // Out of stock only matters when it sold today; an item at 0 that sold 0 is just not in season.
+  // The refill quantity is a separate one-day demand estimate.
   const soldOut = closing === 0 && sold > 0
   const flag: OrderFlag = suggestedQty > 0 || soldOut ? 'ORDER' : null
   const fast = sellThroughPct !== null && sellThroughPct >= FAST_SELL_THROUGH
 
-  return { ...base, sold, sellThroughPct, status: 'ok', suggestedQty, flag, fast }
+  return { ...base, sold, sellThroughPct, status: 'ok', suggestedQty, flag, fast, stockFlag: getStockFlag(closing, sold) }
 }
 
 export function computeItemInsights(input: {

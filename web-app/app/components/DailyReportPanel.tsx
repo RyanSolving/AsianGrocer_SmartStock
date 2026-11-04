@@ -1,19 +1,18 @@
 'use client'
 
 import { useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Download, Loader2, RefreshCw } from 'lucide-react'
+import { flushSync } from 'react-dom'
+import { Download, Loader2, RefreshCw } from 'lucide-react'
 import { toPng } from 'html-to-image'
 
 import { getLocalTodayDate } from '../../lib/date-utils'
-import {
-  UNKNOWN_SECTION_ID,
-  buildOutsideDisplayColumns,
-  buildPaperSections,
-} from '../../lib/stock-paper-layout'
+import { buildPaperSections, sortIndexedRowsByName, type PaperRowColumns } from '../../lib/stock-paper-layout'
 import { formatSheetDate } from '../../lib/stock-paper-utils'
 import { formatQuantity, type ItemInsight } from '../../lib/report-insights'
-import { StockPaperSectionTable, StockPaperThreeColumnTable } from './StockPaperTables'
-import { useDailyReportData, type IndexedReportRow, type ReportCatalogItem } from './useDailyReportData'
+import { useDailyReportData, type ReportRow, type IndexedReportRow, type ReportCatalogItem } from './useDailyReportData'
+import { StockFlagBadge } from './StockFlagBadge'
+import { BrandTile } from './BrandMark'
+import { ReportNotices } from './ReportNotices'
 import { Button, IconButton } from './ui/Button'
 import { inputClass } from './ui/Input'
 import { ActionBar, ScreenHeader } from './ui/Primitives'
@@ -22,79 +21,102 @@ type DailyReportPanelProps = {
   catalogItems: ReportCatalogItem[]
 }
 
-function formatSold(insight: ItemInsight | undefined) {
-  if (!insight) return null
+function orderedRows(rows: PaperRowColumns<ReportRow>) {
+  return sortIndexedRowsByName([...rows.left, ...rows.right, ...rows.single])
+}
 
-  switch (insight.status) {
-    case 'ok':
-      return { text: `sold ${formatQuantity(insight.sold)}`, tone: 'ok' as const }
-    case 'negative':
-      return { text: 'sold ?', tone: 'warn' as const }
-    case 'no-baseline':
-      return { text: 'sold -', tone: 'muted' as const }
-    default:
-      return null
-  }
+type ReportGroup = { title?: string; items: IndexedReportRow[] }
+
+function PhotoColumns({ title, left, right, insights }: {
+  title: string
+  left: ReportGroup[]
+  right: ReportGroup[]
+  insights: Record<string, ItemInsight>
+}) {
+  return (
+    <>
+      <h3 className="report-area-title">{title}</h3>
+      <div className="report-photo-columns">
+        {[left, right].map((groups, index) => (
+          <div className="report-photo-column" key={index}>
+            <ReportArea groups={groups} insights={insights} />
+            <div className="report-photo-rules" aria-hidden="true" />
+          </div>
+        ))}
+      </div>
+    </>
+  )
+}
+
+function ReportArea({ title, groups, insights }: {
+  title?: string
+  groups: ReportGroup[]
+  insights: Record<string, ItemInsight>
+}) {
+  const visibleGroups = groups.filter(group => group.items.length > 0)
+  if (!visibleGroups.length) return null
+
+  return (
+    <table className="report-ledger">
+      {title && <caption>{title}</caption>}
+      <colgroup><col /><col className="report-number-column" /><col className="report-number-column" /></colgroup>
+      <thead><tr><th scope="col">Item</th><th scope="col">Closing</th><th scope="col">Sold</th></tr></thead>
+      {visibleGroups.map(group => (
+        <tbody key={group.title ?? 'items'}>
+          {group.title && <tr><th scope="rowgroup" colSpan={3} className="report-category">{group.title}</th></tr>}
+          {group.items.map(({ row, index }) => {
+            const insight = insights[row.code]
+            const sold = insight?.status === 'ok' ? formatQuantity(insight.sold) : insight?.status === 'negative' ? '?' : '-'
+            return (
+              <tr key={index}>
+                <th scope="row">
+                  <div className="flex items-center gap-1.5">
+                    {row.redMarked && <span aria-label="Marked for reorder" role="img" className="h-2 w-2 shrink-0 rounded-full bg-danger" />}
+                    <span className="shrink-0">{row.official_name}</span>
+                    {insight?.stockFlag && <StockFlagBadge flag={insight.stockFlag} />}
+                  </div>
+                </th>
+                <td>{formatQuantity(row.closing)}</td>
+                <td className={insight?.status === 'negative' ? 'text-warning' : 'text-muted'}>{sold}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      ))}
+    </table>
+  )
 }
 
 export function DailyReportPanel({ catalogItems }: DailyReportPanelProps) {
   const [reportDate, setReportDate] = useState(() => getLocalTodayDate())
   const [isExporting, setIsExporting] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
-  const paperRef = useRef<HTMLDivElement | null>(null)
+  const photoRef = useRef<HTMLDivElement | null>(null)
 
-  const { data, isLoading, error, reload, insights, indexedRows, warnings, hasReport } = useDailyReportData(reportDate, catalogItems)
+  const { data, isLoading, error, reload, insights, indexedRows, notices, hasReport } = useDailyReportData(reportDate, catalogItems)
 
-  const paperSections = useMemo(() => buildPaperSections(indexedRows), [indexedRows])
-  const outsideColumns = useMemo(
-    () => buildOutsideDisplayColumns(paperSections.outsideRows),
-    [paperSections.outsideRows],
-  )
-
-  function renderLabelCell(item: IndexedReportRow | undefined) {
-    if (!item) return null
-    const insight = insights[item.row.code]
-
-    return (
-      <div className="stock-export-label-wrap">
-        <span
-          aria-hidden="true"
-          className={`h-3.5 w-3.5 shrink-0 rounded-full border ${item.row.redMarked ? 'border-red-600 bg-red-600' : 'border-slate-400 bg-transparent'}`}
-        />
-        <span
-          className={`stock-export-label ${item.row.redMarked ? 'text-red-600 font-semibold' : ''}`}
-          title={item.row.official_name}
-        >
-          {item.row.official_name}
-          {insight?.flag === 'ORDER' ? <span className="report-refill-tag">REFILL</span> : null}
-          {insight?.fast ? <span className="report-fast-tag">FAST</span> : null}
-        </span>
-      </div>
-    )
-  }
-
-  function renderQuantityCell(item: IndexedReportRow) {
-    const insight = insights[item.row.code]
-    const sold = formatSold(insight)
-
-    return (
-      <div className="report-qty-cell">
-        <div className={`stock-export-qty ${item.row.redMarked ? 'text-red-600' : ''}`}>
-          {formatQuantity(item.row.closing)}
-        </div>
-        {sold ? <div className={`report-sold report-sold-${sold.tone}`}>{sold.text}</div> : null}
-      </div>
-    )
-  }
+  const sections = useMemo(() => {
+    const paper = buildPaperSections(indexedRows)
+    const toGroup = (section: typeof paper.leftColumn[number]) => ({
+      title: section.title,
+      items: orderedRows(section.rows),
+    })
+    return {
+      left: paper.leftColumn.map(toGroup),
+      right: paper.rightColumn.map(toGroup),
+      outside: orderedRows(paper.outsideRows),
+      unknown: orderedRows(paper.unknownRows),
+    }
+  }, [indexedRows])
 
   async function exportPhoto() {
-    if (!paperRef.current) return
-
-    setIsExporting(true)
+    if (isExporting) return
     setExportError(null)
 
     try {
-      const dataUrl = await toPng(paperRef.current, {
+      flushSync(() => setIsExporting(true))
+      if (!photoRef.current) throw new Error('Report is no longer available.')
+      const dataUrl = await toPng(photoRef.current, {
         cacheBust: true,
         pixelRatio: 2,
         backgroundColor: '#fefefe',
@@ -111,10 +133,36 @@ export function DailyReportPanel({ catalogItems }: DailyReportPanelProps) {
     }
   }
 
-  const hasUnknownRows =
-    paperSections.unknownRows.left.length > 0
-    || paperSections.unknownRows.right.length > 0
-    || paperSections.unknownRows.single.length > 0
+  function renderSheet(photo: boolean) {
+    const midpoint = Math.ceil(sections.outside.length / 2)
+    return (
+      <div ref={photo ? photoRef : undefined} className={photo ? "report-photo bg-surface" : "min-w-min bg-surface"}>
+        <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 py-4 sm:px-5">
+          <h2 className="text-lg font-semibold tracking-tight text-forest">Closing stock</h2>
+          <div className="flex items-center gap-3">
+            <time dateTime={reportDate} className="text-xs font-medium text-muted">{formatSheetDate(reportDate)}</time>
+            {photo && <BrandTile className="opacity-80" />}
+          </div>
+        </header>
+        {photo && sections.right.length > 0 ? (
+          <PhotoColumns title="Inside coolroom" left={sections.left} right={sections.right} insights={insights} />
+        ) : (
+          <ReportArea title="Inside coolroom" groups={[...sections.left, ...sections.right]} insights={insights} />
+        )}
+        <ReportArea title="Unclassified / staff inspection" groups={[{ items: sections.unknown }]} insights={insights} />
+        {photo && sections.outside.length > 0 ? (
+          <PhotoColumns
+            title="Outside coolroom"
+            left={[{ items: sections.outside.slice(0, midpoint) }]}
+            right={[{ items: sections.outside.slice(midpoint) }]}
+            insights={insights}
+          />
+        ) : (
+          <ReportArea title="Outside coolroom" groups={[{ items: sections.outside }]} insights={insights} />
+        )}
+      </div>
+    )
+  }
 
   const shownError = exportError ?? error
   const canExport = hasReport && !isLoading && !isExporting
@@ -123,7 +171,7 @@ export function DailyReportPanel({ catalogItems }: DailyReportPanelProps) {
     <section className="space-y-4">
       <ScreenHeader
         title="Daily report"
-        subtitle="Closing sheet with units sold and refill tags. The photo matches this preview."
+        subtitle="Closing sheet with units sold and stock flags. Export a photo grouped by coolroom area."
         actions={
           <IconButton label="Refresh" onClick={() => void reload()} disabled={isLoading} className="border border-line bg-surface">
             {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <RefreshCw className="h-5 w-5" />}
@@ -146,16 +194,7 @@ export function DailyReportPanel({ catalogItems }: DailyReportPanelProps) {
         <div className="rounded-control bg-danger-soft px-4 py-3 text-[14px] text-danger">{shownError}</div>
       ) : null}
 
-      {warnings.length > 0 ? (
-        <ul className="space-y-1 rounded-control bg-warning-soft px-4 py-3 text-[14px] text-warning">
-          {warnings.map((warning) => (
-            <li key={warning} className="flex items-start gap-2">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>{warning}</span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      <ReportNotices notices={notices} />
 
       {isLoading && !data ? (
         <div className="flex min-h-[200px] items-center justify-center gap-2 rounded-card border border-line bg-surface text-[15px] text-muted">
@@ -164,73 +203,16 @@ export function DailyReportPanel({ catalogItems }: DailyReportPanelProps) {
       ) : null}
 
       {hasReport ? (
-        <div className="overflow-x-auto rounded-card border border-line bg-[#c8ccd3] p-2 sm:p-3">
-          <div ref={paperRef} className="stock-paper stock-paper-export min-w-[700px] sm:min-w-[760px] md:min-w-[820px]">
-            <div className="report-detail-hdr">
-              <span className="report-detail-title">Detailed Stock Sheet</span>
-              <span className="report-detail-sub">Closing count · units sold · refill</span>
-            </div>
-
-            <div className="stock-date-row">
-              <span>DATE:</span>
-              <span className="stock-date-hand">{formatSheetDate(reportDate)}</span>
-            </div>
-
-            <div className="stock-sec-hdr">INSIDE COOLROOM</div>
-            <div className="stock-inside-grid">
-              <div className="stock-col stock-col-left">
-                {paperSections.leftColumn.map((section) => (
-                  <StockPaperSectionTable
-                    key={section.id}
-                    section={section}
-                    keyPrefix="report-left"
-                    renderLabelCell={renderLabelCell}
-                    renderQuantityCell={renderQuantityCell}
-                  />
-                ))}
-              </div>
-
-              <div className="stock-col">
-                {paperSections.rightColumn.map((section) => (
-                  <StockPaperSectionTable
-                    key={section.id}
-                    section={section}
-                    keyPrefix="report-right"
-                    renderLabelCell={renderLabelCell}
-                    renderQuantityCell={renderQuantityCell}
-                  />
-                ))}
-              </div>
-            </div>
-
-            <div className="stock-sec-hdr">OUTSIDE COOLROOM</div>
-            <StockPaperThreeColumnTable
-              columns={outsideColumns}
-              keyPrefix="report-outside"
-              renderLabelCell={renderLabelCell}
-              renderQuantityCell={renderQuantityCell}
-            />
-
-            {hasUnknownRows ? (
-              <>
-                <div id={UNKNOWN_SECTION_ID} className="stock-sec-hdr !bg-red-900 !text-white">
-                  UNCLASSIFIED / STAFF INSPECTION
-                </div>
-                <StockPaperThreeColumnTable
-                  columns={{
-                    left: paperSections.unknownRows.left,
-                    middle: paperSections.unknownRows.right,
-                    right: paperSections.unknownRows.single,
-                  }}
-                  keyPrefix="report-unknown"
-                  renderLabelCell={renderLabelCell}
-                  renderQuantityCell={renderQuantityCell}
-                />
-              </>
-            ) : null}
-          </div>
+        <div className="min-w-0 overflow-x-auto rounded-card border border-line">
+          {renderSheet(false)}
         </div>
       ) : null}
+
+      {hasReport && isExporting && (
+        <div aria-hidden="true" className="pointer-events-none fixed right-full top-0">
+          {renderSheet(true)}
+        </div>
+      )}
 
       {data && !isLoading && data.closingFound && indexedRows.length === 0 ? (
         <p className="py-8 text-sm text-slate-500">

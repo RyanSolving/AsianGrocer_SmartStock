@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from 'react'
 import { BarChart3, ClipboardList, Database, History, LogIn, LogOut, Menu, PackagePlus, ScanSearch } from 'lucide-react'
 
-import { BrandMark } from './BrandMark'
+import { BrandLogo, BrandTile } from './BrandMark'
 import { IconButton } from './ui/Button'
 import { Sheet } from './ui/Sheet'
 
@@ -47,7 +47,7 @@ function syncLabel({ isOnline, pendingCount, isSyncing }: SyncState) {
 }
 
 function SyncDot({ sync, onDark = false }: { sync: SyncState; onDark?: boolean }) {
-  const color = !sync.isOnline ? 'bg-[#f5a524]' : sync.isSyncing || sync.pendingCount > 0 ? 'bg-[#7cc4ff]' : 'bg-accent'
+  const color = !sync.isOnline ? 'bg-warning-marker' : sync.isSyncing || sync.pendingCount > 0 ? 'bg-info ring-1 ring-white/60' : 'bg-accent'
   return (
     <span className={`inline-flex items-center gap-1.5 text-[13px] ${onDark ? 'text-white/80' : 'text-muted'}`}>
       <span className={`h-2 w-2 rounded-full ${color} ${sync.isSyncing ? 'animate-pulse' : ''}`} aria-hidden="true" />
@@ -111,13 +111,13 @@ export function AppShell({ active, onNavigate, sync, account, isAuthLoading, onS
   return (
     <div className="min-h-dvh bg-ground md:flex">
       {/* Desktop rail */}
-      <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col bg-forest-900 px-3 py-5 md:flex">
+      <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col bg-forest px-3 py-5 md:flex">
         <div className="px-2 pb-6">
-          <BrandMark size="md" withWordmark onDark eyebrow="Stock" title="Asian Grocer" />
+          <BrandLogo className="w-full" />
         </div>
         <nav className="space-y-1" aria-label="Main">
           {NAV_ITEMS.map(railButton)}
-          <p className="px-3 pb-1 pt-5 text-[13px] text-white/50">Manage</p>
+          <p className="px-3 pb-1 pt-5 text-[13px] text-white/85">Manage</p>
           {MANAGEMENT_ITEMS.map(railButton)}
         </nav>
         <div className="mt-auto space-y-3 border-t border-white/10 px-1 pt-4">
@@ -141,9 +141,12 @@ export function AppShell({ active, onNavigate, sync, account, isAuthLoading, onS
 
       <div className="min-w-0 flex-1">
         {/* Phone top bar */}
-        <header className="safe-top sticky top-0 z-40 bg-forest-900 text-white md:hidden">
+        <header className="safe-top sticky top-0 z-40 bg-forest text-white md:hidden">
           <div className="flex h-14 items-center gap-2 pl-4 pr-1">
-            <BrandMark size="sm" withWordmark onDark title={activeItem?.label ?? 'Asian Grocer'} className="flex-1" />
+            <div className="flex min-w-0 flex-1 items-center gap-2.5">
+              <BrandTile size="sm" />
+              <span className="truncate font-semibold">{activeItem?.label ?? 'Asian Grocer'}</span>
+            </div>
             <SyncDot sync={sync} onDark />
             {onOpenHistory ? (
               <IconButton label={historyLabel} tone="onDark" onClick={onOpenHistory}>

@@ -10,14 +10,15 @@ import type { Config } from 'tailwindcss'
  * - Status colours (`success`, `warning`, `danger`) are never used for decoration.
  */
 const forest = {
+  DEFAULT: '#37604C',
   50: '#eef3ef',
   100: '#dbe7de',
   200: '#b9d0c0',
   300: '#8fb39b',
   400: '#5e8c6f',
-  500: '#2f6a4d',
-  600: '#1f4d3a',
-  700: '#173d2e',
+  500: '#45765b',
+  600: '#37604C',
+  700: '#2b503e',
   800: '#123326',
   900: '#0e2a1f',
   950: '#081a13',
@@ -46,6 +47,7 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        red: { 50: '#fcf0ee', 200: '#efc6bf', 300: '#e4a095', 400: '#cc7061', 500: '#B53C2B', 600: '#B53C2B', 700: '#933123', 900: '#632118' },
         forest,
         brand: forest,
         slate: neutral,
@@ -54,10 +56,11 @@ const config: Config = {
         line: '#e4e2dc',
         ink: '#14201b',
         muted: '#5b6660',
-        accent: '#2bb673',
-        success: { DEFAULT: '#1d8a54', soft: '#e6f4ec' },
-        warning: { DEFAULT: '#9a5b00', soft: '#fdf3e1' },
-        danger: { DEFAULT: '#b42318', soft: '#fdecea' },
+        accent: '#2BB673',
+        info: '#3E2BB5',
+        success: { DEFAULT: '#176b43', soft: '#e6f4ec' },
+        warning: { DEFAULT: '#706317', marker: '#B5A32B', soft: '#f7f4de' },
+        danger: { DEFAULT: '#B53C2B', soft: '#fdecea' },
       },
       fontFamily: {
         sans: ['var(--font-inter)', 'ui-sans-serif', 'system-ui', 'sans-serif'],

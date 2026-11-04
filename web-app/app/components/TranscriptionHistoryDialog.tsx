@@ -220,7 +220,7 @@ export function TranscriptionHistoryDialog({
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <button
                       onClick={() => onLoadToEdit(entry.uid_generate)}
-                      className="inline-flex min-h-11 items-center justify-center rounded-control bg-forest-900 px-4 text-[15px] font-semibold text-white transition-colors hover:bg-forest-700"
+                      className="inline-flex min-h-11 items-center justify-center rounded-control bg-forest px-4 text-[15px] font-semibold text-white transition-colors hover:bg-forest-700"
                     >
                       Load to Edit
                     </button>

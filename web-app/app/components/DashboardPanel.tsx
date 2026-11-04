@@ -1,12 +1,14 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Download, Loader2, RefreshCw } from 'lucide-react'
+import { Download, Loader2, RefreshCw } from 'lucide-react'
 import { toPng } from 'html-to-image'
 import { getLocalTodayDate } from '../../lib/date-utils'
 
 import type { DashboardResponseFilters, DashboardStockLevelItem } from '../../lib/dashboard-analytics'
 import { DailyReportSummary } from './DailyReportSummary'
+import { StockFlagBadge } from './StockFlagBadge'
+import { ReportNotices } from './ReportNotices'
 import { Button, IconButton } from './ui/Button'
 import { inputClass } from './ui/Input'
 import { ActionBar, ScreenHeader, SegmentedControl } from './ui/Primitives'
@@ -21,10 +23,6 @@ type DashboardStockLevelResponse = {
 
 type DashboardTab = 'daily-summary' | 'stock-level-manage'
 
-function formatPercent(value: number) {
-  return `${value.toFixed(1)}%`
-}
-
 type DashboardPanelProps = {
   catalogItems: ReportCatalogItem[]
 }
@@ -33,7 +31,7 @@ function DailySummaryTab({ catalogItems, date, refreshKey }: { catalogItems: Rep
   const summaryRef = useRef<HTMLDivElement | null>(null)
   const [isExporting, setIsExporting] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
-  const { data, isLoading, error, entries, warnings, hasReport } = useDailyReportData(date, catalogItems, refreshKey)
+  const { data, isLoading, error, entries, notices, hasReport } = useDailyReportData(date, catalogItems, refreshKey)
 
   async function exportPhoto() {
     if (!summaryRef.current) return
@@ -64,16 +62,7 @@ function DailySummaryTab({ catalogItems, date, refreshKey }: { catalogItems: Rep
         <div className="rounded-control bg-danger-soft px-4 py-3 text-[14px] text-danger">{shownError}</div>
       ) : null}
 
-      {warnings.length > 0 ? (
-        <ul className="space-y-1 rounded-control bg-warning-soft px-4 py-3 text-[14px] text-warning">
-          {warnings.map((warning) => (
-            <li key={warning} className="flex items-start gap-2">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>{warning}</span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      <ReportNotices notices={notices} />
 
       {isLoading && !data ? (
         <div className="flex min-h-[240px] items-center justify-center rounded-card border border-line bg-surface">
@@ -263,7 +252,7 @@ export function DashboardPanel({ catalogItems }: DashboardPanelProps) {
             <div className="border-b border-slate-200 px-4 py-3">
               <h2 className="text-sm font-semibold text-slate-900">Stock level management</h2>
               <p className="mt-1 text-sm text-slate-500">
-                Current quantity, arrival total quantity, and sold-out percentage are calculated from the selected BigQuery snapshot.
+                Stock flags compare recorded closing stock with units sold for the selected date.
               </p>
             </div>
 
@@ -274,9 +263,9 @@ export function DashboardPanel({ catalogItems }: DashboardPanelProps) {
                     <tr>
                       <th className="px-4 py-3">Product</th>
                       <th className="px-4 py-3">Category</th>
-                      <th className="px-4 py-3 text-right">Current qty</th>
+                      <th className="px-4 py-3 text-right">Closing</th>
                       <th className="px-4 py-3 text-right">Arrival total</th>
-                      <th className="px-4 py-3 text-right">% Sold out</th>
+                      <th className="px-4 py-3 text-right">Units sold</th>
                       <th className="px-4 py-3">Flag</th>
                     </tr>
                   </thead>
@@ -285,22 +274,11 @@ export function DashboardPanel({ catalogItems }: DashboardPanelProps) {
                       <tr key={item.product_name} className="align-top">
                         <td className="px-4 py-3 text-sm font-semibold text-slate-900">{item.product_name}</td>
                         <td className="px-4 py-3 text-sm text-slate-600">{item.category}</td>
-                        <td className="px-4 py-3 text-right text-sm text-slate-700">{item.current_quantity}</td>
+                        <td className="px-4 py-3 text-right text-sm text-slate-700">{item.closing_quantity ?? '—'}</td>
                         <td className="px-4 py-3 text-right text-sm text-slate-700">{item.arrival_total_quantity}</td>
-                        <td className={`px-4 py-3 text-right text-sm font-semibold tabular ${item.red_flag ? 'text-danger' : 'text-success'}`}>
-                          {formatPercent(item.sold_out_percent)}
-                        </td>
+                        <td className="px-4 py-3 text-right text-sm tabular">{item.units_sold ?? '—'}</td>
                         <td className="px-4 py-3">
-                          {item.red_flag ? (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-danger-soft px-2.5 py-1 text-xs font-semibold text-danger">
-                              <AlertTriangle className="h-3.5 w-3.5" />
-                              Red flag
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center rounded-full bg-success-soft px-2.5 py-1 text-xs font-semibold text-success">
-                              OK
-                            </span>
-                          )}
+                          {item.stock_flag ? <StockFlagBadge flag={item.stock_flag} /> : '—'}
                         </td>
                       </tr>
                     ))}

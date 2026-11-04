@@ -2064,7 +2064,7 @@ export function EmbeddedStockCheckPanel({
                     type="button"
                     onClick={submitStockCheckManualEntry}
                     disabled={!stockDate || newItemName.trim().length === 0 || manualCheckQuantity.trim().length === 0}
-                    className="inline-flex min-h-12 shrink-0 items-center justify-center gap-1.5 rounded-control bg-forest-900 px-5 text-[16px] font-semibold text-white transition-colors duration-150 hover:bg-forest-700 disabled:cursor-not-allowed disabled:bg-forest-900/30"
+                    className="inline-flex min-h-12 shrink-0 items-center justify-center gap-1.5 rounded-control bg-forest px-5 text-[16px] font-semibold text-white transition-colors duration-150 hover:bg-forest-700 disabled:cursor-not-allowed disabled:bg-forest/30"
                   >
                     <Plus className="h-5 w-5" aria-hidden="true" />
                     Add
@@ -2451,7 +2451,7 @@ export function EmbeddedStockCheckPanel({
               onClick={handleSave}
               disabled={isExporting || isSaving || isParsing}
               aria-busy={isSaving || undefined}
-              className="inline-flex min-h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-control bg-forest-900 px-4 text-[16px] font-semibold text-white transition-colors duration-150 hover:bg-forest-700 disabled:cursor-not-allowed disabled:bg-forest-900/40"
+              className="inline-flex min-h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-control bg-forest px-4 text-[16px] font-semibold text-white transition-colors duration-150 hover:bg-forest-700 disabled:cursor-not-allowed disabled:bg-forest/40"
             >
               {isSaving ? <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" /> : isSyncingWarehouse ? <Loader2 className="h-5 w-5 animate-spin opacity-70" aria-hidden="true" /> : <Save className="h-5 w-5" aria-hidden="true" />}
               <span className="truncate">{isSaving ? 'Saving…' : 'Save'}</span>

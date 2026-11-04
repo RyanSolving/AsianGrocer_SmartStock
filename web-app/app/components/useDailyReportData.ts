@@ -11,6 +11,16 @@ import type { IndexedPaperRow, PaperRow } from '../../lib/stock-paper-layout'
  * per-item insights. Shared by the Dashboard summary and the Daily Report detail sheet.
  */
 
+export type ReportNotice = {
+  id: string
+  /** Blocking notices explain why figures are missing; notes explain individual cells. */
+  severity: 'blocking' | 'note'
+  text: string
+  /** The symbol shown in the sheet for affected items, if any. */
+  marker?: string
+  count?: number
+}
+
 export type ReportCatalogItem = {
   code: string
   location: string
@@ -143,30 +153,42 @@ export function useDailyReportData(date: string, catalogItems: ReportCatalogItem
     [indexedRows, insights],
   )
 
-  const warnings = useMemo(() => {
-    const list: string[] = []
+  const notices = useMemo(() => {
+    const list: ReportNotice[] = []
     if (data && !data.closingFound) {
-      list.push('No saved stock closing for this date. Save it in Check Stock first.')
+      list.push({ id: 'no-closing', severity: 'blocking', text: 'No closing saved for this date. Save it in Check Stock first.' })
     }
     if (data?.closingFound && !data.prevClosingDate) {
-      list.push('No earlier closing was found, so units sold cannot be calculated.')
+      list.push({ id: 'no-prev', severity: 'blocking', text: "No earlier closing, so units sold can't be worked out." })
     }
     if (data?.closingFound && data.stockInRecordCount === 0) {
-      list.push('No stock-in record found for this date. Sold counts assume nothing arrived.')
+      list.push({ id: 'no-stock-in', severity: 'note', text: 'No stock-in for this date. Sold assumes nothing arrived.' })
     }
     if (data && data.stockInRecordCount > 1) {
-      list.push(`${data.stockInRecordCount} stock-in records found for this date. Using the latest one.`)
+      list.push({ id: 'multi-stock-in', severity: 'note', text: `${data.stockInRecordCount} stock-in records. Using the latest.` })
     }
     if (summary.itemsWithoutBaseline > 0) {
-      list.push(`${summary.itemsWithoutBaseline} item(s) have no previous closing and show "-".`)
+      list.push({
+        id: 'no-baseline',
+        severity: 'note',
+        marker: '-',
+        count: summary.itemsWithoutBaseline,
+        text: `${summary.itemsWithoutBaseline} ${summary.itemsWithoutBaseline === 1 ? 'item has' : 'items have'} no earlier closing.`,
+      })
     }
     if (summary.itemsWithNegative > 0) {
-      list.push(`${summary.itemsWithNegative} item(s) show "?" because closing is higher than previous closing plus stock-in.`)
+      list.push({
+        id: 'negative',
+        severity: 'note',
+        marker: '?',
+        count: summary.itemsWithNegative,
+        text: `${summary.itemsWithNegative} ${summary.itemsWithNegative === 1 ? 'item closes' : 'items close'} above earlier closing + stock-in.`,
+      })
     }
     return list
   }, [data, summary])
 
   const hasReport = Boolean(data?.closingFound) && indexedRows.length > 0
 
-  return { data, isLoading, error, reload, insights, summary, indexedRows, entries, warnings, hasReport }
+  return { data, isLoading, error, reload, insights, summary, indexedRows, entries, notices, hasReport }
 }

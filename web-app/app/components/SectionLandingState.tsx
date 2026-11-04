@@ -43,7 +43,7 @@ export function SectionLandingState({
         <button
           type="button"
           onClick={() => onAction('continue')}
-          className="group flex w-full items-center gap-4 rounded-card bg-forest-900 p-5 text-left text-white transition-colors duration-150 hover:bg-forest-800 active:bg-forest-950"
+          className="group flex w-full items-center gap-4 rounded-card bg-forest p-5 text-left text-white transition-colors duration-150 hover:bg-forest-800 active:bg-forest-950"
         >
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-control bg-white/10">
             <FileClock className="h-6 w-6" aria-hidden="true" />
@@ -64,7 +64,7 @@ export function SectionLandingState({
         className={`group flex w-full items-center gap-4 rounded-card p-5 text-left transition-colors duration-150 ${
           hasDraft
             ? 'border border-line bg-surface text-ink hover:bg-slate-50 active:bg-slate-100'
-            : 'bg-forest-900 text-white hover:bg-forest-800 active:bg-forest-950'
+            : 'bg-forest text-white hover:bg-forest-800 active:bg-forest-950'
         }`}
       >
         <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-control ${hasDraft ? 'bg-forest-50 text-forest-800' : 'bg-white/10'}`}>

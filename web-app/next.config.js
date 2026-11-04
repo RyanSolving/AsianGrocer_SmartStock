@@ -19,5 +19,7 @@ const withPWA = require('next-pwa')({
 })
 
 module.exports = withPWA({
+  // Concurrent local previews must not overwrite each other's client bundles.
+  distDir: process.env.NODE_ENV === 'development' ? `.next-dev-${process.env.PORT || 3000}` : '.next',
   reactStrictMode: true,
 })

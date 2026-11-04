@@ -39,7 +39,7 @@ function generateHtmlToPrint(payload: z.infer<typeof stockCheckPayloadSchema>): 
       <td style="padding: 8px; border: 1px solid #ddd;">${item.official_name}</td>
       <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">
         <span style="display: inline-block; width: 20px; height: 20px; border-radius: 50%; border: 2px solid #ddd; background-color: ${
-          item.red_marked ? '#dc2626' : 'transparent'
+          item.red_marked ? '#B53C2B' : 'transparent'
         };"></span>
       </td>
       <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">${item.quantity ?? '-'}</td>
@@ -57,7 +57,7 @@ function generateHtmlToPrint(payload: z.infer<typeof stockCheckPayloadSchema>): 
       <td style="padding: 8px; border: 1px solid #ddd;">${item.user_input}</td>
       <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">
         <span style="display: inline-block; width: 20px; height: 20px; border-radius: 50%; border: 2px solid #ddd; background-color: ${
-          item.red_marked ? '#dc2626' : 'transparent'
+          item.red_marked ? '#B53C2B' : 'transparent'
         };"></span>
       </td>
       <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">${item.quantity ?? '-'}</td>
@@ -122,7 +122,7 @@ function generateHtmlToPrint(payload: z.infer<typeof stockCheckPayloadSchema>): 
       border: 2px solid #ddd;
     }
     .red-marked {
-      background-color: #dc2626;
+      background-color: #B53C2B;
     }
     @media print {
       body {

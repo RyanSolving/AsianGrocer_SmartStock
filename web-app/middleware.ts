@@ -3,11 +3,17 @@ import { NextResponse, type NextRequest } from 'next/server'
 
 import { getSupabaseEnv } from './lib/supabase/env'
 
+const publicBrandAssets = new Set([
+  '/asian-grocer-logo.svg', '/manifest.json', '/apple-touch-icon.png',
+  '/icon-192.png', '/icon-512.png', '/icon-maskable-512.png',
+])
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   // Allow public assets and framework internals.
   if (
+    publicBrandAssets.has(pathname) ||
     pathname.startsWith('/_next') ||
     pathname.startsWith('/api') ||
     pathname.startsWith('/favicon') ||

@@ -3,7 +3,7 @@
 import { FormEvent, useMemo, useState } from 'react'
 
 import { createSupabaseBrowserClient } from '../../lib/supabase/client'
-import { BrandMark } from '../components/BrandMark'
+import { BrandLogo } from '../components/BrandMark'
 import { Button } from '../components/ui/Button'
 import { fieldClass, inputClass } from '../components/ui/Input'
 
@@ -34,10 +34,10 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-dvh flex-col bg-forest-900">
+    <main className="flex min-h-dvh flex-col bg-forest">
       <div className="safe-top flex flex-1 flex-col justify-end px-6 pb-10 pt-16 sm:items-center sm:justify-center sm:pb-16">
         <div className="w-full sm:max-w-sm">
-          <BrandMark size="lg" withWordmark onDark eyebrow="Stock" title="Asian Grocer" />
+          <BrandLogo className="w-72" />
           <p className="mt-6 text-[15px] leading-relaxed text-white/70">
             Stock in, closing counts and the daily report, in one place.
           </p>

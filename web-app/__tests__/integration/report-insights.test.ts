@@ -7,6 +7,7 @@ import { describe, expect, it } from '@jest/globals'
 import {
   computeItemInsight,
   computeItemInsights,
+  getStockFlag,
   summarizeInsights,
 } from '../../lib/report-insights'
 
@@ -120,5 +121,22 @@ describe('computeItemInsights + summarizeInsights', () => {
     expect(summary.itemsWithNegative).toBe(1)
     // A1: sold 18 > closing 12 -> ORDER; B2: closing 0 -> ORDER
     expect(summary.itemsToOrder).toBe(2)
+  })
+})
+
+describe('stock coverage flags', () => {
+  it.each([
+    [0, 0, 'Stock-out'], [0, null, 'Stock-out'], [0, 5, 'Stock-out'],
+    [5, 0, 'No sell today'], [5, 2, 'Low stock'], [6, 2, null],
+    [10, 2, null], [14, 2, null], [15, 2, 'Over-stock'],
+    [0.3, 0.1, null], [null, 2, null], [3, null, null], [3, -1, null],
+  ] as const)('closing %s and sold %s give %s', (closing, sold, expected) => {
+    expect(getStockFlag(closing, sold)).toBe(expected)
+  })
+
+  it('keeps zero sales distinct from missing sales', () => {
+    expect(computeItemInsight('A', { prevClosing: 0.1, stockIn: 0.2, closing: 0.3 }).stockFlag).toBe('No sell today')
+    expect(computeItemInsight('A', { prevClosing: null, stockIn: 0, closing: 3 }).stockFlag).toBeNull()
+    expect(computeItemInsight('A', { prevClosing: null, stockIn: 0, closing: 0 }).stockFlag).toBe('Stock-out')
   })
 })

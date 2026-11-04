@@ -12,9 +12,10 @@ import {
   type CategorySlice,
   type ReportEntry,
 } from '../../lib/report-aggregations'
-import { formatQuantity, summarizeInsights } from '../../lib/report-insights'
+import { formatQuantity, stockFlags, summarizeInsights } from '../../lib/report-insights'
 import { formatSheetDate } from '../../lib/stock-paper-utils'
 import { squarify } from '../../lib/treemap'
+import { StockFlagBadge } from './StockFlagBadge'
 import { BrandTile } from './BrandMark'
 
 /**
@@ -22,8 +23,7 @@ import { BrandTile } from './BrandMark'
  *
  * Screen question: did today's stock sell, and what do we buy tomorrow?
  * Style: achromatic ledger (taste skill, seed 1181075752) with the brand kept:
- * - The chrome is ink and grey; the only hue is the brand green on the main data element
- *   (units sold, and the categories that make half of sales). Inventory is the neutral series.
+ * - Sales use green, inventory uses grey, and refill recommendations use brick.
  * - Face: a sage ground from the produce world (#f2f5f2) under white, flat, bordered panels.
  * - Signature element: the "half of today's sales" emphasis, shared by the ranking and the treemap.
  * - Data colours checked with the dataviz validator; text tiers hold 4.5:1 on their surfaces.
@@ -37,14 +37,12 @@ const C = {
   rule: '#f0f1f0',
   text: '#111111',
   muted: '#5f6368',
-  sold: '#23a565', // the one data hue (brand green, 3.2:1 on white)
+  sold: '#23a565', // sales series
   inventory: '#6b7280', // neutral comparison series
   emphasisWash: '#edf6f0',
   tileQuiet: '#e5e7eb',
   tileInk: '#0b1f14', // near-black on the green tile, 5.4:1
   brand: '#2bb673', // the logo mark only
-  negativeBg: '#ffedea',
-  negativeInk: '#831c1e',
 }
 
 const TREEMAP_SLICES = 12
@@ -231,14 +229,12 @@ export function DailyReportSummary({ containerRef, photoMode = false, date, prev
   const unreliable = summary.itemsWithoutBaseline + summary.itemsWithNegative
 
   // The screen's one finding, read first under the title.
-  const finding = [
-    topContributors.length > 0
+  const salesFinding = topContributors.length > 0
       ? `${topContributors.length} item${topContributors.length === 1 ? '' : 's'} made ${Math.round(topContributorShare * 100)}% of ${formatQuantity(summary.totalSold)} units sold`
-      : 'No sales recorded for this date',
-    refill.length > 0
+      : 'No sales recorded for this date'
+  const refillFinding = refill.length > 0
       ? `${refill.length} to refill${soldOutCount > 0 ? `, ${soldOutCount} sold out` : ''}`
-      : 'nothing to refill',
-  ].join(' · ')
+      : 'nothing to refill'
 
   const showTooltip: ShowTooltip | undefined = photoMode
     ? undefined
@@ -286,7 +282,16 @@ export function DailyReportSummary({ containerRef, photoMode = false, date, prev
           </p>
         </div>
       </div>
-      <p className="mt-2 text-[15px]" style={{ color: C.text }}>{finding}</p>
+      <p className="mt-2 text-[15px]">
+        {salesFinding} · <span className={refill.length ? 'font-semibold text-danger' : undefined}>{refillFinding}</span>
+      </p>
+
+      <div aria-label="Stock flags" className="mt-3 flex flex-wrap gap-2">
+        {stockFlags.map(flag => {
+          const count = entries.filter(entry => entry.insight.stockFlag === flag).length
+          return count > 0 ? <StockFlagBadge key={flag} flag={flag} count={count} /> : null
+        })}
+      </div>
 
       {/* KPI strip: one panel split by 1px dividers; units sold leads */}
       <Panel className="mt-4 overflow-hidden">
@@ -421,7 +426,7 @@ export function DailyReportSummary({ containerRef, photoMode = false, date, prev
       <Panel className="mt-4 px-5 py-4">
         <PanelTitle
           subtitle="Sold out first, then the biggest shortfall"
-          aside={<span className="shrink-0 pt-1 text-[13px] tabular-nums" style={{ color: C.muted }}>{refill.length} item{refill.length === 1 ? '' : 's'}</span>}
+          aside={<span className={`shrink-0 pt-1 text-[13px] tabular-nums ${refill.length ? 'font-semibold text-danger' : 'text-muted'}`}>{refill.length} item{refill.length === 1 ? '' : 's'}</span>}
         >
           Refill for tomorrow
         </PanelTitle>
@@ -456,20 +461,19 @@ export function DailyReportSummary({ containerRef, photoMode = false, date, prev
                       <div className="flex items-center justify-end gap-3">
                         <div className={`h-[10px] flex-1 ${photoMode ? '' : 'hidden sm:block'}`}>
                           <div
-                            className="h-full"
-                            style={{ width: `${Math.max(4, (item.suggestedQty / maxRefill) * 100)}%`, backgroundColor: C.sold, borderRadius: BAR_RADIUS }}
+                            className="h-full bg-danger"
+                            style={{ width: `${Math.max(4, (item.suggestedQty / maxRefill) * 100)}%`, borderRadius: BAR_RADIUS }}
                           />
                         </div>
                         {item.soldOut ? (
                           <span
-                            className="inline-flex flex-none items-center gap-1 whitespace-nowrap rounded px-1.5 py-0.5 text-[12px] font-medium"
-                            style={{ backgroundColor: C.negativeBg, color: C.negativeInk }}
+                            className="inline-flex flex-none items-center gap-1 whitespace-nowrap rounded bg-danger-soft px-1.5 py-0.5 text-[12px] font-medium text-danger"
                           >
                             <AlertCircle className="h-3.5 w-3.5" aria-hidden="true" />
                             Sold out
                           </span>
                         ) : (
-                          <span className="w-12 flex-none text-right text-[14px] font-semibold tabular-nums">+{item.suggestedQty}</span>
+                          <span className="w-12 flex-none text-right text-[14px] font-semibold tabular-nums text-danger">+{item.suggestedQty}</span>
                         )}
                       </div>
                     </td>
@@ -482,7 +486,7 @@ export function DailyReportSummary({ containerRef, photoMode = false, date, prev
 
         {hiddenRefillCount > 0 ? (
           <p className="mt-2 text-[12px]" style={{ color: C.muted }}>
-            {hiddenRefillCount} more item(s) tagged REFILL on the detailed sheet
+            {hiddenRefillCount} more item(s) with a suggested refill
           </p>
         ) : null}
       </Panel>

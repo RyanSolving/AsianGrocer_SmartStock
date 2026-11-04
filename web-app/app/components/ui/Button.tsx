@@ -7,11 +7,11 @@ export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'succ
 export type ButtonSize = 'sm' | 'md' | 'lg'
 
 const VARIANT: Record<ButtonVariant, string> = {
-  primary: 'bg-forest-900 text-white hover:bg-forest-700 active:bg-forest-950 disabled:bg-forest-900/40',
+  primary: 'bg-forest text-white hover:bg-forest-700 active:bg-forest-950 disabled:bg-forest/40',
   secondary: 'border border-line bg-surface text-ink hover:bg-slate-100 active:bg-slate-200 disabled:text-ink/40',
   ghost: 'text-ink hover:bg-slate-100 active:bg-slate-200 disabled:text-ink/40',
-  danger: 'bg-danger text-white hover:bg-[#991d14] active:bg-[#7d170f] disabled:bg-danger/40',
-  success: 'bg-success text-white hover:bg-[#177447] disabled:bg-success/40',
+  danger: 'bg-danger text-white hover:bg-red-700 active:bg-red-900 disabled:bg-danger/40',
+  success: 'bg-accent text-ink hover:bg-accent/85 disabled:bg-accent/40',
 }
 
 const SIZE: Record<ButtonSize, string> = {
@@ -31,7 +31,7 @@ export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 }
 
 export const buttonClass = (variant: ButtonVariant = 'primary', size: ButtonSize = 'md', block = false) =>
-  `inline-flex select-none items-center justify-center rounded-control font-semibold transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed ${VARIANT[variant]} ${SIZE[size]} ${block ? 'w-full' : ''}`
+  `inline-flex select-none items-center justify-center rounded-control font-semibold transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-info focus-visible:ring-offset-2 disabled:cursor-not-allowed ${VARIANT[variant]} ${SIZE[size]} ${block ? 'w-full' : ''}`
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   { variant = 'primary', size = 'md', loading = false, loadingLabel, icon, block = false, className = '', children, disabled, type = 'button', ...rest },
@@ -73,7 +73,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
       type={type}
       aria-label={label}
       title={label}
-      className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-control transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest-500 disabled:opacity-40 ${toneClass} ${className}`}
+      className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-control transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-info disabled:opacity-40 ${toneClass} ${className}`}
       {...rest}
     >
       {children}

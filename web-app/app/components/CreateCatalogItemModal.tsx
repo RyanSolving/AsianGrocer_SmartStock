@@ -1,7 +1,10 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Loader2, Save, X } from 'lucide-react'
+import { Save } from 'lucide-react'
+
+import { Button } from './ui/Button'
+import { Sheet } from './ui/Sheet'
 
 import {
   catalogItemSchema,
@@ -226,24 +229,29 @@ export function CreateCatalogItemModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-forest-950/45 p-4">
-      <div className="card-surface w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-          <h2 className="text-lg font-bold text-slate-900">Create New Item</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        <div className="max-h-[70vh] space-y-4 overflow-y-auto px-6 py-4">
+    <Sheet
+      open={isOpen}
+      onClose={onClose}
+      title="New catalog item"
+      description="Add it once here; it then shows up in search for Stock In and Check Stock."
+      size="md"
+      dismissible={!isSaving}
+      footer={
+        <>
+          <Button variant="secondary" size="lg" className="sm:min-h-11" onClick={onClose} disabled={isSaving}>
+            Cancel
+          </Button>
+          <Button size="lg" className="sm:min-h-11" icon={<Save className="h-4 w-4" aria-hidden="true" />} loading={isSaving} loadingLabel="Saving…" onClick={handleSubmit}>
+            Save to catalog
+          </Button>
+        </>
+      }
+    >
+        <div className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-500">Item Code</label>
+            <label className="block text-[14px] font-medium text-ink">Item Code</label>
             <input
-              className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm font-mono text-slate-700 ${errors.code ? 'border-red-400' : 'border-slate-300'}`}
+              className={`mt-1 w-full rounded-lg border min-h-11 px-3 text-[16px] font-mono text-slate-700 ${errors.code ? 'border-red-400' : 'border-slate-300'}`}
               value={form.code}
               onChange={(event) => updateField('code', event.target.value)}
               placeholder="XXX-NEW-STD"
@@ -253,9 +261,9 @@ export function CreateCatalogItemModal({
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-500">Location</label>
+              <label className="block text-[14px] font-medium text-ink">Location</label>
               <select
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-lg border border-slate-300 min-h-11 px-3 text-[16px]"
                 value={form.location}
                 onChange={(event) => {
                   updateField('location', event.target.value)
@@ -267,9 +275,9 @@ export function CreateCatalogItemModal({
               </select>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-500">Sub-location</label>
+              <label className="block text-[14px] font-medium text-ink">Sub-location</label>
               <select
-                className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm ${errors.sub_location ? 'border-red-400' : 'border-slate-300'}`}
+                className={`mt-1 w-full rounded-lg border min-h-11 px-3 text-[16px] ${errors.sub_location ? 'border-red-400' : 'border-slate-300'}`}
                 value={form.sub_location}
                 onChange={(event) => updateField('sub_location', event.target.value)}
               >
@@ -283,9 +291,9 @@ export function CreateCatalogItemModal({
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-500">Category</label>
+              <label className="block text-[14px] font-medium text-ink">Category</label>
               <select
-                className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm ${errors.category ? 'border-red-400' : 'border-slate-300'}`}
+                className={`mt-1 w-full rounded-lg border min-h-11 px-3 text-[16px] ${errors.category ? 'border-red-400' : 'border-slate-300'}`}
                 value={form.category}
                 onChange={(event) => updateField('category', event.target.value)}
               >
@@ -300,9 +308,9 @@ export function CreateCatalogItemModal({
               {errors.category && <p className="mt-1 text-xs text-red-500">{errors.category}</p>}
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-500">Product</label>
+              <label className="block text-[14px] font-medium text-ink">Product</label>
               <input
-                className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm ${errors.product ? 'border-red-400' : 'border-slate-300'}`}
+                className={`mt-1 w-full rounded-lg border min-h-11 px-3 text-[16px] ${errors.product ? 'border-red-400' : 'border-slate-300'}`}
                 value={form.product}
                 onChange={(event) => updateField('product', event.target.value)}
               />
@@ -312,17 +320,17 @@ export function CreateCatalogItemModal({
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-500">Attribute</label>
+              <label className="block text-[14px] font-medium text-ink">Attribute</label>
               <input
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-lg border border-slate-300 min-h-11 px-3 text-[16px]"
                 value={form.attribute}
                 onChange={(event) => updateField('attribute', event.target.value)}
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-500">Origin</label>
+              <label className="block text-[14px] font-medium text-ink">Origin</label>
               <input
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-lg border border-slate-300 min-h-11 px-3 text-[16px]"
                 value={form.origin}
                 onChange={(event) => updateField('origin', event.target.value)}
               />
@@ -331,21 +339,21 @@ export function CreateCatalogItemModal({
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-500">Inner Quantity</label>
+              <label className="block text-[14px] font-medium text-ink">Inner Quantity</label>
               <input
                 type="number"
                 min="0"
                 step="1"
-                className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm ${errors.inner_quantity ? 'border-red-400' : 'border-slate-300'}`}
+                className={`mt-1 w-full rounded-lg border min-h-11 px-3 text-[16px] ${errors.inner_quantity ? 'border-red-400' : 'border-slate-300'}`}
                 value={form.inner_quantity ?? ''}
                 onChange={(event) => updateField('inner_quantity', event.target.value === '' ? null : Number(event.target.value))}
               />
               {errors.inner_quantity && <p className="mt-1 text-xs text-red-500">{errors.inner_quantity}</p>}
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-500">Inner Unit</label>
+              <label className="block text-[14px] font-medium text-ink">Inner Unit</label>
               <select
-                className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm ${errors.inner_unit ? 'border-red-400' : 'border-slate-300'}`}
+                className={`mt-1 w-full rounded-lg border min-h-11 px-3 text-[16px] ${errors.inner_unit ? 'border-red-400' : 'border-slate-300'}`}
                 value={form.inner_unit}
                 onChange={(event) => updateField('inner_unit', event.target.value)}
               >
@@ -358,9 +366,9 @@ export function CreateCatalogItemModal({
           </div>
 
           <div>
-              <label className="block text-xs font-semibold text-slate-500">Row Position</label>
+              <label className="block text-[14px] font-medium text-ink">Row Position</label>
               <select
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-lg border border-slate-300 min-h-11 px-3 text-[16px]"
                 value={form.row_position}
                 onChange={(event) => updateField('row_position', event.target.value)}
               >
@@ -372,18 +380,18 @@ export function CreateCatalogItemModal({
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-500">Official Name</label>
+              <label className="block text-[14px] font-medium text-ink">Official Name</label>
               <input
-                className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm ${errors.official_name ? 'border-red-400' : 'border-slate-300'}`}
+                className={`mt-1 w-full rounded-lg border min-h-11 px-3 text-[16px] ${errors.official_name ? 'border-red-400' : 'border-slate-300'}`}
                 value={form.official_name}
                 onChange={(event) => updateField('official_name', event.target.value)}
               />
               {errors.official_name && <p className="mt-1 text-xs text-red-500">{errors.official_name}</p>}
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-500">Name On Stocklist</label>
+              <label className="block text-[14px] font-medium text-ink">Name On Stocklist</label>
               <input
-                className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm ${errors.stocklist_name ? 'border-red-400' : 'border-slate-300'}`}
+                className={`mt-1 w-full rounded-lg border min-h-11 px-3 text-[16px] ${errors.stocklist_name ? 'border-red-400' : 'border-slate-300'}`}
                 value={form.stocklist_name}
                 onChange={(event) => updateField('stocklist_name', event.target.value)}
               />
@@ -392,40 +400,20 @@ export function CreateCatalogItemModal({
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-500">Navigation Guide</label>
+            <label className="block text-[14px] font-medium text-ink">Navigation Guide</label>
             <input
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-lg border border-slate-300 min-h-11 px-3 text-[16px]"
               value={form.navigation_guide}
               onChange={(event) => updateField('navigation_guide', event.target.value)}
             />
           </div>
 
           {apiError && (
-            <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <p className="rounded-md border border-red-200 bg-red-50 min-h-11 px-3 text-[16px] text-red-700">
               {apiError}
             </p>
           )}
         </div>
-
-        <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-6 py-4">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={isSaving}
-            className="inline-flex items-center gap-2 rounded-lg border border-brand-300 bg-brand-50 px-4 py-2 text-sm font-medium text-brand-700 hover:bg-brand-100 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            Save To Catalog
-          </button>
-        </div>
-      </div>
-    </div>
+    </Sheet>
   )
 }

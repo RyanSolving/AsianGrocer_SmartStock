@@ -1,3 +1,4 @@
+import { getStockFlag, stockFlags, unitsSold, type StockFlag } from './report-insights'
 import {
   getDashboardStockItemsTableName,
   getMissingBigQueryEnvKeys,
@@ -24,6 +25,9 @@ export type DashboardStockLevelItem = {
   stock_in_quantity: number
   previous_closing_quantity: number
   sold_out_percent: number
+  closing_quantity: number | null
+  units_sold: number | null
+  stock_flag: StockFlag | null
   red_flag: boolean
 }
 
@@ -87,6 +91,7 @@ function normalizeRow(row: Record<string, unknown>) {
     stock_date: parseWarehouseDate(rowValue(row, 'stock_date')),
     mode: String(rowValue(row, 'mode') ?? ''),
     cleaned_at: parseWarehouseTimestamp(rowValue(row, 'cleaned_at') ?? rowValue(row, 'created_at')),
+    hasQuantity: rowValue(row, 'quantity') != null,
     quantity: parseQuantity(rowValue(row, 'quantity')),
     product_name: String(rowValue(row, 'product_name') ?? rowValue(row, 'official_name') ?? rowValue(row, 'product') ?? rowValue(row, 'catalog_code') ?? 'Unknown').trim() || 'Unknown',
     category: String(rowValue(row, 'category_name') ?? rowValue(row, 'category') ?? 'Unknown').trim() || 'Unknown',
@@ -146,7 +151,7 @@ async function fetchDashboardRows(filters: DashboardFilters, includePreviousDate
           SAFE_CAST(f.upload_date AS TIMESTAMP),
           CURRENT_TIMESTAMP()
         ) AS cleaned_at,
-        COALESCE(SAFE_CAST(f.quantity AS FLOAT64), 0) AS quantity,
+        SAFE_CAST(f.quantity AS FLOAT64) AS quantity,
         COALESCE(CAST(f.official_name AS STRING), CAST(f.product AS STRING), CAST(f.catalog_code AS STRING), 'Unknown') AS product_name,
         COALESCE(CAST(f.category AS STRING), 'Unknown') AS category,
         COALESCE(CAST(f.location AS STRING), 'Unknown') AS location,
@@ -256,6 +261,7 @@ function groupStockLevelRows(rows: ReturnType<typeof normalizeRow>[], selectedDa
   const stockInRows = selectLatestRows(rows, selectedDate, (row) => row.mode === 'stock-in')
   const previousClosingRows = rows.filter((row) => row.stock_date === previousDateString && row.mode === 'stock-closing')
 
+  const closings = selectLatestRows(rows, selectedDate, row => row.mode === 'stock-closing')
   const buckets = new Map<string, DashboardStockLevelItem>()
 
   const applyRows = (sourceRows: ReturnType<typeof normalizeRow>[], field: 'current_quantity' | 'stock_in_quantity' | 'previous_closing_quantity') => {
@@ -268,6 +274,9 @@ function groupStockLevelRows(rows: ReturnType<typeof normalizeRow>[], selectedDa
         stock_in_quantity: 0,
         previous_closing_quantity: 0,
         sold_out_percent: 0,
+        closing_quantity: null,
+        units_sold: null,
+        stock_flag: null,
         red_flag: false,
       }
 
@@ -284,18 +293,41 @@ function groupStockLevelRows(rows: ReturnType<typeof normalizeRow>[], selectedDa
   applyRows(stockInRows, 'stock_in_quantity')
   applyRows(previousClosingRows, 'previous_closing_quantity')
 
+  // An arrival or a missing warehouse count must never stand in for a recorded closing.
+  const closingTotals = new Map<string, number>()
+  const missingClosing = new Set<string>()
+  const missingSales = new Set<string>()
+  const previousLocations = new Set(previousClosingRows.filter(row => row.hasQuantity).map(makeProductLocationKey))
+  for (const row of closings) {
+    if (!row.hasQuantity) missingClosing.add(row.product_name)
+    if (!previousLocations.has(makeProductLocationKey(row))) missingSales.add(row.product_name)
+    closingTotals.set(row.product_name, (closingTotals.get(row.product_name) ?? 0) + row.quantity)
+  }
+  const closingLocations = new Set(closings.map(makeProductLocationKey))
+  for (const row of [...previousClosingRows, ...stockInRows]) {
+    if (!closingLocations.has(makeProductLocationKey(row))) missingClosing.add(row.product_name)
+    if (!row.hasQuantity) missingSales.add(row.product_name)
+  }
+
   const metrics = Array.from(buckets.values()).map((item) => {
     const arrivalTotal = item.stock_in_quantity + item.previous_closing_quantity
     const soldOutPercent = arrivalTotal > 0 ? (item.current_quantity / arrivalTotal) * 100 : 0
 
+    const closing = missingClosing.has(item.product_name) ? null : closingTotals.get(item.product_name) ?? null
+    const sold = closing !== null && !missingSales.has(item.product_name) ? unitsSold(arrivalTotal, closing) : null
+    const flag = getStockFlag(closing, sold)
     return {
       ...item,
+      closing_quantity: closing,
+      units_sold: sold !== null && sold >= 0 ? sold : null,
+      stock_flag: flag,
       arrival_total_quantity: arrivalTotal,
       sold_out_percent: soldOutPercent,
-      red_flag: soldOutPercent < 20,
+      red_flag: flag === 'Stock-out',
     }
   }).sort((a, b) => {
-    if (a.red_flag !== b.red_flag) return a.red_flag ? -1 : 1
+    const priority = (flag: StockFlag | null) => flag ? stockFlags.indexOf(flag) : stockFlags.length
+    if (a.stock_flag !== b.stock_flag) return priority(a.stock_flag) - priority(b.stock_flag)
     const soldOutCompare = a.sold_out_percent - b.sold_out_percent
     if (soldOutCompare !== 0) return soldOutCompare
     return a.product_name.localeCompare(b.product_name, undefined, { sensitivity: 'base', numeric: true })
