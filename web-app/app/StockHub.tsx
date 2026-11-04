@@ -2070,7 +2070,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
           aria-pressed={special}
           title={special ? 'Special discount (tap to clear)' : 'Mark as special discount'}
           onClick={() => updateItem(row.index, { special: !special })}
-          className={`relative inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors duration-150 before:absolute before:-inset-2.5 before:content-[''] ${special ? 'bg-[#e6f6ed] text-[#176b43]' : 'text-slate-400 hover:text-ink'}`}
+          className={`relative inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors duration-150 before:absolute before:-inset-2.5 before:content-[''] ${special ? 'bg-[#fbe9e5] text-[#a33626]' : 'text-slate-400 hover:text-ink'}`}
         >
           <Tag className="h-4 w-4" strokeWidth={special ? 2.25 : 1.75} aria-hidden="true" />
         </button>
@@ -3127,7 +3127,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                               className="h-5 w-5 rounded border-slate-300 text-forest focus:ring-forest"
                             />
                             <span className="inline-flex items-center gap-2">
-                              <Tag className="h-4 w-4 text-[#176b43]" aria-hidden="true" />
+                              <Tag className="h-4 w-4 text-[#a33626]" aria-hidden="true" />
                               Special (discount)
                             </span>
                           </label>

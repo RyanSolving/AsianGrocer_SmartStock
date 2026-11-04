@@ -801,8 +801,42 @@ textarea {
   outline-offset: -2px;
 }
 
-/* Stock In: special discount tag (soft brand green, 5.9:1). */
+/* Stock In: special discount tag (red brick on a soft brick tint, 5.6:1). */
 .report-tag-special {
-  background: #e6f6ed;
-  color: #176b43;
+  background: #fbe9e5;
+  color: #a33626;
+}
+
+/* Stock In photo as one long list (LedgerPhotoSheet layout="list"). */
+.photo-list-category {
+  background: theme(colors.forest.50);
+  color: var(--brand);
+  padding: 5px 20px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.photo-list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--line);
+  font-size: 15px;
+}
+
+.photo-list-row .report-name {
+  flex-wrap: nowrap;
+}
+
+.photo-list-qty {
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.report-photo.is-list .report-area-title {
+  padding: 10px 20px;
+  font-size: 15px;
 }
