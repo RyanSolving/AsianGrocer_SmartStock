@@ -32,10 +32,10 @@ export async function POST(request: NextRequest) {
   const table = auth.supabase.from('report_flag_override')
 
   const { error } = flag === 'auto'
-    ? await table.delete().eq('user_id', auth.user.id).eq('report_date', date).eq('item_code', code)
+    ? await table.delete().eq('report_date', date).eq('item_code', code)
     : await table.upsert(
       { user_id: auth.user.id, report_date: date, item_code: code, flag, updated_at: new Date().toISOString() },
-      { onConflict: 'user_id,report_date,item_code' },
+      { onConflict: 'report_date,item_code' },
     )
 
   if (error) {

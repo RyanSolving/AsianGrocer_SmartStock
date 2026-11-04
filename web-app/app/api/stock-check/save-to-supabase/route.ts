@@ -55,7 +55,7 @@ export async function POST(request: Request) {
 
     const { data, error } = await supabase
       .from('event_stock_check')
-      .upsert(upsertRow, { onConflict: 'user_id,date,mode' })
+      .upsert(upsertRow, { onConflict: 'date,mode' })
       .select('uid_stock_check, created_at, record_name')
       .single()
 

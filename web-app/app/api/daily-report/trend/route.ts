@@ -33,7 +33,6 @@ export async function GET(request: NextRequest) {
     auth.supabase
       .from('event_stock_check')
       .select('date, item_data')
-      .eq('user_id', auth.user.id)
       .eq('mode', 'closing_check')
       .gte('date', lookbackStart)
       .lte('date', end)
@@ -41,7 +40,6 @@ export async function GET(request: NextRequest) {
     auth.supabase
       .from('event_generate')
       .select('final_output, log_time')
-      .eq('user_id', auth.user.id)
       .eq('stock_mode', 'arrival_entry')
       .gte('final_output->>stock_date', start)
       .lte('final_output->>stock_date', end),

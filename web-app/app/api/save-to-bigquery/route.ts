@@ -56,7 +56,6 @@ export async function POST(request: Request) {
       .from('event_generate')
       .select('final_output')
       .eq('uid_generate', uidGenerate)
-      .eq('user_id', auth.user.id)
       .single()
 
     if (eventError || !eventData) {
@@ -123,6 +122,7 @@ export async function POST(request: Request) {
       total_items: stagedRecord.item_data.length,
       confidence_overall: stagedRecord.confidence_overall,
       items: stagedRecord.item_data,
+      ...(parsedData.extra_delivery ? { extra_delivery: true } : {}),
     })
 
     let savedUidGenerate = uidGenerate
@@ -137,7 +137,6 @@ export async function POST(request: Request) {
           edited: true,
         })
         .eq('uid_generate', savedUidGenerate)
-        .eq('user_id', auth.user.id)
         .select('uid_generate')
 
       if (updateGenerateError) {
@@ -227,6 +226,7 @@ export async function POST(request: Request) {
     total_items: stagedRecord.item_data.length,
     confidence_overall: stagedRecord.confidence_overall,
     items: stagedRecord.item_data,
+    ...(parsedData.extra_delivery ? { extra_delivery: true } : {}),
   })
 
   const tableName = getRawStockTableName()
@@ -251,7 +251,6 @@ export async function POST(request: Request) {
           edited: true,
         })
         .eq('uid_generate', uidGenerate)
-        .eq('user_id', auth.user.id)
         .select('uid_generate')
 
       if (updateGenerateError) {

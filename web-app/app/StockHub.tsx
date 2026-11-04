@@ -27,6 +27,8 @@ import { fieldClass, inputClass, NumberInput } from './components/ui/Input'
 import { focusNextQuantityInput, isRowListed, rankSuggestions } from '../lib/entry-chain'
 import { AppShell, type ShellSection } from './components/AppShell'
 import { EditorTopBar } from './components/EditorTopBar'
+import { useChoiceSheet } from './components/ChoiceSheet'
+import { formatDayLabel, formatTimeLabel } from '../lib/date-utils'
 import { sectionFromQuery } from '../lib/hub-navigation'
 import { useKeypadEntry } from '../lib/use-keypad-entry'
 import { friendlyError, toast } from '../lib/toast-store'
@@ -999,10 +1001,32 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
   }, [activeSection, loadStockCheckHistory])
 
   // Keep Stock In / Stock Close history live without a manual refresh.
+  // While a history list or one of its confirm dialogs is open, live changes wait, so a row
+  // never moves under the person's finger; they are applied when it closes.
+  const isHistoryBusy = isHistoryOpen || isHistorySheetOpen || pendingHistoryLoad !== null || pendingStockCheckHistoryLoad !== null
+  const isHistoryBusyRef = useRef(isHistoryBusy)
+  isHistoryBusyRef.current = isHistoryBusy
+  const deferredHistoryRefresh = useRef({ stockIn: false, stockCheck: false })
+
   useHistoryRealtime(session?.user?.id, {
-    onStockInChange: () => void loadTranscriptionHistory({ silent: true }),
-    onStockCheckChange: () => void loadStockCheckHistory({ silent: true }),
+    onStockInChange: () => {
+      if (isHistoryBusyRef.current) deferredHistoryRefresh.current.stockIn = true
+      else void loadTranscriptionHistory({ silent: true })
+    },
+    onStockCheckChange: () => {
+      if (isHistoryBusyRef.current) deferredHistoryRefresh.current.stockCheck = true
+      else void loadStockCheckHistory({ silent: true })
+    },
   })
+
+  useEffect(() => {
+    if (isHistoryBusy) return
+    const deferred = deferredHistoryRefresh.current
+    if (deferred.stockIn) void loadTranscriptionHistory({ silent: true })
+    if (deferred.stockCheck) void loadStockCheckHistory({ silent: true })
+    deferredHistoryRefresh.current = { stockIn: false, stockCheck: false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run only when the history UI closes
+  }, [isHistoryBusy])
 
   useEffect(() => {
     setDataEntryAddHighlightIndex(-1)
@@ -1023,6 +1047,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
   }, [apiStatus])
 
   useKeypadEntry(stockEntryRef, activeSection === 'data-entry' && stockInPhase === 'editing')
+  const { ask, choiceSheet } = useChoiceSheet()
 
   async function uploadCatalogToDatabase(file: File) {
     setIsCatalogUploading(true)
@@ -2170,7 +2195,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     }
   }
 
-  async function saveToSupabase() {
+  async function saveToSupabase(overrides: { stock_date?: string; extra_delivery?: boolean } = {}) {
     if (!parsedData) {
       setApiError('No parsed data to save yet. Parse a stock photo first.')
       return
@@ -2186,7 +2211,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     setApiStatus(null)
 
     const requestPayload: Record<string, unknown> = {
-      data: parsedData,
+      data: { ...parsedData, ...overrides },
       validated: 'yes',
       unknown_items: unknownItems,
       missing_catalog_items: missingCatalogItems,
@@ -2310,24 +2335,65 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     const valid = normalizeAndMarkValidated(false)
     if (!valid) return
 
-    // Step 2: save to Supabase (the only step staff wait for)
-    const saved = await saveToSupabase()
+    // Step 2: two checks before a new record is saved (an edit of a saved record skips them).
+    const overrides: { stock_date?: string; extra_delivery?: boolean } = {}
+    if (!latestGenerateUid) {
+      // A continued draft keeps the day it was started; ask before filing it under that day.
+      const today = getLocalTodayDate()
+      if (parsedData.stock_date && parsedData.stock_date !== today) {
+        const answer = await ask({
+          title: `This sheet is dated ${formatDayLabel(parsedData.stock_date)}`,
+          message: `Today is ${formatDayLabel(today)}. Which day did this delivery arrive?`,
+          choices: [
+            { value: 'today', label: `Today, ${formatDayLabel(today)}`, primary: true },
+            { value: 'keep', label: formatDayLabel(parsedData.stock_date), description: 'Keep the date on the sheet' },
+          ],
+        })
+        if (!answer) return
+        if (answer === 'today') {
+          overrides.stock_date = today
+          setParsedData((prev) => prev ? { ...prev, stock_date: today } : prev)
+        }
+      }
+
+      // Another Stock In for the same day: a second delivery, or the same one counted again?
+      const stockDate = overrides.stock_date ?? parsedData.stock_date
+      const sameDay = historyData.filter((entry) =>
+        (entry.transcriptionData as { stock_date?: unknown } | null)?.stock_date === stockDate)
+      if (sameDay.length > 0) {
+        const answer = await ask({
+          title: `Stock In already saved for ${formatDayLabel(stockDate)}`,
+          message: sameDay.length === 1
+            ? `One was saved at ${formatTimeLabel(sameDay[0].timestamp)}. Is this another delivery?`
+            : `${sameDay.length} were saved for that day. Is this another delivery?`,
+          choices: [
+            { value: 'extra', label: 'Extra delivery', description: 'Add these items to that day\'s stock in', primary: true },
+            { value: 'replace', label: 'Same delivery, counted again', description: 'Use this sheet instead of the earlier one' },
+          ],
+        })
+        if (!answer) return
+        if (answer === 'extra') overrides.extra_delivery = true
+      }
+    }
+
+    // Step 3: save to Supabase (the only step staff wait for)
+    const saved = await saveToSupabase(overrides)
     if (!saved) return
 
-    // Step 3: empty the sheet and return to the menu right away. Emptying the sheet (not only the
+    // Step 4: empty the sheet and return to the menu right away. Emptying the sheet (not only the
     // stored draft) matters: saving updates the sheet, which schedules a draft auto-save, and that
     // save would otherwise write the finished sheet back as "Continue draft" a moment later.
     const uid = typeof saved === 'string' ? saved : latestGenerateUid
     clearStockInSheet()
 
-    // Step 4: warehouse (BigQuery) sync runs in the background with its own progress toast.
+    // Step 5: warehouse (BigQuery) sync runs in the background with its own progress toast.
     // Paused for now (lib/warehouse-sync): Supabase is the only store.
     if (WAREHOUSE_SYNC_ENABLED && uid && window.navigator.onLine) {
       syncStockInToWarehouse(uid)
     } else if (window.navigator.onLine) {
       toast.success('Stock in saved')
     }
-  }, [parsedData, normalizeAndMarkValidated, latestGenerateUid, saveToSupabase, syncStockInToWarehouse, clearStockInSheet])
+  }, [parsedData, normalizeAndMarkValidated, latestGenerateUid, saveToSupabase, syncStockInToWarehouse, clearStockInSheet, ask, historyData])
 
   async function loadToBigQuery(overrideUidOrSaved?: string | boolean) {
     if (!parsedData) {
@@ -3435,6 +3501,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       />
 
 
+      {choiceSheet}
       <ConfirmDialog
         isOpen={pendingHistoryLoad !== null}
         title="Load history record?"

@@ -288,7 +288,6 @@ export async function GET() {
     const { data, error } = await auth.supabase
       .from('event_stock_check')
       .select('uid_stock_check, created_at, date, record_name, mode, item_data')
-      .eq('user_id', auth.user.id)
       .order('created_at', { ascending: false })
       .limit(200)
 
@@ -357,7 +356,6 @@ export async function DELETE(request: Request) {
       .from('event_stock_check')
       .delete()
       .eq('uid_stock_check', uidStockCheck)
-      .eq('user_id', auth.user.id)
 
     if (error) {
       return NextResponse.json(

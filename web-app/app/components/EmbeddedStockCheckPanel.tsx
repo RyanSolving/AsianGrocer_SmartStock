@@ -22,6 +22,7 @@ import {
 } from '../../lib/offline/queue'
 import { EntryMethodToggle } from './EntryMethodToggle'
 import { EditorTopBar } from './EditorTopBar'
+import { useChoiceSheet } from './ChoiceSheet'
 import { useKeypadEntry } from '../../lib/use-keypad-entry'
 import { CreateCatalogItemModal, type CreateCatalogItemPayload } from './CreateCatalogItemModal'
 import { StockLedger, toLedgerAreas } from './StockLedger'
@@ -38,7 +39,7 @@ import { Button } from './ui/Button'
 import { Sheet } from './ui/Sheet'
 import { SectionLandingState } from './SectionLandingState'
 import { getOfflineDraftAge } from '../../lib/offline/queue'
-import { getLocalTodayDate } from '../../lib/date-utils'
+import { formatDayLabel, formatTimeLabel, getLocalTodayDate } from '../../lib/date-utils'
 import { WAREHOUSE_SYNC_ENABLED } from '../../lib/warehouse-sync'
 import { findUncountedItems } from '../../lib/closing-completeness'
 import { mergePhotoRows } from '../../lib/photo-merge'
@@ -130,6 +131,7 @@ export type SelectedStockCheckHistoryRecord = {
 type StockCheckHistoryRecord = {
   uid_stock_check: string
   timestamp: string
+  stock_date?: string
   validated: boolean
   record_data?: StockCheckRecordData
 }
@@ -477,6 +479,10 @@ export function EmbeddedStockCheckPanel({
   const checkItemInputRef = useRef<HTMLInputElement | null>(null)
   const checkQtyInputRef = useRef<HTMLInputElement | null>(null)
   const checkEntryRef = useRef<HTMLDivElement>(null)
+  // Save reads the date through a ref, so a date changed during Save (flushSync) is used at once.
+  const stockDateRef = useRef(stockDate)
+  stockDateRef.current = stockDate
+  const { ask, choiceSheet } = useChoiceSheet()
   useKeypadEntry(checkEntryRef, phase === 'editing' && stockEntryMode === 'manual')
   const [manualCheckRedMarked, setManualCheckRedMarked] = useState(false)
   const [manualCheckHighlightIndex, setManualCheckHighlightIndex] = useState(0)
@@ -1257,7 +1263,7 @@ export function EmbeddedStockCheckPanel({
     const controller = new AbortController()
     const timer = window.setTimeout(() => controller.abort(), SAVE_CHECK_TIMEOUT_MS)
     try {
-      const response = await fetch(`/api/daily-report?date=${encodeURIComponent(stockDate)}`, { cache: 'no-store', signal: controller.signal })
+      const response = await fetch(`/api/daily-report?date=${encodeURIComponent(stockDateRef.current)}`, { cache: 'no-store', signal: controller.signal })
       if (!response.ok) return null
       const payload = await response.json()
       return {
@@ -1283,7 +1289,7 @@ export function EmbeddedStockCheckPanel({
     const unknown = rows.filter((x) => x.source === 'unknown')
 
     return {
-      date: stockDate,
+      date: stockDateRef.current,
       items: known.map((x) => ({
         code: x.code as string,
         product: x.product,
@@ -1365,7 +1371,7 @@ export function EmbeddedStockCheckPanel({
         photo_id: `stock-check-${crypto.randomUUID()}`,
         mode: 'stock-closing' as const,
         upload_date: new Date().toISOString(),
-        stock_date: stockDate,
+        stock_date: stockDateRef.current,
         photo_url: null,
         total_items: knownItems.length,
         confidence_overall: 'high' as const,
@@ -1461,9 +1467,45 @@ export function EmbeddedStockCheckPanel({
     })()
   }
 
+  /**
+   * Before Save: a new sheet not dated today asks which day it is for (a continued draft keeps
+   * the day it was started), and a date that already has a saved close asks before replacing it.
+   */
+  async function confirmSaveDate() {
+    const today = getLocalTodayDate()
+    let date = stockDateRef.current
+    if (!loadedHistoryUid && date !== today) {
+      const answer = await ask({
+        title: `This sheet is dated ${formatDayLabel(date)}`,
+        message: `Today is ${formatDayLabel(today)}. Which day is this count for?`,
+        choices: [
+          { value: 'today', label: `Today, ${formatDayLabel(today)}`, primary: true },
+          { value: 'keep', label: formatDayLabel(date), description: 'Keep the date on the sheet' },
+        ],
+      })
+      if (!answer) return false
+      if (answer === 'today') {
+        flushSync(() => setStockDate(today))
+        date = today
+      }
+    }
+
+    const existing = (historyRecords ?? []).find((record) => record.stock_date === date && record.uid_stock_check !== loadedHistoryUid)
+    if (existing) {
+      const answer = await ask({
+        title: `Replace the stock close for ${formatDayLabel(date)}?`,
+        message: `One was already saved at ${formatTimeLabel(existing.timestamp)}. Saving this sheet replaces it.`,
+        choices: [{ value: 'replace', label: 'Replace it', description: 'The earlier count for that day is overwritten' }],
+      })
+      if (!answer) return false
+    }
+    return true
+  }
+
   /** One Save: check for uncounted items -> (warnings sheet if needed) -> save -> background warehouse sync (when on). */
   async function handleSave() {
     if (isSaving || isCheckingCounts) return
+    if (!(await confirmSaveDate())) return
     setIsCheckingCounts(true)
     let warnings: RecheckWarning[]
     try {
@@ -1702,6 +1744,7 @@ export function EmbeddedStockCheckPanel({
 
   return (
     <div className="space-y-4">
+      {choiceSheet}
       <section className="keypad-editor rounded-card border border-line bg-surface p-3 sm:p-6">
         <EditorTopBar
           title={loadedHistoryUid ? 'Edit stock close' : 'Stock close'}

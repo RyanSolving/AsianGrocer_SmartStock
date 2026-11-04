@@ -42,7 +42,7 @@ function SourceRow({ label, source, missing, extra }: { label: string; source: R
  * The saved records behind the report: today's closing, the previous closing and the stock-in.
  * Folded into one row with the save times; tap to see each record's name and date.
  */
-export function ReportSources({ sources, stockInRecordCount }: { sources: Sources | null; stockInRecordCount: number }) {
+export function ReportSources({ sources, stockInNote }: { sources: Sources | null; stockInNote?: string }) {
   if (!sources) return null
   const closingTime = formatSavedAt(sources.closing?.savedAt, 'time')
   const stockInTime = formatSavedAt(sources.stockIn?.savedAt, 'time')
@@ -66,7 +66,7 @@ export function ReportSources({ sources, stockInRecordCount }: { sources: Source
           label="Stock in"
           source={sources.stockIn}
           missing="No stock in for this date."
-          extra={stockInRecordCount > 1 ? `latest of ${stockInRecordCount}` : undefined}
+          extra={stockInNote}
         />
       </ul>
     </details>

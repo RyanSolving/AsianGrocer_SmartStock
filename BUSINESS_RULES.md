@@ -10,11 +10,28 @@ item code.
 
 | Record | Where it comes from | Rule |
 |---|---|---|
-| **Closing** | Check Stock, saved at about 4 PM | One per date. A report needs the closing for its date. |
+| **Closing** | Stock Close, saved at about 4 PM | One per date for the whole store. Saving a close for a date that already has one asks first, then replaces it. A report needs the closing for its date. |
 | **Previous closing** | The latest saved closing **before** the report date | Not necessarily yesterday: a skipped day uses the last saved closing. |
-| **Stock in** | Stock In records for the date | If several exist, the **latest** one is used. They are never added together, because a re-entered record would double count. |
+| **Stock in** | Stock In records for the date | The **latest main** record, **plus** every record saved as an **extra delivery** (`extra_delivery: true`). Earlier main records are re-saves of the same delivery and are not added, because that would double count. |
 
-Code: `web-app/app/api/daily-report/route.ts`.
+Code: `web-app/app/api/daily-report/route.ts`, `combineStockInRecords` in `web-app/lib/report-records.ts`
+(also used by the Home sales trend).
+
+### 1a. Saving: date and same-day checks
+
+- A new Stock In or Stock Close sheet whose date is not today asks at Save which day it is for
+  (**Today** or **keep the sheet's date**). A continued draft keeps the day it was started, so
+  without this a next-day count could be filed under the previous day.
+- A new Stock In for a date that already has one asks: **Extra delivery** (added to that day's
+  stock in) or **Same delivery, counted again** (replaces the earlier one in the report).
+- Editing a saved record skips both questions.
+
+### 1c. Shared store data
+
+- Every account with the `admin` or `staff` role (table `user_roles`) sees and edits the whole
+  store's Stock In, Stock Close and report badges. Records keep the account that saved them.
+- An account with no role sees only its own records. Give new staff accounts the `staff` role.
+- Migration: `web-app/supabase/migrations/20261105_shared_store_data.sql`.
 
 ### 1b. Special discount (Stock In)
 

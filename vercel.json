@@ -2,5 +2,8 @@
   "framework": "nextjs",
   "installCommand": "npm install",
   "buildCommand": "npm run build",
-  "outputDirectory": "web-app/.next"
+  "outputDirectory": "web-app/.next",
+  "regions": [
+    "hnd1"
+  ]
 }

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { getAuthContext } from '../../../lib/supabase/route-auth'
 import { isMissingTableError } from '../../../lib/supabase/errors'
-import { readClosingItems, readStockInItems } from '../../../lib/report-records'
+import { combineStockInRecords, readClosingItems } from '../../../lib/report-records'
 
 export const runtime = 'nodejs'
 
@@ -26,7 +26,6 @@ export async function GET(request: NextRequest) {
       auth.supabase
         .from('event_stock_check')
         .select('date, item_data, record_name, created_at')
-        .eq('user_id', auth.user.id)
         .eq('mode', 'closing_check')
         .eq('date', date)
         .limit(1)
@@ -35,7 +34,6 @@ export async function GET(request: NextRequest) {
       auth.supabase
         .from('event_stock_check')
         .select('date, item_data, record_name, created_at')
-        .eq('user_id', auth.user.id)
         .eq('mode', 'closing_check')
         .lt('date', date)
         .order('date', { ascending: false })
@@ -44,14 +42,12 @@ export async function GET(request: NextRequest) {
       auth.supabase
         .from('event_generate')
         .select('uid_generate, final_output, log_time, record_name, input_file_name')
-        .eq('user_id', auth.user.id)
         .eq('stock_mode', 'arrival_entry')
         .eq('final_output->>stock_date', date)
         .order('log_time', { ascending: false }),
       auth.supabase
         .from('report_flag_override')
         .select('item_code, flag, updated_at')
-        .eq('user_id', auth.user.id)
         .eq('report_date', date),
     ])
 
@@ -66,11 +62,12 @@ export async function GET(request: NextRequest) {
     const closing = closingResult.data ? readClosingItems(closingResult.data.item_data) : null
     const prevClosing = prevClosingResult.data ? readClosingItems(prevClosingResult.data.item_data) : null
 
-    // If several stock-in records exist for the date, use the latest only (summing could
-    // double-count re-saved drafts). The count is returned so the UI can warn.
+    // Several Stock In records for one date: the latest main record (earlier ones are
+    // re-saves and would double count) plus every record saved as an extra delivery.
     const stockInRecords = stockInResult.data ?? []
-    const stockInByCode = stockInRecords.length > 0 ? readStockInItems(stockInRecords[0].final_output) : {}
-    const latestStockIn = stockInRecords[0] ?? null
+    const combinedStockIn = combineStockInRecords(stockInRecords)
+    const stockInByCode = combinedStockIn.quantities
+    const latestStockIn = combinedStockIn.main ?? combinedStockIn.extras[0] ?? null
 
     // Overrides are optional: before the migration runs, the report still works without them.
     const overridesAvailable = !isMissingTableError(overrideResult.error)
@@ -93,6 +90,8 @@ export async function GET(request: NextRequest) {
         prevClosingDate: prevClosingResult.data?.date ?? null,
         prevClosingByCode: prevClosing?.quantities ?? {},
         stockInRecordCount: stockInRecords.length,
+        stockInExtraCount: combinedStockIn.extras.length,
+        stockInReplacedCount: combinedStockIn.replacedCount,
         stockInByCode,
         // Which saved records these figures come from, for the "Sources" row.
         sources: {

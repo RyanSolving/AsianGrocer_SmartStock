@@ -6,6 +6,7 @@ import type { ReportEntry } from '../../lib/report-aggregations'
 import { applyFlagOverrides, computeItemInsights, summarizeInsights, type StockFlag } from '../../lib/report-insights'
 import { friendlyError, toast } from '../../lib/toast-store'
 import type { IndexedPaperRow, PaperRow } from '../../lib/stock-paper-layout'
+import { describeStockInRecords } from '../../lib/report-records'
 
 /**
  * Loads one day's report data (closing, previous closing, stock-in) and derives the
@@ -61,6 +62,10 @@ export type DailyReportResponse = {
   prevClosingDate: string | null
   prevClosingByCode: Record<string, number>
   stockInRecordCount: number
+  /** Stock In records saved as extra deliveries, added to the main one. */
+  stockInExtraCount?: number
+  /** Earlier main Stock In saves for the date, replaced by the latest. */
+  stockInReplacedCount?: number
   stockInByCode: Record<string, number>
   sources?: ReportSources
   flagOverrides?: Record<string, { flag: string | null; updatedAt?: string }>
@@ -225,8 +230,12 @@ export function useDailyReportData(date: string, catalogItems: ReportCatalogItem
     if (data?.closingFound && data.stockInRecordCount === 0) {
       list.push({ id: 'no-stock-in', severity: 'note', text: 'No stock-in for this date. Sold assumes nothing arrived.' })
     }
-    if (data && data.stockInRecordCount > 1) {
-      list.push({ id: 'multi-stock-in', severity: 'note', text: `${data.stockInRecordCount} stock-in records. Using the latest.` })
+    if (data && (data.stockInExtraCount ?? 0) > 0) {
+      const extras = data.stockInExtraCount ?? 0
+      list.push({ id: 'extra-stock-in', severity: 'note', text: `Stock in includes ${extras} extra ${extras === 1 ? 'delivery' : 'deliveries'}.` })
+    }
+    if (data && (data.stockInReplacedCount ?? Math.max(0, data.stockInRecordCount - 1)) > 0) {
+      list.push({ id: 'multi-stock-in', severity: 'note', text: 'Stock In was saved more than once for this date. Using the latest save.' })
     }
     if (summary.itemsWithoutBaseline > 0) {
       list.push({
@@ -264,6 +273,9 @@ export function useDailyReportData(date: string, catalogItems: ReportCatalogItem
     hasReport,
     sources: data?.sources ?? null,
     stockInRecordCount: data?.stockInRecordCount ?? 0,
+    stockInNote: data
+      ? describeStockInRecords(data.stockInExtraCount ?? 0, data.stockInReplacedCount ?? Math.max(0, data.stockInRecordCount - 1))
+      : undefined,
     canChangeFlags: data?.overridesAvailable !== false,
     setFlagOverride,
   }

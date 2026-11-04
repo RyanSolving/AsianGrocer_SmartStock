@@ -26,13 +26,11 @@ export async function GET(request: Request) {
         stock_mode
       `
         )
-        .eq('user_id', auth.user.id)
         .order('log_time', { ascending: false })
         .limit(HISTORY_LIMIT),
       auth.supabase
         .from('event_push')
-        .select('uid_generate')
-        .eq('user_id', auth.user.id),
+        .select('uid_generate'),
     ])
 
     const { data: events, error: eventsError } = eventsResult
@@ -120,7 +118,6 @@ export async function DELETE(request: Request) {
       .from('event_generate')
       .delete()
       .eq('uid_generate', uidGenerate)
-      .eq('user_id', auth.user.id)
 
     if (error) {
       return NextResponse.json(

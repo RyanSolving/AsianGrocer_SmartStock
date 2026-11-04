@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals'
 
-import { addDays, buildSalesTrend } from '../../lib/report-records'
+import { addDays, buildSalesTrend, combineStockInRecords, describeStockInRecords } from '../../lib/report-records'
 
 const closing = (date: string, quantities: Record<string, number>) => ({
   date,
@@ -66,5 +66,57 @@ describe('buildSalesTrend', () => {
       ],
     })
     expect(days[0]).toMatchObject({ stockIn: 5, unitsSold: 3 })
+  })
+})
+
+const extra = (record: ReturnType<typeof stockIn>) => ({
+  ...record,
+  final_output: { ...record.final_output, extra_delivery: true },
+})
+
+describe('combineStockInRecords', () => {
+  it('uses the latest main save and ignores earlier re-saves', () => {
+    const result = combineStockInRecords([
+      stockIn('2026-11-04', { A: 5 }, '2026-11-04T07:00:00Z'),
+      stockIn('2026-11-04', { A: 6 }, '2026-11-04T07:30:00Z'),
+    ])
+    expect(result.quantities).toEqual({ A: 6 })
+    expect(result.replacedCount).toBe(1)
+    expect(result.extras).toHaveLength(0)
+  })
+
+  it('adds every extra delivery to the main save', () => {
+    const result = combineStockInRecords([
+      stockIn('2026-11-04', { A: 5, B: 2 }, '2026-11-04T07:00:00Z'),
+      extra(stockIn('2026-11-04', { A: 3 }, '2026-11-04T13:00:00Z')),
+      extra(stockIn('2026-11-04', { C: 1 }, '2026-11-04T15:00:00Z')),
+    ])
+    expect(result.quantities).toEqual({ A: 8, B: 2, C: 1 })
+    expect(result.extras).toHaveLength(2)
+    expect(result.replacedCount).toBe(0)
+  })
+
+  it('still counts extras when there is no main save', () => {
+    expect(combineStockInRecords([extra(stockIn('2026-11-04', { A: 3 }))]).quantities).toEqual({ A: 3 })
+  })
+
+  it('feeds the sales trend the same way', () => {
+    const days = buildSalesTrend({
+      start: '2026-11-04',
+      end: '2026-11-04',
+      closings: [closing('2026-11-03', { A: 10 }), closing('2026-11-04', { A: 4 })],
+      stockIns: [stockIn('2026-11-04', { A: 5 }), extra(stockIn('2026-11-04', { A: 3 }, '2026-11-04T13:00:00Z'))],
+    })
+    // 10 + (5 + 3) - 4
+    expect(days[0].unitsSold).toBe(14)
+    expect(days[0].stockIn).toBe(8)
+  })
+})
+
+describe('describeStockInRecords', () => {
+  it('names extras and replaced saves', () => {
+    expect(describeStockInRecords(0, 0)).toBeUndefined()
+    expect(describeStockInRecords(1, 0)).toBe('plus 1 extra delivery')
+    expect(describeStockInRecords(2, 1)).toBe('plus 2 extra deliveries, 1 earlier save replaced')
   })
 })

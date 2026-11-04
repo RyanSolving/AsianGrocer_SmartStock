@@ -119,7 +119,7 @@ export async function POST(request: Request) {
           mode: 'closing_check',
           item_data: mirrorItemData,
         },
-        { onConflict: 'user_id,date,mode' },
+        { onConflict: 'date,mode' },
       )
       .select('uid_stock_check, created_at, record_name')
       .single()

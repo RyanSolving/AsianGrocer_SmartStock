@@ -52,13 +52,13 @@ describe('startHistoryRealtime', () => {
     jest.useRealTimers()
   })
 
-  it('filters every table to the current user', () => {
+  it('listens to every store table without a per-user filter', () => {
     const fake = createFakeClient()
     startHistoryRealtime(fake.client, 'user-1', { onStockInChange: jest.fn(), onStockCheckChange: jest.fn() })
 
-    expect(fake.filters.get('event_generate')).toBe('user_id=eq.user-1')
-    expect(fake.filters.get('event_push')).toBe('user_id=eq.user-1')
-    expect(fake.filters.get('event_stock_check')).toBe('user_id=eq.user-1')
+    expect(fake.filters.get('event_generate')).toBeUndefined()
+    expect(fake.filters.get('event_push')).toBeUndefined()
+    expect(fake.filters.get('event_stock_check')).toBeUndefined()
   })
 
   it('routes event_generate and event_push to Stock In, event_stock_check to Stock Close', () => {

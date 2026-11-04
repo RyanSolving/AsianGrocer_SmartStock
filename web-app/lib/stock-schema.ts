@@ -111,6 +111,8 @@ export const parsedStockSchema = z.object({
   total_items: z.number().nonnegative(),
   confidence_overall: z.enum(['high', 'medium', 'low']).default('medium'),
   items: z.array(itemSchema),
+  /** Stock In only: an extra delivery adds to the day's main Stock In instead of replacing it. */
+  extra_delivery: z.boolean().optional(),
 })
 
 export const warehouseStagingRecordSchema = z.object({

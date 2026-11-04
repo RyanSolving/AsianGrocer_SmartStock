@@ -56,6 +56,40 @@ export function readStockInItems(finalOutput: unknown) {
   return quantities
 }
 
+export type StockInRecord = { final_output: unknown; log_time: string | null }
+
+/** A Stock In saved as an extra delivery adds to the day's main Stock In instead of replacing it. */
+export function isExtraDelivery(finalOutput: unknown) {
+  return (finalOutput as { extra_delivery?: unknown } | null)?.extra_delivery === true
+}
+
+/**
+ * One date's Stock In figures from all records saved for it.
+ * The latest main record counts (earlier main records are re-saves of the same delivery and
+ * would double count), plus every record saved as an extra delivery.
+ */
+export function combineStockInRecords<T extends StockInRecord>(records: T[]) {
+  const newestFirst = [...records].sort((a, b) => (b.log_time ?? '').localeCompare(a.log_time ?? ''))
+  const main = newestFirst.find((record) => !isExtraDelivery(record.final_output)) ?? null
+  const extras = newestFirst.filter((record) => isExtraDelivery(record.final_output))
+  const quantities: QuantityByCode = {}
+  for (const record of [...(main ? [main] : []), ...extras]) {
+    for (const [code, quantity] of Object.entries(readStockInItems(record.final_output))) {
+      quantities[code] = (quantities[code] ?? 0) + quantity
+    }
+  }
+  const replacedCount = newestFirst.length - extras.length - (main ? 1 : 0)
+  return { quantities, main, extras, replacedCount }
+}
+
+/** Short note for the report's Sources row, or undefined when one record was used. */
+export function describeStockInRecords(extraCount: number, replacedCount: number) {
+  const parts: string[] = []
+  if (extraCount > 0) parts.push(`plus ${extraCount} extra ${extraCount === 1 ? 'delivery' : 'deliveries'}`)
+  if (replacedCount > 0) parts.push(`${replacedCount} earlier ${replacedCount === 1 ? 'save' : 'saves'} replaced`)
+  return parts.length > 0 ? parts.join(', ') : undefined
+}
+
 /** `YYYY-MM-DD` plus `days` (negative goes back), in calendar days. */
 export function addDays(isoDate: string, days: number) {
   const [year, month, day] = isoDate.split('-').map(Number)
@@ -73,30 +107,30 @@ export type TrendDay = {
 
 /**
  * Units sold per day from `start` to `end`, the same way the Daily Report works it out:
- * each day's closing against the latest closing before it, plus that day's latest stock in.
+ * each day's closing against the latest closing before it, plus that day's stock in.
  * `closings` may include days before `start`, which serve as the first day's baseline.
  */
 export function buildSalesTrend(input: {
   start: string
   end: string
   closings: Array<{ date: string; item_data: unknown }>
-  /** Newest first per date is not required: the latest `log_time` per stock date is used. */
+  /** Any order: per date, the latest main record plus every extra delivery is used. */
   stockIns: Array<{ stock_date: string; final_output: unknown; log_time: string | null }>
 }): TrendDay[] {
   const closings = [...input.closings].sort((a, b) => a.date.localeCompare(b.date))
   const closingByDate = new Map(closings.map((row) => [row.date, readClosingItems(row.item_data).quantities]))
 
-  const latestStockIn = new Map<string, { log_time: string; final_output: unknown }>()
+  const stockInsByDate = new Map<string, StockInRecord[]>()
   for (const row of input.stockIns) {
-    const current = latestStockIn.get(row.stock_date)
-    const logTime = row.log_time ?? ''
-    if (!current || logTime > current.log_time) latestStockIn.set(row.stock_date, { log_time: logTime, final_output: row.final_output })
+    const list = stockInsByDate.get(row.stock_date) ?? []
+    list.push(row)
+    stockInsByDate.set(row.stock_date, list)
   }
 
   const days: TrendDay[] = []
   for (let date = input.start; date <= input.end; date = addDays(date, 1)) {
     const closing = closingByDate.get(date)
-    const stockInByCode = latestStockIn.has(date) ? readStockInItems(latestStockIn.get(date)!.final_output) : {}
+    const stockInByCode = combineStockInRecords(stockInsByDate.get(date) ?? []).quantities
     const stockIn = Object.values(stockInByCode).reduce((sum, value) => sum + value, 0)
     const previous = [...closings].reverse().find((row) => row.date < date)
 

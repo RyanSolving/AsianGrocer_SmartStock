@@ -5,8 +5,7 @@ import { createSupabaseBrowserClient } from '../supabase/client'
 /**
  * Realtime subscription for Stock In / Stock Close history.
  *
- * Subscribes to postgres_changes on the event tables (filtered to the current user)
- * and calls the matching refresh callback, debounced so that a save which writes
+ * Subscribes to postgres_changes on the event tables and calls the matching refresh callback, debounced so that a save which writes
  * several rows (e.g. event_generate + event_push) triggers a single refresh.
  */
 
@@ -60,8 +59,9 @@ export function startHistoryRealtime(
   const refreshStockIn = () => schedule('stockIn', handlers.onStockInChange)
   const refreshStockCheck = () => schedule('stockCheck', handlers.onStockCheckChange)
 
-  const filter = `user_id=eq.${userId}`
-  const table = (name: string) => ({ event: '*', schema: 'public', table: name, filter })
+  // No user filter: the store's records are shared, and row-level security already
+  // limits each account to what it may read (every row for admin/staff accounts).
+  const table = (name: string) => ({ event: '*', schema: 'public', table: name })
 
   const channel = client
     .channel(`history-realtime:${userId}`)

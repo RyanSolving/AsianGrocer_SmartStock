@@ -21,7 +21,7 @@ function DailySummaryTab({ catalogItems, date, refreshKey }: { catalogItems: Rep
   const summaryRef = useRef<HTMLDivElement | null>(null)
   const [isExporting, setIsExporting] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
-  const { data, isLoading, error, entries, notices, hasReport, sources, stockInRecordCount } = useDailyReportData(date, catalogItems, refreshKey)
+  const { data, isLoading, error, entries, notices, hasReport, sources, stockInNote } = useDailyReportData(date, catalogItems, refreshKey)
 
   async function exportPhoto() {
     if (!summaryRef.current) return
@@ -53,7 +53,7 @@ function DailySummaryTab({ catalogItems, date, refreshKey }: { catalogItems: Rep
       ) : null}
 
       <ReportNotices notices={notices} />
-      <ReportSources sources={sources} stockInRecordCount={stockInRecordCount} />
+      <ReportSources sources={sources} stockInNote={stockInNote} />
 
       {isLoading && !data ? (
         <div className="flex min-h-[240px] items-center justify-center rounded-card border border-line bg-surface">

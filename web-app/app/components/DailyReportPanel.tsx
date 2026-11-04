@@ -120,7 +120,7 @@ export function DailyReportPanel({ catalogItems, requestedDate }: DailyReportPan
 
   const {
     data, isLoading, error, reload, insights, indexedRows, notices, hasReport,
-    sources, stockInRecordCount, canChangeFlags, setFlagOverride,
+    sources, stockInNote, canChangeFlags, setFlagOverride,
   } = useDailyReportData(reportDate, catalogItems)
   const [flagPickerRow, setFlagPickerRow] = useState<ReportRow | null>(null)
 
@@ -224,7 +224,7 @@ export function DailyReportPanel({ catalogItems, requestedDate }: DailyReportPan
       ) : null}
 
       <ReportNotices notices={notices} />
-      <ReportSources sources={sources} stockInRecordCount={stockInRecordCount} />
+      <ReportSources sources={sources} stockInNote={stockInNote} />
 
       <FlagPickerSheet
         open={flagPickerRow !== null}
