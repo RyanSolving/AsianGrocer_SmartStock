@@ -339,7 +339,7 @@ export async function POST(request: Request) {
     const dataUrl = `data:${uploadedFile.type};base64,${base64}`
 
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-    const model = process.env.OPENAI_VISION_MODEL || 'gpt-5.2'
+    const model = process.env.OPENAI_VISION_MODEL || 'gpt-6.1-terra'
 
     try {
       const catalogPrompt = buildCatalogPrompt(catalog, mode)

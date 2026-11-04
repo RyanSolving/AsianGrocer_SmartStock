@@ -30,7 +30,7 @@ By capturing a photo of a handwritten closing stock sheet, this application leve
    Ensure you have a `.env.local` file at the root of the `web-app` directory with:
    ```env
    OPENAI_API_KEY="sk-..."
-   OPENAI_VISION_MODEL="gpt-4o" # or gpt-4.5-preview / gpt-5.4
+   OPENAI_VISION_MODEL="gpt-6.1-terra" # default; any OpenAI vision model works
    NEXT_PUBLIC_SUPABASE_URL="https://YOUR_PROJECT_REF.supabase.co"
    NEXT_PUBLIC_SUPABASE_ANON_KEY="YOUR_SUPABASE_ANON_KEY"
    BIGQUERY_PROJECT_ID="gen-lang-client-0274270007"
