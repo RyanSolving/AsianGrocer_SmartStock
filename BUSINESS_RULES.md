@@ -86,6 +86,10 @@ current = closing + stock in saved after the closing date, up to today
 - On the newest report the stock column is **Current** and the sheet is titled "Current stock";
   it says which day's stock in was added. Units sold stays the closing day's figure until
   today's closing is saved. Older dates show **Closing** as before.
+- An item that arrived after the closing but is not on it gets its own row tagged **New**,
+  with current = what arrived and sold shown as `-`.
+- Live: when anyone saves or changes a Stock In or Stock Close, Welcome, Daily Report and
+  Dashboard reload by themselves (Supabase realtime; also on returning to the app).
 - Stock flags, refill hints, "Stock left" and "Products in hand" use current stock, so a
   morning delivery clears yesterday's Stock-out at once.
 

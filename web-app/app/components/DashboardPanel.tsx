@@ -14,6 +14,8 @@ import { useDailyReportData, type ReportCatalogItem } from './useDailyReportData
 
 type DashboardPanelProps = {
   catalogItems: ReportCatalogItem[]
+  /** Bumped when a Stock In or Stock Close is saved anywhere, to reload live. */
+  liveKey?: number
   /** The newest date with a full report (today's may not be ready). Used until a date is picked. */
   defaultDate?: string | null
 }
@@ -88,7 +90,7 @@ function DailySummaryTab({ catalogItems, date, refreshKey }: { catalogItems: Rep
   )
 }
 
-export function DashboardPanel({ catalogItems, defaultDate }: DashboardPanelProps) {
+export function DashboardPanel({ catalogItems, defaultDate, liveKey = 0 }: DashboardPanelProps) {
   const today = useMemo(() => getLocalTodayDate(), [])
   const [selectedDate, setSelectedDate] = useState(defaultDate ?? today)
   const hasPickedDate = useRef(false)
@@ -120,7 +122,7 @@ export function DashboardPanel({ catalogItems, defaultDate }: DashboardPanelProp
         </IconButton>
       </div>
 
-      <DailySummaryTab catalogItems={catalogItems} date={selectedDate} refreshKey={summaryRefreshKey} />
+      <DailySummaryTab catalogItems={catalogItems} date={selectedDate} refreshKey={summaryRefreshKey + liveKey} />
     </section>
   )
 }

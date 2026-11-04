@@ -85,6 +85,8 @@ export type ReportRow = PaperRow & {
   /** Closing plus stock in that arrived after it. */
   current: number
   redMarked: boolean
+  /** Not on the closing; arrived after it. */
+  isNew?: boolean
 }
 
 export type IndexedReportRow = IndexedPaperRow<ReportRow>
@@ -219,6 +221,13 @@ export function useDailyReportData(date: string, catalogItems: ReportCatalogItem
       if (!item) continue
       const current = closing + (data.arrivedSinceByCode?.[code] ?? 0)
       rows.push(toReportRow(item, closing, current, data.redMarkedByCode[code] === true))
+    }
+    // New today: arrived after the closing but not on it. Closing counts as 0.
+    for (const [code, arrived] of Object.entries(data.arrivedSinceByCode ?? {})) {
+      if (code in data.closingByCode || !(arrived > 0)) continue
+      const item = catalogByCode.get(code.trim().toUpperCase())
+      if (!item) continue
+      rows.push({ ...toReportRow(item, 0, arrived, false), isNew: true })
     }
 
     return rows.map((row, index) => ({ row, index }))

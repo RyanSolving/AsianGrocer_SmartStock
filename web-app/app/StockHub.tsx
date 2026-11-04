@@ -521,6 +521,8 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
   }, [])
   // Bumped each time Home opens, so its numbers refresh quietly behind the cached ones.
   const [homeRefreshKey, setHomeRefreshKey] = useState(0)
+  /** Bumped on every live Stock In / Stock Close change, so the reports reload by themselves. */
+  const [liveReportKey, setLiveReportKey] = useState(0)
   const hasShownHomeRef = useRef(false)
   const [reportDateRequest, setReportDateRequest] = useState<{ date: string; key: number } | null>(null)
   const [stockInPhase, setStockInPhase] = useState<'landing' | 'editing'>('landing')
@@ -1016,10 +1018,12 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
 
   useHistoryRealtime(session?.user?.id, {
     onStockInChange: () => {
+      setLiveReportKey((value) => value + 1)
       if (isHistoryBusyRef.current) deferredHistoryRefresh.current.stockIn = true
       else void loadTranscriptionHistory({ silent: true })
     },
     onStockCheckChange: () => {
+      setLiveReportKey((value) => value + 1)
       if (isHistoryBusyRef.current) deferredHistoryRefresh.current.stockCheck = true
       else void loadStockCheckHistory({ silent: true })
     },
@@ -2927,7 +2931,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
             <div hidden={activeSection !== 'home'}>
               <HomePanel
                 catalogItems={visibleCatalog}
-                refreshKey={homeRefreshKey}
+                refreshKey={homeRefreshKey + liveReportKey}
                 onNavigate={(section, options) => {
                   if (options?.reportDate) setReportDateRequest({ date: options.reportDate, key: Date.now() })
                   setActiveSection(section)
@@ -2954,12 +2958,12 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
           ) : null}
           {visitedSections.has('daily-report') ? (
             <div hidden={activeSection !== 'daily-report'}>
-              <DailyReportPanel catalogItems={visibleCatalog} requestedDate={reportDateRequest} defaultDate={latestReportDay} />
+              <DailyReportPanel catalogItems={visibleCatalog} requestedDate={reportDateRequest} defaultDate={latestReportDay} liveKey={liveReportKey} />
             </div>
           ) : null}
           {visitedSections.has('dashboard') ? (
             <div hidden={activeSection !== 'dashboard'}>
-              <DashboardPanel catalogItems={visibleCatalog} defaultDate={latestReportDay} />
+              <DashboardPanel catalogItems={visibleCatalog} defaultDate={latestReportDay} liveKey={liveReportKey} />
             </div>
           ) : null}
           <div hidden={activeSection !== 'data-entry'}>

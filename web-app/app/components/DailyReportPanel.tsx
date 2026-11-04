@@ -20,6 +20,8 @@ import { ActionBar, ScreenHeader } from './ui/Primitives'
 
 type DailyReportPanelProps = {
   catalogItems: ReportCatalogItem[]
+  /** Bumped when a Stock In or Stock Close is saved anywhere, to reload the report live. */
+  liveKey?: number
   /** Opens the report on this date (from Home). A new `key` applies it again. */
   requestedDate?: { date: string; key: number } | null
   /** The newest date with a full report (today's may not be ready). Used until a date is picked. */
@@ -98,6 +100,7 @@ function ReportArea({ title, groups, insights, onSelectItem, stockLabel }: {
                   <div className="report-name">
                     {row.redMarked && <span aria-label="Marked for reorder" role="img" className="h-2 w-2 shrink-0 rounded-full bg-danger" />}
                     <span>{row.official_name}</span>
+                    {row.isNew ? <span className="report-tag-new">New</span> : null}
                     {insight?.stockFlag ? (
                       <StockFlagBadge flag={insight.stockFlag} edited={Boolean(onSelectItem) && insight.flagSource === 'manual'} />
                     ) : onSelectItem && insight?.flagSource === 'manual' ? (
@@ -123,7 +126,7 @@ function ReportArea({ title, groups, insights, onSelectItem, stockLabel }: {
   )
 }
 
-export function DailyReportPanel({ catalogItems, requestedDate, defaultDate }: DailyReportPanelProps) {
+export function DailyReportPanel({ catalogItems, requestedDate, defaultDate, liveKey = 0 }: DailyReportPanelProps) {
   const [reportDate, setReportDate] = useState(() => requestedDate?.date ?? defaultDate ?? getLocalTodayDate())
   // Opens on the newest date with a report; once someone picks a date, it stays theirs.
   const hasPickedDate = useRef(Boolean(requestedDate?.date))
@@ -143,7 +146,7 @@ export function DailyReportPanel({ catalogItems, requestedDate, defaultDate }: D
   const {
     data, isLoading, error, reload, insights, indexedRows, notices, hasReport,
     sources, stockInNote, canChangeFlags, setFlagOverride, showsCurrent, arrivedDates,
-  } = useDailyReportData(reportDate, catalogItems)
+  } = useDailyReportData(reportDate, catalogItems, liveKey)
   const [flagPickerRow, setFlagPickerRow] = useState<ReportRow | null>(null)
 
   const openFlagPicker = (row: ReportRow) => setFlagPickerRow(row)

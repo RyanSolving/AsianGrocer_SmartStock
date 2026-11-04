@@ -85,7 +85,8 @@ export function computeItemInsight(
   const prevClosing = toNumber(input.prevClosing)
   const stockIn = toNumber(input.stockIn) ?? 0
   const arrivedSince = toNumber(input.arrivedSince) ?? 0
-  const current = closing === null ? null : closing + arrivedSince
+  // An item not on the closing that has arrived since is new stock: current is what arrived.
+  const current = closing === null ? (arrivedSince > 0 ? arrivedSince : null) : closing + arrivedSince
 
   const base: ItemInsight = {
     code,
@@ -140,7 +141,9 @@ export function computeItemInsights(input: {
 }): Record<string, ItemInsight> {
   const result: Record<string, ItemInsight> = {}
 
-  for (const code of Object.keys(input.closingByCode)) {
+  // Items that arrived after the closing but were not on it get a row too (new stock).
+  const codes = new Set([...Object.keys(input.closingByCode), ...Object.keys(input.arrivedSinceByCode ?? {})])
+  for (const code of Array.from(codes)) {
     result[code] = computeItemInsight(code, {
       closing: input.closingByCode[code],
       prevClosing: input.prevClosingByCode[code],
@@ -183,6 +186,7 @@ export function describeAutoFlag(
   insight: Pick<ItemInsight, 'closing' | 'sold' | 'status'> & { current?: number | null; autoStockFlag?: StockFlag | null; stockFlag: StockFlag | null },
 ) {
   const flag = insight.autoStockFlag !== undefined ? insight.autoStockFlag : insight.stockFlag
+  if (insight.closing === null && (insight.current ?? 0) > 0) return 'New: arrived after the closing, so there is no sold figure yet.'
   const closing = insight.current ?? insight.closing
   const sold = insight.status === 'ok' ? insight.sold : null
   if (closing === 0) return insight.current !== undefined && insight.current !== insight.closing ? 'Current stock is 0.' : 'Closing is 0.'

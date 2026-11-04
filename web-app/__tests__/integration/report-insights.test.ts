@@ -201,3 +201,13 @@ describe('current stock (closing + stock in since)', () => {
     expect(insight.stockFlag).toBe('Stock-out')
   })
 })
+
+describe('new stock not on the closing', () => {
+  it('gets a row with current = what arrived and no sold figure', () => {
+    const insights = computeItemInsights({ closingByCode: { A: 1 }, prevClosingByCode: { A: 1 }, stockInByCode: {}, arrivedSinceByCode: { N: 5 } })
+    expect(insights.N.current).toBe(5)
+    expect(insights.N.status).toBe('no-closing')
+    expect(insights.N.sold).toBeNull()
+    expect(insights.N.stockFlag).toBeNull()
+  })
+})

@@ -865,3 +865,16 @@ textarea {
   padding: 10px 20px;
   font-size: 15px;
 }
+
+/* Daily Report: item not on the closing that arrived after it (forest on a soft tint). */
+.report-tag-new {
+  flex-shrink: 0;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: theme(colors.forest.50);
+  color: theme(colors.forest.700);
+}
