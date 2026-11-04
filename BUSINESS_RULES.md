@@ -68,14 +68,33 @@ units sold = previous closing + stock in − closing
 
 `ok` and `negative` items count towards **total units sold**, so a miscount one day and its
 correction the next net out. Only `ok` items count towards rankings, top sellers and charts.
-Negative items get an amber warning at the top of the report naming them (first three, then
-"and N more") and asking staff to check the counts. The report notes say how many items show `-`.
+Negative items get an amber warning in the report notes naming them (first three, then
+"and N more") and asking staff to check the counts. The notes row reads "N items to check"
+in amber while folded. The report notes also say how many items show `-`.
 
 Code: `computeItemInsight` in `web-app/lib/report-insights.ts`.
 
+### 2b. Current stock
+
+```
+current = closing + stock in saved after the closing date, up to today
+```
+
+- Counted only while no later closing exists. Once the next Stock Close is saved, that day's
+  report takes over and its closing already includes the stock in.
+- Each later date's stock in is combined on its own (latest main save + extra deliveries).
+- On the newest report the stock column is **Current** and the sheet is titled "Current stock";
+  it says which day's stock in was added. Units sold stays the closing day's figure until
+  today's closing is saved. Older dates show **Closing** as before.
+- Stock flags, refill hints, "Stock left" and "Products in hand" use current stock, so a
+  morning delivery clears yesterday's Stock-out at once.
+
+Code: `arrivedSince` / `current` in `web-app/lib/report-insights.ts`; `combineStockInByDate`
+in `web-app/lib/report-records.ts`; `today` parameter of `/api/daily-report`.
+
 ## 3. Stock flags
 
-**Cover** = closing ÷ units sold (how many days today's pace would last).
+**Cover** = current stock (§2b) ÷ units sold (how many days today's pace would last).
 Rules are checked in this order; the first match wins:
 
 | Flag | Rule | Colour |
@@ -184,12 +203,13 @@ Code: `HomePanel.tsx`; `/api/daily-report/trend` with `buildSalesTrend` in
 
 ## 7. Report notices
 
-Shown above the Daily Report and Dashboard.
+Shown above the Daily Report and Dashboard, in one light box with the Sources row.
 
 - **Always visible** (they stop the figures):
   - no closing saved for the date;
   - no earlier closing, so units sold can't be worked out.
-- **Folded into one "notes" row**:
+- **Folded into one "notes" row** (warnings listed first, in amber):
+  - sold below zero for some items (see §2);
   - no stock-in record for the date (sold then assumes nothing arrived);
   - several stock-in records (the latest is used);
   - how many items show `-` or `?`.

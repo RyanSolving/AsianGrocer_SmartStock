@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals'
 
-import { addDays, buildSalesTrend, combineStockInRecords, describeStockInRecords, latestReportDate } from '../../lib/report-records'
+import { addDays, buildSalesTrend, combineStockInByDate, combineStockInRecords, describeStockInRecords, latestReportDate } from '../../lib/report-records'
 
 const closing = (date: string, quantities: Record<string, number>) => ({
   date,
@@ -131,5 +131,24 @@ describe('latestReportDate', () => {
   it('needs an earlier closing to compare against', () => {
     expect(latestReportDate(['2026-11-04'], '2026-11-05')).toBeNull()
     expect(latestReportDate(['2026-11-04', '2026-11-04'], '2026-11-05')).toBeNull()
+  })
+})
+
+describe('combineStockInByDate (stock in since the closing)', () => {
+  const dateOf = (record: { final_output: unknown }) => (record.final_output as { stock_date: string }).stock_date
+
+  it('combines each date on its own, then adds the dates', () => {
+    const records = [
+      stockIn('2026-11-05', { A: 3 }, '2026-11-05T07:00:00Z'),
+      stockIn('2026-11-05', { A: 5 }, '2026-11-05T08:00:00Z'), // re-save replaces the 07:00 one
+      stockIn('2026-11-06', { A: 2, B: 1 }),
+    ]
+    const result = combineStockInByDate(records, dateOf)
+    expect(result.quantities).toEqual({ A: 7, B: 1 })
+    expect(result.dates).toEqual(['2026-11-05', '2026-11-06'])
+  })
+
+  it('is empty without records', () => {
+    expect(combineStockInByDate([], dateOf)).toEqual({ quantities: {}, dates: [] })
   })
 })

@@ -69,6 +69,8 @@ type DailyReportSummaryProps = {
   date: string
   prevClosingDate: string | null
   entries: ReportEntry[]
+  /** Stock figures include stock in that arrived after the closing. */
+  showsCurrent?: boolean
 }
 
 function Panel({ children, className = '' }: { children: ReactNode; className?: string }) {
@@ -196,7 +198,7 @@ function CategoryBars({ slices, onHover, onLeave }: {
   )
 }
 
-export function DailyReportSummary({ containerRef, photoMode = false, date, prevClosingDate, entries }: DailyReportSummaryProps) {
+export function DailyReportSummary({ containerRef, photoMode = false, date, prevClosingDate, entries, showsCurrent = false }: DailyReportSummaryProps) {
   const [tooltip, setTooltip] = useState<TooltipState>(null)
 
   const insights = Object.fromEntries(entries.map((entry) => [entry.code, entry.insight]))
@@ -255,7 +257,7 @@ export function DailyReportSummary({ containerRef, photoMode = false, date, prev
       tier: 'contribution',
       share: topCategory?.share,
     },
-    { label: 'Stock left', value: formatQuantity(inventory.currentInventory), note: 'Units after closing', tier: 'stock' },
+    { label: 'Stock left', value: formatQuantity(inventory.currentInventory), note: showsCurrent ? 'Units on hand now' : 'Units after closing', tier: 'stock' },
     { label: 'Products in hand', value: String(inventory.productsInHand), note: 'Items with stock left', tier: 'stock' },
   ]
 
@@ -453,7 +455,7 @@ export function DailyReportSummary({ containerRef, photoMode = false, date, prev
                 <tr className="text-[12px]" style={{ color: C.muted }}>
                   <th className="py-2 pr-2 font-normal">Item</th>
                   <th className={`py-2 pr-2 font-normal ${photoMode ? '' : 'hidden sm:table-cell'}`}>Category</th>
-                  <th className="py-2 pr-2 text-right font-normal">Closing</th>
+                  <th className="py-2 pr-2 text-right font-normal">{showsCurrent ? 'Current' : 'Closing'}</th>
                   <th className="py-2 pr-3 text-right font-normal">Sold</th>
                   <th className="py-2 text-right font-normal">Status</th>
                 </tr>

@@ -2,6 +2,10 @@
  * Daily report sales insights, computed per catalog code.
  *
  *   sold = previous closing + stock-in - today's closing
+ *   current = today's closing + stock in that arrived after it (before the next closing)
+ *
+ * Badges and refill hints use current stock, so a delivery the next morning clears a
+ * Stock-out at once; sold stays the day's figure until the next closing is saved.
  *
  * All quantities are in the same outer unit (box/bag/...), so the formula holds per code.
  */
@@ -37,6 +41,10 @@ export type ItemInsight = {
   prevClosing: number | null
   stockIn: number
   closing: number | null
+  /** Stock in that arrived after this closing (none once a later closing exists). */
+  arrivedSince: number
+  /** closing + arrivedSince: what is on hand now. Null when the item is not on the closing. */
+  current: number | null
   sold: number | null
   sellThroughPct: number | null
   status: InsightStatus
@@ -66,23 +74,32 @@ export function unitsSold(available: number, closing: number) {
 
 export function computeItemInsight(
   code: string,
-  input: { closing: number | null | undefined; prevClosing: number | null | undefined; stockIn: number | null | undefined },
+  input: {
+    closing: number | null | undefined
+    prevClosing: number | null | undefined
+    stockIn: number | null | undefined
+    arrivedSince?: number | null | undefined
+  },
 ): ItemInsight {
   const closing = toNumber(input.closing)
   const prevClosing = toNumber(input.prevClosing)
   const stockIn = toNumber(input.stockIn) ?? 0
+  const arrivedSince = toNumber(input.arrivedSince) ?? 0
+  const current = closing === null ? null : closing + arrivedSince
 
   const base: ItemInsight = {
     code,
     prevClosing,
     stockIn,
     closing,
+    arrivedSince,
+    current,
     sold: null,
     sellThroughPct: null,
     status: 'ok',
     suggestedQty: 0,
     flag: null,
-    stockFlag: getStockFlag(closing, null),
+    stockFlag: getStockFlag(current, null),
     fast: false,
   }
 
@@ -104,19 +121,22 @@ export function computeItemInsight(
   }
 
   const sellThroughPct = available > 0 ? sold / available : null
-  const suggestedQty = Math.max(0, Math.ceil(sold - closing))
+  const onHand = current ?? closing
+  const suggestedQty = Math.max(0, Math.ceil(sold - onHand))
   // The refill quantity is a separate one-day demand estimate.
-  const soldOut = closing === 0 && sold > 0
+  const soldOut = onHand === 0 && sold > 0
   const flag: OrderFlag = suggestedQty > 0 || soldOut ? 'ORDER' : null
   const fast = sellThroughPct !== null && sellThroughPct >= FAST_SELL_THROUGH
 
-  return { ...base, sold, sellThroughPct, status: 'ok', suggestedQty, flag, fast, stockFlag: getStockFlag(closing, sold) }
+  return { ...base, sold, sellThroughPct, status: 'ok', suggestedQty, flag, fast, stockFlag: getStockFlag(onHand, sold) }
 }
 
 export function computeItemInsights(input: {
   closingByCode: QuantityMap
   prevClosingByCode: QuantityMap
   stockInByCode: QuantityMap
+  /** Stock in saved after the closing date (and before any later closing). */
+  arrivedSinceByCode?: QuantityMap
 }): Record<string, ItemInsight> {
   const result: Record<string, ItemInsight> = {}
 
@@ -125,6 +145,7 @@ export function computeItemInsights(input: {
       closing: input.closingByCode[code],
       prevClosing: input.prevClosingByCode[code],
       stockIn: input.stockInByCode[code],
+      arrivedSince: input.arrivedSinceByCode?.[code],
     })
   }
 
@@ -158,11 +179,13 @@ export function applyFlagOverrides(insights: Record<string, ItemInsight>, overri
 }
 
 /** One line on why the calculated flag is what it is, for the badge picker. */
-export function describeAutoFlag(insight: Pick<ItemInsight, 'closing' | 'sold' | 'status'> & { autoStockFlag?: StockFlag | null; stockFlag: StockFlag | null }) {
+export function describeAutoFlag(
+  insight: Pick<ItemInsight, 'closing' | 'sold' | 'status'> & { current?: number | null; autoStockFlag?: StockFlag | null; stockFlag: StockFlag | null },
+) {
   const flag = insight.autoStockFlag !== undefined ? insight.autoStockFlag : insight.stockFlag
-  const closing = insight.closing
+  const closing = insight.current ?? insight.closing
   const sold = insight.status === 'ok' ? insight.sold : null
-  if (closing === 0) return 'Closing is 0.'
+  if (closing === 0) return insight.current !== undefined && insight.current !== insight.closing ? 'Current stock is 0.' : 'Closing is 0.'
   if (closing === null) return 'Not on the closing.'
   if (insight.status === 'negative') return `Sold is ${formatQuantity(insight.sold)}: the closing is above the earlier closing plus stock in. Check both counts.`
   if (sold === null) return insight.status === 'no-baseline' ? 'No earlier closing, so units sold is unknown.' : 'Units sold could not be worked out.'

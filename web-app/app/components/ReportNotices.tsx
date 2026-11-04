@@ -2,13 +2,15 @@
 
 import { AlertTriangle, ChevronDown, Info } from 'lucide-react'
 
-import type { ReportNotice } from './useDailyReportData'
+import { ReportSources, infoSummaryClass } from './ReportSources'
+import type { ReportNotice, ReportSources as Sources } from './useDailyReportData'
 
-function Marker({ symbol }: { symbol?: string }) {
-  if (!symbol) return <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" aria-hidden="true" />
+function Marker({ symbol, warning }: { symbol?: string; warning?: boolean }) {
+  if (warning) return <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
+  if (!symbol) return <span className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-slate-400" aria-hidden="true" />
   return (
     <span
-      className="tabular inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-[6px] bg-slate-100 px-1 text-[13px] font-semibold leading-none text-ink"
+      className="tabular inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-[5px] bg-slate-100 px-1 text-[12px] font-semibold leading-none text-ink"
       aria-hidden="true"
     >
       {symbol}
@@ -17,19 +19,29 @@ function Marker({ symbol }: { symbol?: string }) {
 }
 
 /**
- * Data notices for the Daily Report and Dashboard. Blocking notices (why figures are
- * missing) stay visible; per-cell notes fold into one tappable row so the sheet stays
- * on the first screen.
+ * What sits between the report date and the sheet. Only blocking notices (why the sheet
+ * is empty) stay open; warnings such as "sold below zero" fold into the Notes row with a
+ * small amber mark. Notes and Sources share one light box, read as fine print.
  */
-export function ReportNotices({ notices }: { notices: ReportNotice[] }) {
-  if (notices.length === 0) return null
-  // Warnings (e.g. sold below zero) stay visible like blocking notices.
-  const blocking = notices.filter((notice) => notice.severity === 'blocking' || notice.severity === 'warning')
-  const notes = notices.filter((notice) => notice.severity === 'note')
-  const markers = notes.filter((notice) => notice.marker && notice.count)
+export function ReportInfo({ notices, sources, stockInNote, arrivedDates = [] }: {
+  notices: ReportNotice[]
+  sources: Sources | null
+  stockInNote?: string
+  arrivedDates?: string[]
+}) {
+  const blocking = notices.filter((notice) => notice.severity === 'blocking')
+  // Warnings first: they are the ones to check.
+  const notes = [
+    ...notices.filter((notice) => notice.severity === 'warning'),
+    ...notices.filter((notice) => notice.severity === 'note'),
+  ]
+  const toCheck = notes
+    .filter((notice) => notice.severity === 'warning')
+    .reduce((total, notice) => total + (notice.count ?? 1), 0)
+  const otherNotes = notes.filter((notice) => notice.severity === 'note').length
 
   return (
-    <div className="space-y-2">
+    <>
       {blocking.map((notice) => (
         <p key={notice.id} role="status" className="flex items-start gap-2.5 rounded-control bg-warning-soft px-3.5 py-2.5 text-[14px] leading-5 text-warning">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
@@ -37,35 +49,32 @@ export function ReportNotices({ notices }: { notices: ReportNotice[] }) {
         </p>
       ))}
 
-      {notes.length > 0 ? (
-        <details className="group rounded-control border border-line bg-surface">
-          <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2.5 px-3.5 text-[14px] text-ink [&::-webkit-details-marker]:hidden">
-            <Info className="h-4 w-4 shrink-0 text-muted" aria-hidden="true" />
-            <span className="flex-1 truncate">
-              {notes.length === 1 ? '1 note on these figures' : `${notes.length} notes on these figures`}
-            </span>
-            {markers.length > 0 ? (
-              <span className="flex shrink-0 items-center gap-1.5 group-open:hidden">
-                {markers.map((notice) => (
-                  <span key={notice.id} className="inline-flex items-center gap-1 text-[13px] text-muted">
-                    <Marker symbol={notice.marker} />
-                    <span className="tabular">{notice.count}</span>
-                  </span>
+      {notes.length > 0 || sources ? (
+        <div className="divide-y divide-line/70 rounded-control border border-line/70">
+          {notes.length > 0 ? (
+            <details className="group">
+              <summary className={infoSummaryClass}>
+                <Info className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span className="min-w-0 flex-1 truncate">
+                  {toCheck > 0 ? <span className="text-warning">{toCheck} {toCheck === 1 ? 'item' : 'items'} to check</span> : null}
+                  {toCheck > 0 && otherNotes > 0 ? ' · ' : null}
+                  {otherNotes > 0 ? (otherNotes === 1 ? '1 note' : `${otherNotes} notes`) : null}
+                </span>
+                <ChevronDown className="h-4 w-4 shrink-0 transition-transform duration-150 group-open:rotate-180" aria-hidden="true" />
+              </summary>
+              <ul className="space-y-2 px-3 pb-3 pt-0.5 text-[13px] leading-5 text-ink">
+                {notes.map((notice) => (
+                  <li key={notice.id} className={`flex items-start gap-2 ${notice.severity === 'warning' ? 'text-warning' : ''}`}>
+                    <Marker symbol={notice.marker} warning={notice.severity === 'warning'} />
+                    <span>{notice.text}</span>
+                  </li>
                 ))}
-              </span>
-            ) : null}
-            <ChevronDown className="h-4 w-4 shrink-0 text-muted transition-transform duration-150 group-open:rotate-180" aria-hidden="true" />
-          </summary>
-          <ul className="space-y-2 border-t border-line px-3.5 py-3 text-[14px] leading-5 text-ink">
-            {notes.map((notice) => (
-              <li key={notice.id} className="flex items-start gap-2.5">
-                <Marker symbol={notice.marker} />
-                <span>{notice.text}</span>
-              </li>
-            ))}
-          </ul>
-        </details>
+              </ul>
+            </details>
+          ) : null}
+          <ReportSources sources={sources} stockInNote={stockInNote} arrivedDates={arrivedDates} />
+        </div>
       ) : null}
-    </div>
+    </>
   )
 }

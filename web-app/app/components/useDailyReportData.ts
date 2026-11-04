@@ -7,6 +7,7 @@ import { applyFlagOverrides, computeItemInsights, formatQuantity, summarizeInsig
 import { friendlyError, toast } from '../../lib/toast-store'
 import type { IndexedPaperRow, PaperRow } from '../../lib/stock-paper-layout'
 import { describeStockInRecords } from '../../lib/report-records'
+import { getLocalTodayDate } from '../../lib/date-utils'
 
 /**
  * Loads one day's report data (closing, previous closing, stock-in) and derives the
@@ -67,6 +68,11 @@ export type DailyReportResponse = {
   /** Earlier main Stock In saves for the date, replaced by the latest. */
   stockInReplacedCount?: number
   stockInByCode: Record<string, number>
+  /** True when no later closing has been saved up to today (null for older servers). */
+  isLatestClosing?: boolean | null
+  /** Stock in saved after this closing date, up to today, while no later closing exists. */
+  arrivedSinceByCode?: Record<string, number>
+  arrivedSinceDates?: string[]
   sources?: ReportSources
   flagOverrides?: Record<string, { flag: string | null; updatedAt?: string }>
   /** False until the flag-override migration has been applied. */
@@ -76,12 +82,14 @@ export type DailyReportResponse = {
 export type ReportRow = PaperRow & {
   code: string
   closing: number
+  /** Closing plus stock in that arrived after it. */
+  current: number
   redMarked: boolean
 }
 
 export type IndexedReportRow = IndexedPaperRow<ReportRow>
 
-function toReportRow(item: ReportCatalogItem, closing: number, redMarked: boolean): ReportRow {
+function toReportRow(item: ReportCatalogItem, closing: number, current: number, redMarked: boolean): ReportRow {
   return {
     code: item.code,
     location: item.location,
@@ -93,6 +101,7 @@ function toReportRow(item: ReportCatalogItem, closing: number, redMarked: boolea
     row_position: item.row_position ?? 'single',
     source: 'catalog',
     closing,
+    current,
     redMarked,
   }
 }
@@ -120,9 +129,10 @@ export function useDailyReportData(date: string, catalogItems: ReportCatalogItem
 
     try {
       // `latest:YYYY-MM-DD` asks the server for the newest date with a report up to that day.
+      // `today` lets the server add stock in that arrived after the closing (current stock).
       const query = date.startsWith('latest:')
         ? `date=latest&today=${encodeURIComponent(date.slice('latest:'.length))}`
-        : `date=${encodeURIComponent(date)}`
+        : `date=${encodeURIComponent(date)}&today=${encodeURIComponent(getLocalTodayDate())}`
       const response = await fetch(`/api/daily-report?${query}`, { cache: 'no-store' })
       const payload = await response.json()
 
@@ -155,6 +165,7 @@ export function useDailyReportData(date: string, catalogItems: ReportCatalogItem
       closingByCode: data.closingByCode,
       prevClosingByCode: data.prevClosingByCode,
       stockInByCode: data.stockInByCode,
+      arrivedSinceByCode: data.arrivedSinceByCode ?? {},
     })
     return applyFlagOverrides(calculated, data.flagOverrides ?? {})
   }, [data])
@@ -206,7 +217,8 @@ export function useDailyReportData(date: string, catalogItems: ReportCatalogItem
     for (const [code, closing] of Object.entries(data.closingByCode)) {
       const item = catalogByCode.get(code.trim().toUpperCase())
       if (!item) continue
-      rows.push(toReportRow(item, closing, data.redMarkedByCode[code] === true))
+      const current = closing + (data.arrivedSinceByCode?.[code] ?? 0)
+      rows.push(toReportRow(item, closing, current, data.redMarkedByCode[code] === true))
     }
 
     return rows.map((row, index) => ({ row, index }))
@@ -223,6 +235,9 @@ export function useDailyReportData(date: string, catalogItems: ReportCatalogItem
       })),
     [indexedRows, insights],
   )
+
+  const arrivedDates = useMemo(() => data?.arrivedSinceDates ?? [], [data])
+  const showsCurrent = data?.isLatestClosing === true
 
   const notices = useMemo(() => {
     const list: ReportNotice[] = []
@@ -281,6 +296,9 @@ export function useDailyReportData(date: string, catalogItems: ReportCatalogItem
     entries,
     notices,
     hasReport,
+    /** The stock column shows current stock (closing + later stock in), not only the closing. */
+    showsCurrent,
+    arrivedDates,
     sources: data?.sources ?? null,
     stockInRecordCount: data?.stockInRecordCount ?? 0,
     stockInNote: data

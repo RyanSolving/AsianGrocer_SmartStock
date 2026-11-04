@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { getAuthContext } from '../../../lib/supabase/route-auth'
 import { isMissingTableError } from '../../../lib/supabase/errors'
-import { combineStockInRecords, readClosingItems } from '../../../lib/report-records'
+import { combineStockInByDate, combineStockInRecords, readClosingItems } from '../../../lib/report-records'
 
 export const runtime = 'nodejs'
 
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
   const requested = request.nextUrl.searchParams.get('date') ?? ''
   const today = request.nextUrl.searchParams.get('today') ?? ''
   const wantsLatest = requested === 'latest'
-  if (wantsLatest ? !isValidDate(today) : !isValidDate(requested)) {
+  if (wantsLatest ? !isValidDate(today) : !isValidDate(requested) || (today !== '' && !isValidDate(today))) {
     return NextResponse.json({ error: 'date must be YYYY-MM-DD, or "latest" with today=YYYY-MM-DD.' }, { status: 400 })
   }
 
@@ -42,7 +42,10 @@ export async function GET(request: NextRequest) {
       date = dates.length >= 2 ? dates[0] : (dates[0] ?? today)
     }
 
-    const [closingResult, prevClosingResult, stockInResult, overrideResult] = await Promise.all([
+    // Stock in saved after this closing, up to today, counts toward current stock until the
+    // next closing is saved (then that closing already includes it).
+    const lookAhead = today !== '' && today > date
+    const [closingResult, prevClosingResult, stockInResult, overrideResult, laterClosingResult, laterStockInResult] = await Promise.all([
       auth.supabase
         .from('event_stock_check')
         .select('date, item_data, record_name, created_at')
@@ -69,9 +72,29 @@ export async function GET(request: NextRequest) {
         .from('report_flag_override')
         .select('item_code, flag, updated_at')
         .eq('report_date', date),
+      lookAhead
+        ? auth.supabase
+          .from('event_stock_check')
+          .select('date')
+          .eq('mode', 'closing_check')
+          .gt('date', date)
+          .lte('date', today)
+          .order('date', { ascending: true })
+          .limit(1)
+          .maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+      lookAhead
+        ? auth.supabase
+          .from('event_generate')
+          .select('uid_generate, final_output, log_time, record_name, input_file_name')
+          .eq('stock_mode', 'arrival_entry')
+          .gt('final_output->>stock_date', date)
+          .lte('final_output->>stock_date', today)
+        : Promise.resolve({ data: [], error: null }),
     ])
 
     const firstError = closingResult.error ?? prevClosingResult.error ?? stockInResult.error
+      ?? laterClosingResult.error ?? laterStockInResult.error
     if (firstError) {
       return NextResponse.json(
         { error: 'Failed to load daily report data.', details: firstError.message },
@@ -88,6 +111,16 @@ export async function GET(request: NextRequest) {
     const combinedStockIn = combineStockInRecords(stockInRecords)
     const stockInByCode = combinedStockIn.quantities
     const latestStockIn = combinedStockIn.main ?? combinedStockIn.extras[0] ?? null
+
+    // Only while this is the newest closing; stock in on or after a later closing's date
+    // belongs to that day's report instead.
+    const nextClosingDate: string | null = laterClosingResult.data?.date ? String(laterClosingResult.data.date) : null
+    const arrived = nextClosingDate === null
+      ? combineStockInByDate(laterStockInResult.data ?? [], (record) => {
+        const value = (record.final_output as { stock_date?: unknown } | null)?.stock_date
+        return typeof value === 'string' ? value : null
+      })
+      : { quantities: {}, dates: [] as string[] }
 
     // Overrides are optional: before the migration runs, the report still works without them.
     const overridesAvailable = !isMissingTableError(overrideResult.error)
@@ -113,6 +146,10 @@ export async function GET(request: NextRequest) {
         stockInExtraCount: combinedStockIn.extras.length,
         stockInReplacedCount: combinedStockIn.replacedCount,
         stockInByCode,
+        // True when no later closing exists up to today: the sheet then shows current stock.
+        isLatestClosing: today === '' ? null : nextClosingDate === null,
+        arrivedSinceByCode: arrived.quantities,
+        arrivedSinceDates: arrived.dates,
         // Which saved records these figures come from, for the "Sources" row.
         sources: {
           closing: closingResult.data

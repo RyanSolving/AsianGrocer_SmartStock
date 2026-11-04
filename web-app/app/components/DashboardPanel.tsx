@@ -6,8 +6,7 @@ import { toPng } from 'html-to-image'
 import { getLocalTodayDate } from '../../lib/date-utils'
 
 import { DailyReportSummary } from './DailyReportSummary'
-import { ReportNotices } from './ReportNotices'
-import { ReportSources } from './ReportSources'
+import { ReportInfo } from './ReportNotices'
 import { Button, IconButton } from './ui/Button'
 import { inputClass } from './ui/Input'
 import { ActionBar, ScreenHeader } from './ui/Primitives'
@@ -23,7 +22,7 @@ function DailySummaryTab({ catalogItems, date, refreshKey }: { catalogItems: Rep
   const summaryRef = useRef<HTMLDivElement | null>(null)
   const [isExporting, setIsExporting] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
-  const { data, isLoading, error, entries, notices, hasReport, sources, stockInNote } = useDailyReportData(date, catalogItems, refreshKey)
+  const { data, isLoading, error, entries, notices, hasReport, sources, stockInNote, arrivedDates, showsCurrent } = useDailyReportData(date, catalogItems, refreshKey)
 
   async function exportPhoto() {
     if (!summaryRef.current) return
@@ -54,8 +53,7 @@ function DailySummaryTab({ catalogItems, date, refreshKey }: { catalogItems: Rep
         <div className="rounded-control bg-danger-soft px-4 py-3 text-[14px] text-danger">{shownError}</div>
       ) : null}
 
-      <ReportNotices notices={notices} />
-      <ReportSources sources={sources} stockInNote={stockInNote} />
+      <ReportInfo notices={notices} sources={sources} stockInNote={stockInNote} arrivedDates={arrivedDates} />
 
       {isLoading && !data ? (
         <div className="flex min-h-[240px] items-center justify-center rounded-card border border-line bg-surface">
@@ -76,6 +74,7 @@ function DailySummaryTab({ catalogItems, date, refreshKey }: { catalogItems: Rep
               date={date}
               prevClosingDate={data?.prevClosingDate ?? null}
               entries={entries}
+              showsCurrent={showsCurrent}
             />
           </div>
           <ActionBar className="md:static md:flex md:justify-end md:border-0 md:bg-transparent md:p-0 md:backdrop-blur-none">

@@ -185,3 +185,19 @@ describe('describeAutoFlag', () => {
     expect(describeAutoFlag(computeItemInsight('D', { prevClosing: 7, stockIn: 0, closing: 7 }))).toBe('7 left and nothing sold.')
   })
 })
+
+describe('current stock (closing + stock in since)', () => {
+  it('keeps sold for the closing day and badges on current stock', () => {
+    const insight = computeItemInsight('A', { closing: 0, prevClosing: 4, stockIn: 0, arrivedSince: 6 })
+    expect(insight.sold).toBe(4)
+    expect(insight.current).toBe(6)
+    expect(insight.stockFlag).toBe('Low stock')
+    expect(insight.flag).toBeNull()
+  })
+
+  it('equals the closing when nothing arrived', () => {
+    const insight = computeItemInsight('A', { closing: 0, prevClosing: 4, stockIn: 0 })
+    expect(insight.current).toBe(0)
+    expect(insight.stockFlag).toBe('Stock-out')
+  })
+})

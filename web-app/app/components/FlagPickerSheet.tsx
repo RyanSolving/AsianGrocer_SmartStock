@@ -57,7 +57,9 @@ export function FlagPickerSheet({ open, onClose, itemName, insight, onChoose, un
       open={open}
       onClose={onClose}
       title={itemName}
-      description={`Closing ${formatQuantity(insight.closing) || '–'} · Sold ${sold}`}
+      description={insight.arrivedSince
+        ? `Closing ${formatQuantity(insight.closing) || '–'} + ${formatQuantity(insight.arrivedSince)} in = ${formatQuantity(insight.current)} now · Sold ${sold}`
+        : `Closing ${formatQuantity(insight.closing) || '–'} · Sold ${sold}`}
       size="sm"
     >
       {unavailable ? (

@@ -37,7 +37,7 @@ function soldOf(entry: ReportEntry) {
 export function topSellers(entries: ReportEntry[], limit: number): SellerBar[] {
   return entries
     .filter((entry) => entry.insight.status === 'ok' && soldOf(entry) > 0)
-    .map((entry) => ({ code: entry.code, name: entry.name, sold: soldOf(entry), closing: entry.insight.closing ?? 0 }))
+    .map((entry) => ({ code: entry.code, name: entry.name, sold: soldOf(entry), closing: entry.insight.current ?? entry.insight.closing ?? 0 }))
     .sort((a, b) => b.sold - a.sold || a.name.localeCompare(b.name))
     .slice(0, limit)
 }
@@ -60,7 +60,7 @@ export const TOP_CONTRIBUTION_SHARE = 0.5
 export function rankProductsBySales(entries: ReportEntry[], share = TOP_CONTRIBUTION_SHARE): RankedProduct[] {
   const ranked = entries
     .filter((entry) => entry.insight.status === 'ok')
-    .map((entry) => ({ code: entry.code, name: entry.name, sold: soldOf(entry), closing: entry.insight.closing ?? 0 }))
+    .map((entry) => ({ code: entry.code, name: entry.name, sold: soldOf(entry), closing: entry.insight.current ?? entry.insight.closing ?? 0 }))
     .sort((a, b) => b.sold - a.sold || b.closing - a.closing || a.name.localeCompare(b.name))
 
   const total = ranked.reduce((sum, item) => sum + item.sold, 0)
@@ -120,7 +120,7 @@ export function inventoryTotals(entries: ReportEntry[]) {
   let currentInventory = 0
 
   for (const entry of entries) {
-    const closing = entry.insight.closing ?? 0
+    const closing = entry.insight.current ?? entry.insight.closing ?? 0
     if (closing > 0) productsInHand += 1
     currentInventory += Math.max(0, closing)
   }
@@ -138,7 +138,7 @@ export function refillList(entries: ReportEntry[]): RefillItem[] {
     .filter((entry): entry is ReportEntry & { insight: ItemInsight & { stockFlag: RefillFlag } } =>
       entry.insight.stockFlag === 'Stock-out' || entry.insight.stockFlag === 'Low stock')
     .map((entry) => {
-      const closing = entry.insight.closing ?? 0
+      const closing = entry.insight.current ?? entry.insight.closing ?? 0
       const sold = entry.insight.status === 'ok' ? entry.insight.sold : null
       return {
         code: entry.code,

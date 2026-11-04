@@ -5,16 +5,15 @@ import { flushSync } from 'react-dom'
 import { Download, Loader2, RefreshCw } from 'lucide-react'
 import { toPng } from 'html-to-image'
 
-import { getLocalTodayDate } from '../../lib/date-utils'
+import { formatDayLabel, getLocalTodayDate } from '../../lib/date-utils'
 import { buildPaperSections, sortIndexedRowsByName, type PaperRowColumns } from '../../lib/stock-paper-layout'
 import { formatSheetDate } from '../../lib/stock-paper-utils'
 import { formatQuantity, type ItemInsight } from '../../lib/report-insights'
 import { useDailyReportData, type ReportRow, type IndexedReportRow, type ReportCatalogItem } from './useDailyReportData'
 import { EditedMark, StockFlagBadge } from './StockFlagBadge'
 import { FlagPickerSheet } from './FlagPickerSheet'
-import { ReportSources } from './ReportSources'
 import { BrandTile } from './BrandMark'
-import { ReportNotices } from './ReportNotices'
+import { ReportInfo } from './ReportNotices'
 import { Button, IconButton } from './ui/Button'
 import { inputClass } from './ui/Input'
 import { ActionBar, ScreenHeader } from './ui/Primitives'
@@ -33,11 +32,12 @@ function orderedRows(rows: PaperRowColumns<ReportRow>) {
 
 type ReportGroup = { title?: string; items: IndexedReportRow[] }
 
-function PhotoColumns({ title, left, right, insights }: {
+function PhotoColumns({ title, left, right, insights, stockLabel }: {
   title: string
   left: ReportGroup[]
   right: ReportGroup[]
   insights: Record<string, ItemInsight>
+  stockLabel: string
 }) {
   return (
     <>
@@ -45,7 +45,7 @@ function PhotoColumns({ title, left, right, insights }: {
       <div className="report-photo-columns">
         {[left, right].map((groups, index) => (
           <div className="report-photo-column" key={index}>
-            <ReportArea groups={groups} insights={insights} />
+            <ReportArea groups={groups} insights={insights} stockLabel={stockLabel} />
             <div className="report-photo-rules" aria-hidden="true" />
           </div>
         ))}
@@ -54,8 +54,10 @@ function PhotoColumns({ title, left, right, insights }: {
   )
 }
 
-function ReportArea({ title, groups, insights, onSelectItem }: {
+function ReportArea({ title, groups, insights, onSelectItem, stockLabel }: {
   title?: string
+  /** "Current" (closing + later stock in) on the newest report, else "Closing". */
+  stockLabel: string
   groups: ReportGroup[]
   insights: Record<string, ItemInsight>
   /** Screen only: tap or Enter on a row opens the badge picker. */
@@ -68,7 +70,7 @@ function ReportArea({ title, groups, insights, onSelectItem }: {
     <table className="report-ledger">
       {title && <caption>{title}</caption>}
       <colgroup><col /><col className="report-number-column" /><col className="report-number-column" /></colgroup>
-      <thead><tr><th scope="col">Item</th><th scope="col">Closing</th><th scope="col">Sold</th></tr></thead>
+      <thead><tr><th scope="col">Item</th><th scope="col">{stockLabel}</th><th scope="col">Sold</th></tr></thead>
       {visibleGroups.map(group => (
         <tbody key={group.title ?? 'items'}>
           {group.title && <tr><th scope="rowgroup" colSpan={3} className="report-category">{group.title}</th></tr>}
@@ -103,7 +105,9 @@ function ReportArea({ title, groups, insights, onSelectItem }: {
                     ) : null}
                   </div>
                 </th>
-                <td>{formatQuantity(row.closing)}</td>
+                <td className={row.current !== row.closing ? 'font-semibold text-forest' : undefined}>
+                  {formatQuantity(row.current)}
+                </td>
                 <td
                   className={insight?.status === 'negative' ? 'text-warning' : 'text-muted'}
                   aria-label={insight?.status === 'negative' ? `Sold ${sold}, check the count` : undefined}
@@ -138,7 +142,7 @@ export function DailyReportPanel({ catalogItems, requestedDate, defaultDate }: D
 
   const {
     data, isLoading, error, reload, insights, indexedRows, notices, hasReport,
-    sources, stockInNote, canChangeFlags, setFlagOverride,
+    sources, stockInNote, canChangeFlags, setFlagOverride, showsCurrent, arrivedDates,
   } = useDailyReportData(reportDate, catalogItems)
   const [flagPickerRow, setFlagPickerRow] = useState<ReportRow | null>(null)
 
@@ -182,33 +186,41 @@ export function DailyReportPanel({ catalogItems, requestedDate, defaultDate }: D
     }
   }
 
+  const stockLabel = showsCurrent ? 'Current' : 'Closing'
+
   function renderSheet(photo: boolean) {
     const midpoint = Math.ceil(sections.outside.length / 2)
     return (
       <div ref={photo ? photoRef : undefined} className={photo ? "report-photo bg-surface" : "report-screen bg-surface"}>
         <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 py-4 sm:px-5">
-          <h2 className="text-lg font-semibold tracking-tight text-forest">Closing stock</h2>
+          <h2 className="text-lg font-semibold tracking-tight text-forest">{showsCurrent ? 'Current stock' : 'Closing stock'}</h2>
           <div className="flex items-center gap-3">
             <time dateTime={reportDate} className="text-xs font-medium text-muted">{formatSheetDate(reportDate)}</time>
             {photo && <BrandTile className="opacity-80" />}
           </div>
+          {arrivedDates.length > 0 ? (
+            <p className="w-full text-[13px] text-muted">
+              Sold is for {formatDayLabel(reportDate)}. Current adds stock in from {arrivedDates.map((day) => formatDayLabel(day)).join(', ')}.
+            </p>
+          ) : null}
           {photo ? null : <p className="w-full text-[13px] text-muted">Tap an item to change or remove its badge.</p>}
         </header>
         {photo && sections.right.length > 0 ? (
-          <PhotoColumns title="Inside coolroom" left={sections.left} right={sections.right} insights={insights} />
+          <PhotoColumns title="Inside coolroom" left={sections.left} right={sections.right} insights={insights} stockLabel={stockLabel} />
         ) : (
-          <ReportArea title="Inside coolroom" groups={[...sections.left, ...sections.right]} insights={insights} onSelectItem={photo ? undefined : openFlagPicker} />
+          <ReportArea title="Inside coolroom" groups={[...sections.left, ...sections.right]} insights={insights} stockLabel={stockLabel} onSelectItem={photo ? undefined : openFlagPicker} />
         )}
-        <ReportArea title="Unclassified / staff inspection" groups={[{ items: sections.unknown }]} insights={insights} onSelectItem={photo ? undefined : openFlagPicker} />
+        <ReportArea title="Unclassified / staff inspection" groups={[{ items: sections.unknown }]} insights={insights} stockLabel={stockLabel} onSelectItem={photo ? undefined : openFlagPicker} />
         {photo && sections.outside.length > 0 ? (
           <PhotoColumns
             title="Outside coolroom"
             left={[{ items: sections.outside.slice(0, midpoint) }]}
             right={[{ items: sections.outside.slice(midpoint) }]}
             insights={insights}
+            stockLabel={stockLabel}
           />
         ) : (
-          <ReportArea title="Outside coolroom" groups={[{ items: sections.outside }]} insights={insights} onSelectItem={photo ? undefined : openFlagPicker} />
+          <ReportArea title="Outside coolroom" groups={[{ items: sections.outside }]} insights={insights} stockLabel={stockLabel} onSelectItem={photo ? undefined : openFlagPicker} />
         )}
       </div>
     )
@@ -245,8 +257,7 @@ export function DailyReportPanel({ catalogItems, requestedDate, defaultDate }: D
         <div className="rounded-control bg-danger-soft px-4 py-3 text-[14px] text-danger">{shownError}</div>
       ) : null}
 
-      <ReportNotices notices={notices} />
-      <ReportSources sources={sources} stockInNote={stockInNote} />
+      <ReportInfo notices={notices} sources={sources} stockInNote={stockInNote} arrivedDates={arrivedDates} />
 
       <FlagPickerSheet
         open={flagPickerRow !== null}

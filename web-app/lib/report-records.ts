@@ -82,6 +82,26 @@ export function combineStockInRecords<T extends StockInRecord>(records: T[]) {
   return { quantities, main, extras, replacedCount }
 }
 
+/**
+ * Stock In records from several dates (the days after a closing): each date is combined on
+ * its own (latest main save + extra deliveries), then the dates are added together.
+ */
+export function combineStockInByDate<T extends StockInRecord>(records: T[], dateOf: (record: T) => string | null) {
+  const byDate = new Map<string, T[]>()
+  for (const record of records) {
+    const date = dateOf(record)
+    if (!date) continue
+    byDate.set(date, [...(byDate.get(date) ?? []), record])
+  }
+  const quantities: QuantityByCode = {}
+  for (const group of Array.from(byDate.values())) {
+    for (const [code, quantity] of Object.entries(combineStockInRecords(group).quantities)) {
+      quantities[code] = (quantities[code] ?? 0) + quantity
+    }
+  }
+  return { quantities, dates: Array.from(byDate.keys()).sort() }
+}
+
 /** Short note for the report's Sources row, or undefined when one record was used. */
 export function describeStockInRecords(extraCount: number, replacedCount: number) {
   const parts: string[] = []
