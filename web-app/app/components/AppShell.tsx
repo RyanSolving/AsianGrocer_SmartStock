@@ -199,10 +199,10 @@ export function AppShell({ active, onNavigate, sync, account, isAuthLoading, onS
                 type="button"
                 onClick={() => onNavigate(item.id)}
                 aria-current={selected ? 'page' : undefined}
-                className={`relative flex flex-col items-center justify-center gap-1 ${selected ? 'font-semibold text-forest-900' : 'text-muted'}`}
+                className={`relative flex flex-col items-center justify-center gap-0.5 ${selected ? 'font-semibold text-forest-900' : 'text-muted'}`}
               >
                 {selected ? <span className="absolute top-0 h-[3px] w-8 rounded-b-full bg-accent" aria-hidden="true" /> : null}
-                <Icon className="h-[22px] w-[22px]" strokeWidth={selected ? 2.25 : 1.75} aria-hidden="true" />
+                <Icon className="h-[18px] w-[18px]" strokeWidth={selected ? 2.25 : 1.75} aria-hidden="true" />
                 {item.short}
               </button>
             )
@@ -211,10 +211,10 @@ export function AppShell({ active, onNavigate, sync, account, isAuthLoading, onS
             type="button"
             onClick={() => setIsMoreOpen(true)}
             aria-current={active === 'catalog' ? 'page' : undefined}
-            className={`relative flex flex-col items-center justify-center gap-1 ${active === 'catalog' ? 'font-semibold text-forest-900' : 'text-muted'}`}
+            className={`relative flex flex-col items-center justify-center gap-0.5 ${active === 'catalog' ? 'font-semibold text-forest-900' : 'text-muted'}`}
           >
             {active === 'catalog' ? <span className="absolute top-0 h-[3px] w-8 rounded-b-full bg-accent" aria-hidden="true" /> : null}
-            <Menu className="h-[22px] w-[22px]" strokeWidth={1.75} aria-hidden="true" />
+            <Menu className="h-[18px] w-[18px]" strokeWidth={1.75} aria-hidden="true" />
             More
           </button>
         </div>

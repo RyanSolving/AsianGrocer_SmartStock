@@ -11,7 +11,7 @@
 	--brand: theme(colors.forest.DEFAULT);
 	--accent: theme(colors.accent);
 	--danger: theme(colors.danger.DEFAULT);
-	--tabbar-h: 64px;
+	--tabbar-h: 56px;
 }
 
 * {
