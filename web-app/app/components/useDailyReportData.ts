@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { ReportEntry } from '../../lib/report-aggregations'
-import { computeItemInsights, summarizeInsights } from '../../lib/report-insights'
+import { applyFlagOverrides, computeItemInsights, summarizeInsights, type StockFlag } from '../../lib/report-insights'
+import { friendlyError, toast } from '../../lib/toast-store'
 import type { IndexedPaperRow, PaperRow } from '../../lib/stock-paper-layout'
 
 /**
@@ -33,6 +34,25 @@ export type ReportCatalogItem = {
   is_visible?: boolean
 }
 
+/** A saved record the report figures come from. */
+export type ReportSource = {
+  name: string | null
+  /** The stock date of the record. */
+  date: string
+  /** When the record was first saved (closing) or logged (stock in). */
+  savedAt: string | null
+  uid?: string | null
+}
+
+export type ReportSources = {
+  closing: ReportSource | null
+  previousClosing: ReportSource | null
+  stockIn: ReportSource | null
+}
+
+/** 'auto' clears the override; null removes the badge; a flag replaces the calculated one. */
+export type FlagChoice = StockFlag | null | 'auto'
+
 export type DailyReportResponse = {
   date: string
   closingFound: boolean
@@ -42,6 +62,10 @@ export type DailyReportResponse = {
   prevClosingByCode: Record<string, number>
   stockInRecordCount: number
   stockInByCode: Record<string, number>
+  sources?: ReportSources
+  flagOverrides?: Record<string, { flag: string | null; updatedAt?: string }>
+  /** False until the flag-override migration has been applied. */
+  overridesAvailable?: boolean
 }
 
 export type ReportRow = PaperRow & {
@@ -117,12 +141,49 @@ export function useDailyReportData(date: string, catalogItems: ReportCatalogItem
 
   const insights = useMemo(() => {
     if (!data) return {}
-    return computeItemInsights({
+    const calculated = computeItemInsights({
       closingByCode: data.closingByCode,
       prevClosingByCode: data.prevClosingByCode,
       stockInByCode: data.stockInByCode,
     })
+    return applyFlagOverrides(calculated, data.flagOverrides ?? {})
   }, [data])
+
+  /**
+   * Changes one item's badge for this date. The screen updates at once; if the save fails the
+   * previous badge comes back and a toast says why.
+   */
+  const setFlagOverride = useCallback(async (code: string, choice: FlagChoice) => {
+    const current = reportCache.get(date) ?? data
+    if (!current) return false
+
+    const nextOverrides = { ...(current.flagOverrides ?? {}) }
+    if (choice === 'auto') delete nextOverrides[code]
+    else nextOverrides[code] = { flag: choice, updatedAt: new Date().toISOString() }
+
+    const optimistic: DailyReportResponse = { ...current, flagOverrides: nextOverrides }
+    reportCache.set(date, optimistic)
+    if (latestDateRef.current === date) setData(optimistic)
+
+    try {
+      const response = await fetch('/api/daily-report/flags', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date, code, flag: choice }),
+      })
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null)
+        throw new Error(payload?.details ? `${payload.error} ${payload.details}` : payload?.error ?? 'Could not save the badge.')
+      }
+      return true
+    } catch (failure) {
+      reportCache.set(date, current)
+      if (latestDateRef.current === date) setData(current)
+      const friendly = friendlyError(failure instanceof Error ? failure.message : 'Could not save the badge.')
+      toast.error(friendly.message, { details: friendly.details })
+      return false
+    }
+  }, [data, date])
 
   const summary = useMemo(() => summarizeInsights(insights), [insights])
 
@@ -190,5 +251,20 @@ export function useDailyReportData(date: string, catalogItems: ReportCatalogItem
 
   const hasReport = Boolean(data?.closingFound) && indexedRows.length > 0
 
-  return { data, isLoading, error, reload, insights, summary, indexedRows, entries, notices, hasReport }
+  return {
+    data,
+    isLoading,
+    error,
+    reload,
+    insights,
+    summary,
+    indexedRows,
+    entries,
+    notices,
+    hasReport,
+    sources: data?.sources ?? null,
+    stockInRecordCount: data?.stockInRecordCount ?? 0,
+    canChangeFlags: data?.overridesAvailable !== false,
+    setFlagOverride,
+  }
 }

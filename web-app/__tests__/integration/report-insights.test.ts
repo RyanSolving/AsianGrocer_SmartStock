@@ -5,8 +5,10 @@
 import { describe, expect, it } from '@jest/globals'
 
 import {
+  applyFlagOverrides,
   computeItemInsight,
   computeItemInsights,
+  describeAutoFlag,
   getStockFlag,
   summarizeInsights,
 } from '../../lib/report-insights'
@@ -138,5 +140,47 @@ describe('stock coverage flags', () => {
     expect(computeItemInsight('A', { prevClosing: 0.1, stockIn: 0.2, closing: 0.3 }).stockFlag).toBe('No sell today')
     expect(computeItemInsight('A', { prevClosing: null, stockIn: 0, closing: 3 }).stockFlag).toBeNull()
     expect(computeItemInsight('A', { prevClosing: null, stockIn: 0, closing: 0 }).stockFlag).toBe('Stock-out')
+  })
+})
+
+describe('applyFlagOverrides', () => {
+  const insights = {
+    A: computeItemInsight('A', { prevClosing: 30, stockIn: 0, closing: 24 }), // sold 6, cover 4: no flag
+    B: computeItemInsight('B', { prevClosing: 10, stockIn: 0, closing: 0 }), // Stock-out
+    C: computeItemInsight('C', { prevClosing: 20, stockIn: 0, closing: 18 }), // sold 2, cover 9: Over-stock
+  }
+
+  it('lets a chosen flag replace the calculated one and keeps the calculated one', () => {
+    const result = applyFlagOverrides(insights, { a: { flag: 'Low stock' } })
+    expect(result.A.stockFlag).toBe('Low stock')
+    expect(result.A.autoStockFlag).toBeNull()
+    expect(result.A.flagSource).toBe('manual')
+  })
+
+  it('removes the badge when the override is null', () => {
+    const result = applyFlagOverrides(insights, { C: { flag: null } })
+    expect(result.C.stockFlag).toBeNull()
+    expect(result.C.autoStockFlag).toBe('Over-stock')
+  })
+
+  it('leaves items without an override on their calculated flag', () => {
+    const result = applyFlagOverrides(insights, {})
+    expect(result.B).toMatchObject({ stockFlag: 'Stock-out', autoStockFlag: 'Stock-out', flagSource: 'auto' })
+  })
+
+  it('treats an unknown flag value as no badge', () => {
+    expect(applyFlagOverrides(insights, { B: { flag: 'Sold well' } }).B.stockFlag).toBeNull()
+  })
+})
+
+describe('describeAutoFlag', () => {
+  it('explains cover in plain numbers', () => {
+    const insight = computeItemInsight('C', { prevClosing: 20, stockIn: 0, closing: 18 })
+    expect(describeAutoFlag(insight)).toBe('18 left ÷ 2 sold = 9 days, over 7.')
+  })
+
+  it('explains stock-out and no-sale items', () => {
+    expect(describeAutoFlag(computeItemInsight('B', { prevClosing: 10, stockIn: 0, closing: 0 }))).toBe('Closing is 0.')
+    expect(describeAutoFlag(computeItemInsight('D', { prevClosing: 7, stockIn: 0, closing: 7 }))).toBe('7 left and nothing sold.')
   })
 })

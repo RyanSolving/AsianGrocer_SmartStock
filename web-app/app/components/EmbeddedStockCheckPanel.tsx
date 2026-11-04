@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { Check, ChevronLeft, Download, FileImage, Loader2, Plus, Save, Search, Undo2, X } from 'lucide-react'
 import { NumberInput, fieldClass, inputClass } from './ui/Input'
 import { focusNextQuantityInput, parseTypedQuantity, rankSuggestions } from '../../lib/entry-chain'
@@ -21,23 +22,23 @@ import {
 } from '../../lib/offline/queue'
 import { EntryMethodToggle } from './EntryMethodToggle'
 import { CreateCatalogItemModal, type CreateCatalogItemPayload } from './CreateCatalogItemModal'
-import { StockPaperCardSection, StockPaperSectionTable, StockPaperThreeColumnTable } from './StockPaperTables'
-import { formatSheetDate, normalizeInsideSectionLabel } from '../../lib/stock-paper-utils'
+import { StockLedger, toLedgerAreas } from './StockLedger'
+import { LedgerPhotoSheet, type PhotoGroup, type PhotoRow } from './LedgerPhotoSheet'
 import {
   OUTSIDE_SECTION_ID,
   UNKNOWN_SECTION_ID,
-  buildInsideSectionId,
   buildOutsideDisplayColumns,
   buildPaperSections,
+  sortIndexedRowsByName,
 } from '../../lib/stock-paper-layout'
 import { STATUS } from '../../lib/status-messages'
-import { ConfirmDialog } from './ConfirmDialog'
 import { Button } from './ui/Button'
 import { Sheet } from './ui/Sheet'
 import { SectionLandingState } from './SectionLandingState'
 import { getOfflineDraftAge } from '../../lib/offline/queue'
 import { getLocalTodayDate } from '../../lib/date-utils'
 import { findUncountedItems } from '../../lib/closing-completeness'
+import { mergePhotoRows } from '../../lib/photo-merge'
 
 type CatalogInnerUnit = 'box' | 'bag' | 'punnet' | 'piece' | 'tray' | 'bunch' | 'pack' | 'kg' | 'g'
 
@@ -213,8 +214,6 @@ function parseNumericQuantity(value: number | null | undefined) {
   return value
 }
 
-const STOCK_CHECK_MOBILE_VIEW_KEY = 'smartstock:stock-check-mobile-view'
-const STOCK_CHECK_EXPANDED_SECTIONS_KEY = 'smartstock:stock-check-expanded-sections'
 function makeCatalogRow(item: CatalogItem): StockCheckRow {
   return {
     id: `catalog-${item.code}`,
@@ -399,22 +398,10 @@ function isKnownRow(row: StockCheckRow) {
   return row.source === 'catalog' && Boolean(row.code)
 }
 
-function clampZoom(value: number) {
-  return Math.min(2, Math.max(0.5, value))
-}
-
-function getTouchDistance(
-  touchA: { clientX: number, clientY: number },
-  touchB: { clientX: number, clientY: number },
-) {
-  return Math.hypot(touchA.clientX - touchB.clientX, touchA.clientY - touchB.clientY)
-}
-
 /** Ambient messages that do not need a toast. */
 const QUIET_STATUSES = new Set<string>([
   STATUS.READY_MANUAL,
   'Saving stock check...',
-  'Switching to paper view for photo export...',
   'Photo closing entry is ready. Choose a photo to parse.',
 ])
 
@@ -432,9 +419,6 @@ export function EmbeddedStockCheckPanel({
   onOpenHistory?: () => void
 }) {
   const today = useMemo(() => getLocalTodayDate(), [])
-  const stockPaperRef = useRef<HTMLDivElement | null>(null)
-  const stockPaperAreaRef = useRef<HTMLDivElement | null>(null)
-  const stockFindContainerRef = useRef<HTMLDivElement | null>(null)
   const [rows, setRows] = useState<StockCheckRow[]>([])
   const [stockEntryMode, setStockEntryMode] = useState<'manual' | 'photo'>('manual')
   const [stockPhotoFile, setStockPhotoFile] = useState<File | null>(null)
@@ -446,8 +430,6 @@ export function EmbeddedStockCheckPanel({
   const [isCheckingCounts, setIsCheckingCounts] = useState(false)
   const [isOnline, setIsOnline] = useState(true)
   const [phase, setPhase] = useState<'landing' | 'editing'>('landing')
-  const [pendingModeSwitch, setPendingModeSwitch] = useState<'manual' | 'photo' | null>(null)
-  const [pendingStartNew, setPendingStartNew] = useState(false)
   const [stockCheckQueueCount, setStockCheckQueueCount] = useState(0)
   const [hasStockCheckLocalDraft, setHasStockCheckLocalDraft] = useState(false)
   const [hasRestoredOfflineDraft, setHasRestoredOfflineDraft] = useState(false)
@@ -473,16 +455,8 @@ export function EmbeddedStockCheckPanel({
   const [recheckWarnings, setRecheckWarnings] = useState<RecheckWarning[]>([])
   const [showRecheckWarningModal, setShowRecheckWarningModal] = useState(false)
   const [hasPassedRecheck, setHasPassedRecheck] = useState(false)
-  const [findTerm, setFindTerm] = useState('')
-  const [highlightedRowIndex, setHighlightedRowIndex] = useState<number | null>(null)
-  const [paperZoom, setPaperZoom] = useState(1)
-  const [isMobileViewport, setIsMobileViewport] = useState(false)
-  const [stockMobileView, setStockMobileView] = useState<'card' | 'paper'>('card')
-  const [isExportSnapshotMode, setIsExportSnapshotMode] = useState(false)
-  const [stockCheckExpandedSections, setStockCheckExpandedSections] = useState<Set<string>>(new Set())
-  const [storedExpandedSectionKeys, setStoredExpandedSectionKeys] = useState<string[] | null>(null)
-  const [hasLoadedExpandedSectionPrefs, setHasLoadedExpandedSectionPrefs] = useState(false)
-  const [hasInitializedExpandedSections, setHasInitializedExpandedSections] = useState(false)
+  const [isRenderingPhoto, setIsRenderingPhoto] = useState(false)
+  const closingPhotoRef = useRef<HTMLDivElement | null>(null)
   const [manualCheckQuantity, setManualCheckQuantity] = useState('')
   const [touchedRowIndexes, setTouchedRowIndexes] = useState<Set<number>>(() => new Set())
   const [lastAddedCheck, setLastAddedCheck] = useState<{ id: number; name: string; quantity: number; note?: string; snapshot: StockCheckRow[] } | null>(null)
@@ -493,10 +467,6 @@ export function EmbeddedStockCheckPanel({
   const [isItemProfilesExpanded, setIsItemProfilesExpanded] = useState(false)
   const [showItemSuggestions, setShowItemSuggestions] = useState(false)
   const [selectedProfileItem, setSelectedProfileItem] = useState<CatalogItem | null>(null)
-  const pinchStartDistanceRef = useRef<number | null>(null)
-  const pinchStartZoomRef = useRef(1)
-  const currentZoomRef = useRef(1)
-  const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const skipNextRecheckResetRef = useRef(false)
   const loadedHistoryUid = selectedHistoryRecord?.uid_stock_check ?? null
   const visibleCatalogItems = useMemo(() => filterVisibleCatalogItems(catalogItems), [catalogItems])
@@ -517,137 +487,6 @@ export function EmbeddedStockCheckPanel({
 
     return map
   }, [visibleCatalogItems])
-
-  useEffect(() => {
-    currentZoomRef.current = paperZoom
-  }, [paperZoom])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-
-    const mediaQuery = window.matchMedia('(max-width: 767px)')
-    const updateMobileState = () => {
-      const isMobile = mediaQuery.matches
-      setIsMobileViewport(isMobile)
-      if (isMobile) {
-        try {
-          const stored = window.localStorage.getItem(STOCK_CHECK_MOBILE_VIEW_KEY)
-          if (stored === 'card' || stored === 'paper') {
-            setStockMobileView(stored)
-            return
-          }
-        } catch {
-          // Ignore storage availability errors and use default.
-        }
-
-        setStockMobileView('card')
-      }
-    }
-
-    updateMobileState()
-
-    if (typeof mediaQuery.addEventListener === 'function') {
-      mediaQuery.addEventListener('change', updateMobileState)
-      return () => mediaQuery.removeEventListener('change', updateMobileState)
-    }
-
-    mediaQuery.addListener(updateMobileState)
-    return () => mediaQuery.removeListener(updateMobileState)
-  }, [])
-
-  useEffect(() => {
-    if (!isMobileViewport || typeof window === 'undefined') return
-
-    try {
-      window.localStorage.setItem(STOCK_CHECK_MOBILE_VIEW_KEY, stockMobileView)
-    } catch {
-      // Ignore storage availability errors.
-    }
-  }, [isMobileViewport, stockMobileView])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-
-    try {
-      const stored = window.localStorage.getItem(STOCK_CHECK_EXPANDED_SECTIONS_KEY)
-      if (!stored) {
-        setStoredExpandedSectionKeys(null)
-        setHasLoadedExpandedSectionPrefs(true)
-        return
-      }
-
-      const parsed = JSON.parse(stored)
-      if (!Array.isArray(parsed)) {
-        setStoredExpandedSectionKeys(null)
-        setHasLoadedExpandedSectionPrefs(true)
-        return
-      }
-
-      const keys = parsed.filter((entry): entry is string => typeof entry === 'string')
-      setStoredExpandedSectionKeys(keys)
-    } catch {
-      // Ignore malformed local storage.
-      setStoredExpandedSectionKeys(null)
-    } finally {
-      setHasLoadedExpandedSectionPrefs(true)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!hasInitializedExpandedSections || typeof window === 'undefined') return
-
-    try {
-      window.localStorage.setItem(STOCK_CHECK_EXPANDED_SECTIONS_KEY, JSON.stringify(Array.from(stockCheckExpandedSections)))
-    } catch {
-      // Ignore storage availability errors.
-    }
-  }, [hasInitializedExpandedSections, stockCheckExpandedSections])
-
-  useEffect(() => {
-    if (!isMobileViewport) {
-      setPaperZoom(1)
-    }
-  }, [isMobileViewport])
-
-  const setZoomValue = useCallback((nextValue: number) => {
-    setPaperZoom(clampZoom(nextValue))
-  }, [])
-
-  const zoomIn = useCallback(() => {
-    setPaperZoom((prev) => clampZoom(prev + 0.1))
-  }, [])
-
-  const zoomOut = useCallback(() => {
-    setPaperZoom((prev) => clampZoom(prev - 0.1))
-  }, [])
-
-  const resetZoom = useCallback(() => {
-    setPaperZoom(1)
-  }, [])
-
-  const handlePaperTouchStart = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
-    if (!isMobileViewport || event.touches.length !== 2) {
-      pinchStartDistanceRef.current = null
-      return
-    }
-
-    pinchStartDistanceRef.current = getTouchDistance(event.touches[0], event.touches[1])
-    pinchStartZoomRef.current = currentZoomRef.current
-  }, [isMobileViewport])
-
-  const handlePaperTouchMove = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
-    if (!isMobileViewport || event.touches.length !== 2 || !pinchStartDistanceRef.current) return
-
-    event.preventDefault()
-
-    const currentDistance = getTouchDistance(event.touches[0], event.touches[1])
-    const distanceRatio = currentDistance / pinchStartDistanceRef.current
-    setZoomValue(pinchStartZoomRef.current * distanceRatio)
-  }, [isMobileViewport, setZoomValue])
-
-  const clearPinchState = useCallback(() => {
-    pinchStartDistanceRef.current = null
-  }, [])
 
   useEffect(() => {
     if (visibleCatalogItems.length === 0) return
@@ -752,34 +591,31 @@ export function EmbeddedStockCheckPanel({
     setRecheckWarnings([])
   }, [])
 
-  const confirmStartManualEntry = useCallback(() => {
-    if (rows.length > 0) {
-      setPendingModeSwitch('manual')
-    } else {
-      startManualEntry()
-    }
-  }, [rows.length, startManualEntry])
+  /** Puts a cleared draft back (the Undo after Start new). */
+  function restoreStockCheckDraft(draft: StockCheckOfflineDraft) {
+    setStockEntryMode(draft.stockEntryMode ?? 'manual')
+    setStockDate(typeof draft.stockDate === 'string' && draft.stockDate.length > 0 ? draft.stockDate : today)
+    setRows(draft.rows)
+    setIsValidated(Boolean(draft.isValidated))
+    setHasPassedRecheck(Boolean(draft.hasPassedRecheck))
+    saveOfflineDraft('stock-check', draft)
+    setHasStockCheckLocalDraft(true)
+    setPhase('editing')
+    setStatus(STATUS.DRAFT_RECOVERED)
+    setError(null)
+  }
 
-  const startPhotoEntry = useCallback(() => {
-    const freshToday = getLocalTodayDate()
-    setStockEntryMode('photo')
-    setStockPhotoFile(null)
-    setRows([])
-    setStockDate(freshToday)
-    clearOfflineDraft('stock-check')
-    setHasStockCheckLocalDraft(false)
-    setManualCheckRedMarked(false)
-    setStatus('Photo closing entry is ready. Choose a photo to parse.')
+  // Switching between Type and Photo keeps every count on the sheet.
+  const confirmStartManualEntry = useCallback(() => {
+    setStockEntryMode('manual')
     setError(null)
   }, [])
 
   const confirmStartPhotoEntry = useCallback(() => {
-    if (rows.length > 0) {
-      setPendingModeSwitch('photo')
-    } else {
-      startPhotoEntry()
-    }
-  }, [rows.length, startPhotoEntry])
+    setStockEntryMode('photo')
+    setStockPhotoFile(null)
+    setError(null)
+  }, [])
 
   const parsePhoto = useCallback(async () => {
     if (!stockPhotoFile) {
@@ -826,13 +662,16 @@ export function EmbeddedStockCheckPanel({
       }
 
       const parsedRows = buildRowsFromParsedPhoto(visibleCatalogItems, payload as ParsedPhotoResponse)
-      setRows(parsedRows)
+      const merge = mergePhotoRows(rowsRef.current, parsedRows)
+      setRows(merge.rows)
       setStockDate(typeof payload?.data?.stock_date === 'string' && payload.data.stock_date.length > 0 ? payload.data.stock_date : today)
       setIsValidated(false)
       setHasPassedRecheck(false)
       setShowRecheckWarningModal(false)
       setRecheckWarnings([])
-      setStatus(`Parsed ${parsedRows.length} stock row(s) from photo. Run Recheck before Save.`)
+      setStatus(merge.kept > 0
+        ? `Photo filled ${merge.filled} ${merge.filled === 1 ? 'count' : 'counts'}. ${merge.kept} typed ${merge.kept === 1 ? 'count was' : 'counts were'} kept where the photo read differently.`
+        : `Photo filled ${merge.filled} ${merge.filled === 1 ? 'count' : 'counts'}. Check them before saving.`)
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
         setError('Parsing timed out after 5 minutes. The stock photo took too long to process.')
@@ -843,6 +682,12 @@ export function EmbeddedStockCheckPanel({
       setIsParsing(false)
     }
   }, [stockPhotoFile, today, visibleCatalogItems])
+
+  // parsePhoto reads the newest rows when the response arrives, not the rows from when it started.
+  const rowsRef = useRef(rows)
+  useEffect(() => {
+    rowsRef.current = rows
+  }, [rows])
 
   useEffect(() => {
     if (!selectedHistoryRecord || visibleCatalogItems.length === 0) return
@@ -996,90 +841,6 @@ export function EmbeddedStockCheckPanel({
     return map
   }, [rows])
 
-  const findSuggestions = useMemo(() => {
-    const term = findTerm.trim().toLowerCase()
-    if (!term) return []
-
-    return displayedIndexedRows
-      .filter(({ row }) => {
-        const official = row.official_name.toLowerCase()
-        const stocklist = row.stocklist_name.toLowerCase()
-        return official.includes(term) || stocklist.includes(term)
-      })
-      .slice(0, 8)
-  }, [findTerm, displayedIndexedRows])
-
-  const getHighlightClass = useCallback((index: number | undefined) => {
-    if (index === undefined || index !== highlightedRowIndex) {
-      return ''
-    }
-    return 'bg-success-soft transition-colors duration-700'
-  }, [highlightedRowIndex])
-
-  const focusAndHighlightRow = useCallback((index: number) => {
-    const targetRow = indexedRows[index]
-    const sectionId = !targetRow
-      ? undefined
-      : targetRow.row.source === 'unknown'
-      ? UNKNOWN_SECTION_ID
-      : targetRow.row.location === 'Outside Coolroom'
-      ? OUTSIDE_SECTION_ID
-      : buildInsideSectionId(normalizeInsideSectionLabel(targetRow.row.category, targetRow.row.sub_location))
-
-    if (sectionId) {
-      setStockCheckExpandedSections((current) => {
-        if (current.has(sectionId)) return current
-        const next = new Set(current)
-        next.add(sectionId)
-        return next
-      })
-    }
-
-    const target = stockPaperAreaRef.current?.querySelector(`[data-stock-row-index="${index}"]`) as HTMLElement | null
-    if (target) {
-      target.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }
-
-    setHighlightedRowIndex(index)
-
-    if (highlightTimeoutRef.current) {
-      clearTimeout(highlightTimeoutRef.current)
-    }
-
-    highlightTimeoutRef.current = setTimeout(() => {
-      setHighlightedRowIndex(null)
-      highlightTimeoutRef.current = null
-    }, 3000)
-  }, [indexedRows])
-
-  useEffect(() => {
-    return () => {
-      if (highlightTimeoutRef.current) {
-        clearTimeout(highlightTimeoutRef.current)
-      }
-    }
-  }, [])
-
-  useEffect(() => {
-    const handleOutsideFindClick = (event: MouseEvent | TouchEvent) => {
-      if (!findTerm.trim()) return
-
-      const targetNode = event.target as Node | null
-      if (!targetNode) return
-
-      if (stockFindContainerRef.current?.contains(targetNode)) return
-      setFindTerm('')
-    }
-
-    document.addEventListener('mousedown', handleOutsideFindClick)
-    document.addEventListener('touchstart', handleOutsideFindClick)
-
-    return () => {
-      document.removeEventListener('mousedown', handleOutsideFindClick)
-      document.removeEventListener('touchstart', handleOutsideFindClick)
-    }
-  }, [findTerm])
-
   const paperSections = useMemo(() => buildPaperSections(displayedIndexedRows), [displayedIndexedRows])
 
   const outsideDisplayColumns = useMemo(
@@ -1123,64 +884,37 @@ export function EmbeddedStockCheckPanel({
     return sections.filter((section) => section.items.length > 0)
   }, [outsideDisplayColumns.left, outsideDisplayColumns.middle, outsideDisplayColumns.right, paperSections.leftColumn, paperSections.rightColumn, paperSections.unknownRows.left, paperSections.unknownRows.right, paperSections.unknownRows.single])
 
-  const isStockCheckSectionCollapsed = useCallback((sectionId: string) => {
-    return !stockCheckExpandedSections.has(sectionId)
-  }, [stockCheckExpandedSections])
-
-  const stockCheckSectionIds = useMemo(() => {
-    const ids = new Set<string>()
-
-    paperSections.leftColumn.forEach((section) => ids.add(section.id))
-    paperSections.rightColumn.forEach((section) => ids.add(section.id))
-    ids.add(OUTSIDE_SECTION_ID)
-
-    if (
-      paperSections.unknownRows.left.length > 0
-      || paperSections.unknownRows.right.length > 0
-      || paperSections.unknownRows.single.length > 0
-    ) {
-      ids.add(UNKNOWN_SECTION_ID)
-    }
-
-    return Array.from(ids)
-  }, [paperSections.leftColumn, paperSections.rightColumn, paperSections.unknownRows.left.length, paperSections.unknownRows.right.length, paperSections.unknownRows.single.length])
-
-  const areAllStockCheckSectionsExpanded = useMemo(() => {
-    if (stockCheckSectionIds.length === 0) return false
-    return stockCheckSectionIds.every((sectionId) => stockCheckExpandedSections.has(sectionId))
-  }, [stockCheckExpandedSections, stockCheckSectionIds])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    if (!hasLoadedExpandedSectionPrefs || hasInitializedExpandedSections) return
-
-    const initialExpanded = storedExpandedSectionKeys
-      ? new Set(storedExpandedSectionKeys)
-      : new Set(stockCheckSectionIds)
-
-    setStockCheckExpandedSections(initialExpanded)
-    setHasInitializedExpandedSections(true)
-  }, [hasInitializedExpandedSections, hasLoadedExpandedSectionPrefs, stockCheckSectionIds, storedExpandedSectionKeys])
-
-  const toggleStockCheckSection = useCallback((sectionId: string) => {
-    setStockCheckExpandedSections((current) => {
-      const next = new Set(current)
-      if (next.has(sectionId)) {
-        next.delete(sectionId)
-      } else {
-        next.add(sectionId)
+  /** The export photo lists counted items only; red-marked items stay red. */
+  const closingPhoto = useMemo(() => {
+    const toRow = (entry: IndexedRow): PhotoRow => {
+      const code = entry.row.code?.trim().toUpperCase() ?? ''
+      const catalogItem = code ? catalogItems?.find((c) => c.code.trim().toUpperCase() === code) : null
+      return {
+        key: `${entry.row.id}-${entry.index}`,
+        name: catalogItem?.official_name ?? entry.row.official_name ?? '',
+        quantity: String(entry.row.quantity ?? ''),
+        marked: entry.row.red_marked,
+        tone: entry.row.source === 'unknown' ? 'alert' : undefined,
       }
-      return next
-    })
-  }, [])
+    }
+    const counted = (entries: IndexedRow[]) => sortIndexedRowsByName(entries.filter((entry) => entry.row.quantity !== null)).map(toRow)
+    const all = (split: typeof paperSections.outsideRows) => [...split.left, ...split.right, ...split.single]
+    const toGroups = (sections: typeof paperSections.leftColumn): PhotoGroup[] => sections.map((section) => ({
+      title: section.title,
+      rows: counted(all(section.rows)),
+    }))
+    return {
+      insideLeft: toGroups(paperSections.leftColumn),
+      insideRight: toGroups(paperSections.rightColumn),
+      outside: counted(all(paperSections.outsideRows)),
+      unknown: counted(all(paperSections.unknownRows)),
+    }
+  }, [catalogItems, paperSections])
 
-  const expandAllStockCheckSections = useCallback(() => {
-    setStockCheckExpandedSections(new Set(stockCheckSectionIds))
-  }, [stockCheckSectionIds])
-
-  const collapseAllStockCheckSections = useCallback(() => {
-    setStockCheckExpandedSections(new Set())
-  }, [])
+  const stockLedgerAreas = useMemo(
+    () => toLedgerAreas(stockCardSections, { outside: OUTSIDE_SECTION_ID, unknown: UNKNOWN_SECTION_ID }),
+    [stockCardSections],
+  )
 
   const isExportActionDisabled = isExporting || isSaving || isParsing
 
@@ -1188,11 +922,10 @@ export function EmbeddedStockCheckPanel({
     if (index === undefined) return ''
     const target = indexedRows[index]
     if (!target) return ''
-    if (index === highlightedRowIndex) return 'ring-2 ring-accent bg-success-soft'
     if (target.row.source === 'unknown') return 'border-warning/30 bg-warning-soft'
     if (target.row.red_marked) return 'border-red-300 bg-red-50'
     return ''
-  }, [highlightedRowIndex, indexedRows])
+  }, [indexedRows])
 
   const latestPreviousValidatedRecord = useMemo(() => {
     if (!historyRecords || historyRecords.length === 0) return null
@@ -1759,49 +1492,19 @@ export function EmbeddedStockCheckPanel({
     }
   }
 
+  /** Same as the Daily Report export: render the photo sheet off screen, then download it as PNG. */
   async function exportPhoto() {
     setIsExporting(true)
     setStatus(null)
     setError(null)
 
-    const zoomBeforeExport = currentZoomRef.current
-    const needsZoomReset = isMobileViewport && zoomBeforeExport !== 1
-    const previousExpandedSections = new Set(stockCheckExpandedSections)
-    const switchedFromCard = isMobileViewport && stockMobileView === 'card'
-
     try {
-      if (switchedFromCard) {
-        setStatus('Switching to paper view for photo export...')
-        setStockMobileView('paper')
-        await new Promise<void>((resolve) => {
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => resolve())
-          })
-        })
-      }
-
-      if (!stockPaperRef.current) {
+      flushSync(() => setIsRenderingPhoto(true))
+      if (!closingPhotoRef.current) {
         throw new Error('Stocklist area is not ready for photo export.')
       }
 
-      if (needsZoomReset) {
-        setPaperZoom(1)
-        await new Promise<void>((resolve) => {
-          requestAnimationFrame(() => resolve())
-        })
-      }
-
-      setStockCheckExpandedSections(new Set(stockCheckSectionIds))
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => resolve())
-      })
-
-      setIsExportSnapshotMode(true)
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => resolve())
-      })
-
-      const dataUrl = await toPng(stockPaperRef.current, {
+      const dataUrl = await toPng(closingPhotoRef.current, {
         cacheBust: true,
         pixelRatio: 2,
         backgroundColor: '#fefefe',
@@ -1818,14 +1521,7 @@ export function EmbeddedStockCheckPanel({
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Photo export failed.')
     } finally {
-      setIsExportSnapshotMode(false)
-      setStockCheckExpandedSections(previousExpandedSections)
-      if (needsZoomReset) {
-        setPaperZoom(zoomBeforeExport)
-      }
-      if (switchedFromCard) {
-        setStockMobileView('card')
-      }
+      setIsRenderingPhoto(false)
       setIsExporting(false)
     }
   }
@@ -1847,67 +1543,27 @@ export function EmbeddedStockCheckPanel({
     }
   }, [onToggleCatalogVisibility])
 
-  function renderLabelCell(item: IndexedRow | undefined, className: string) {
-    if (!item) return null
-
+  /** Name cell of the list: the reorder mark, then the name, which wraps. */
+  function renderLedgerName(item: IndexedRow) {
     const code = item.row.code?.trim().toUpperCase() ?? ''
-    const canToggleVisibility = item.row.source === 'catalog' && code.length > 0
-    const isVisible = canToggleVisibility ? (rowVisibilityByCode.get(code) ?? true) : true
-
-    const latestCatalogItem = code ? catalogItems.find(c => c.code.trim().toUpperCase() === code) : null;
-    const displayName = latestCatalogItem?.official_name ?? item.row.official_name ?? '';
-
-    if (isExportSnapshotMode) {
-      return (
-        <div className="stock-export-label-wrap">
-          <span
-            aria-hidden="true"
-            className={`h-3.5 w-3.5 shrink-0 rounded-full border ${item.row.red_marked ? 'border-red-600 bg-red-600' : 'border-slate-400 bg-transparent'}`}
-          />
-          <span
-            data-stock-row-index={item.index}
-            className={`stock-export-label ${className} ${item.row.red_marked ? 'text-red-600 font-semibold' : ''}`}
-            title={displayName}
-          >
-            {displayName}
-          </span>
-        </div>
-      )
-    }
-
+    const latestCatalogItem = code ? catalogItems?.find((c) => c.code.trim().toUpperCase() === code) : null
+    const displayName = latestCatalogItem?.official_name ?? item.row.official_name ?? ''
     return (
-      <div className="flex items-center gap-1">
+      <div className="report-name">
         <button
           type="button"
-          aria-label="Toggle reorder mark"
+          aria-label={`Mark ${displayName} as selling fast`}
+          aria-pressed={item.row.red_marked}
           onClick={() => toggleRed(item.index)}
           className={`relative h-3.5 w-3.5 shrink-0 rounded-full border before:absolute before:-inset-3 before:content-[''] ${item.row.red_marked ? 'border-red-600 bg-red-600' : 'border-slate-400 bg-transparent'}`}
-          title="Click to mark as selling fast"
+          title="Mark as selling fast"
         />
-        <input
-          data-stock-row-index={item.index}
-          className={`${className} ${item.row.red_marked ? 'text-red-600 font-semibold' : ''}`}
-          value={displayName}
-          readOnly
-          onChange={(event) => updateRow(item.index, { official_name: event.target.value })}
-        />
+        <span className={item.row.red_marked ? 'font-semibold text-red-600' : undefined}>{displayName}</span>
       </div>
     )
   }
 
   function renderQuantityCell(item: IndexedRow) {
-    if (isExportSnapshotMode) {
-      return (
-        <div
-          data-stock-row-index={item.index}
-          className={`stock-qty-input stock-export-qty ${item.row.red_marked ? 'text-red-600' : ''}`}
-          aria-label={`Quantity for ${item.row.official_name}`}
-        >
-          {item.row.quantity ?? ''}
-        </div>
-      )
-    }
-
     return (
       <input
         type="text"
@@ -1942,12 +1598,16 @@ export function EmbeddedStockCheckPanel({
         historyCount={historyRecords?.length || 0}
         onAction={(action) => {
           if (action === 'new') {
+            // Start straight away. A draft that existed is kept in memory for one Undo.
+            const previousDraft = hasStockCheckLocalDraft ? loadOfflineDraft<StockCheckOfflineDraft>('stock-check') : null
+            const previousCount = stockCheckDraftItemCount
+            startManualEntry()
             setPhase('editing')
-            // Only a saved draft can be lost here; the rows pre-filled from the catalog are not work.
-            if (hasStockCheckLocalDraft) {
-              setPendingStartNew(true)
-            } else {
-              startManualEntry()
+            if (previousDraft && Array.isArray(previousDraft.rows) && previousCount > 0) {
+              toast.info(`New sheet started. Draft with ${previousCount} ${previousCount === 1 ? 'item' : 'items'} cleared.`, {
+                duration: 8000,
+                action: { label: 'Undo', onClick: () => restoreStockCheckDraft(previousDraft) },
+              })
             }
           } else if (action === 'continue') {
             setPhase('editing')
@@ -1973,14 +1633,9 @@ export function EmbeddedStockCheckPanel({
             <ChevronLeft className="h-5 w-5" aria-hidden="true" />
             Menu
           </button>
-          <div className="mt-1 flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
-            <h1 className="text-[24px] font-semibold leading-tight tracking-[-0.01em] text-ink">
-              {loadedHistoryUid ? 'Edit closing count' : 'Closing count'}
-            </h1>
-            <p className="text-[14px] text-muted tabular">
-              {formatSheetDate(stockDate || today)} · {rows.filter(r => r.quantity !== null).length} items counted
-            </p>
-          </div>
+          <h1 className="mt-1 text-[24px] font-semibold leading-tight tracking-[-0.01em] text-ink">
+            {loadedHistoryUid ? 'Edit closing count' : 'Closing count'}
+          </h1>
           {stockCheckQueueCount > 0 || !isOnline ? (
             <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-warning-soft px-2.5 py-1 text-[13px] font-medium text-warning">
               {!isOnline ? 'Offline · saves stay on this phone' : `${stockCheckQueueCount} save${stockCheckQueueCount > 1 ? 's' : ''} waiting to upload`}
@@ -1998,8 +1653,6 @@ export function EmbeddedStockCheckPanel({
             value={stockEntryMode}
             onManual={confirmStartManualEntry}
             onPhoto={confirmStartPhotoEntry}
-            manualHelpText="Search an item, type the count, press Enter."
-            photoHelpText="Take or choose a photo of the closing sheet, then check the numbers."
           />
         </div>
 
@@ -2181,41 +1834,6 @@ export function EmbeddedStockCheckPanel({
           </div>
         )}
 
-        {isMobileViewport && (
-          <div className="mt-3 mb-2 rounded-lg border border-slate-200 bg-white p-2 md:hidden">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[14px] text-muted">View</span>
-              <div className="flex items-center gap-2">
-                <div className="grid grid-cols-2 gap-1 rounded-md bg-slate-100 p-1">
-                  <button
-                    type="button"
-                    onClick={() => setStockMobileView('card')}
-                    className={`rounded px-3 py-1.5 text-xs font-semibold ${stockMobileView === 'card' ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-600'}`}
-                  >
-                    Card
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setStockMobileView('paper')}
-                    className={`rounded px-3 py-1.5 text-xs font-semibold ${stockMobileView === 'paper' ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-600'}`}
-                  >
-                    Paper
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  onClick={areAllStockCheckSectionsExpanded ? collapseAllStockCheckSections : expandAllStockCheckSections}
-                  className="inline-flex min-h-11 items-center justify-center rounded-md border border-slate-300 bg-white px-3 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
-                  aria-label={areAllStockCheckSectionsExpanded ? 'Collapse all stock check sections' : 'Expand all stock check sections'}
-                  title={areAllStockCheckSectionsExpanded ? 'Collapse all stock check sections' : 'Expand all stock check sections'}
-                >
-                  {areAllStockCheckSectionsExpanded ? 'Collapse all' : 'Expand all'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
         {stockEntryMode === 'photo' && (
           <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white p-3">
             <input
@@ -2258,205 +1876,32 @@ export function EmbeddedStockCheckPanel({
           </div>
         )}
 
-        {isMobileViewport && stockMobileView === 'paper' && (
-          <div className="mt-4 flex justify-end">
-            <div className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-2">
-              <button
-                type="button"
-                onClick={zoomOut}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 bg-white text-base font-semibold text-slate-700 hover:bg-slate-50"
-                aria-label="Zoom out paper view"
-              >
-                -
-              </button>
-              <span className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-center text-xs font-semibold text-slate-600">
-                Zoom {Math.round(paperZoom * 100)}%
-              </span>
-              <button
-                type="button"
-                onClick={zoomIn}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 bg-white text-base font-semibold text-slate-700 hover:bg-slate-50"
-                aria-label="Zoom in paper view"
-              >
-                +
-              </button>
-              <button
-                type="button"
-                onClick={resetZoom}
-                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
-              >
-                100%
-              </button>
-            </div>
-          </div>
-        )}
-
-        <div
-          ref={stockPaperAreaRef}
-          className="mt-5 stock-paper-wrap overflow-x-auto"
-          onTouchStart={handlePaperTouchStart}
-          onTouchMove={handlePaperTouchMove}
-          onTouchEnd={clearPinchState}
-          onTouchCancel={clearPinchState}
-        >
-          <div className="mobile-sticky-top mb-3 rounded-lg border border-slate-200 bg-white p-3">
-
-            <div ref={stockFindContainerRef} className="relative">
-              <Search className="pointer-events-none absolute left-3 top-[22px] h-5 w-5 -translate-y-1/2 text-slate-400" aria-hidden="true" />
-              <input
-                type="search"
-                value={findTerm}
-                onChange={(event) => setFindTerm(event.target.value)}
-                placeholder="Find in this sheet"
-                aria-label="Find in this sheet"
-                className={`${fieldClass} pl-10 pr-10`}
-              />
-
-              {findTerm.trim().length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setFindTerm('')}
-                  aria-label="Clear stocklist search"
-                  className="absolute right-1 top-0.5 inline-flex h-10 w-10 items-center justify-center rounded-control text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
-
-              {findTerm.trim().length > 0 && (
-                <div className="absolute z-20 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg">
-                  {findSuggestions.length === 0 ? (
-                    <p className="px-3 py-2 text-sm text-slate-500">No matching items.</p>
-                  ) : (
-                    findSuggestions.map(({ row, index }) => (
-                      <button
-                        key={`find-${row.id}-${index}`}
-                        type="button"
-                        onClick={() => {
-                          focusAndHighlightRow(index)
-                          setFindTerm('')
-                        }}
-                        className="block w-full border-b border-slate-100 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 last:border-b-0"
-                      >
-                        <p className="truncate font-medium">{row.official_name}</p>
-                        <p className="truncate text-xs text-slate-500">{row.stocklist_name}</p>
-                      </button>
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {isMobileViewport && stockMobileView === 'card' ? (
-            <div className="space-y-3 md:hidden">
-              {stockCardSections.map((section) => (
-                <StockPaperCardSection
-                  key={`stock-check-card-${section.title}`}
-                  title={section.title}
-                  items={section.items}
-                  keyPrefix="stock-check-mobile"
-                  getCardClass={getCardHighlightClass}
-                  isCollapsed={isStockCheckSectionCollapsed(section.id)}
-                  onToggleCollapse={() => toggleStockCheckSection(section.id)}
-                  onPressRow={(item) => focusAndHighlightRow(item.index)}
-                  renderLabelCell={renderLabelCell}
-                  renderQuantityCell={renderQuantityCell}
-                />
-              ))}
-            </div>
-          ) : (
-            <div
-              ref={stockPaperRef}
-              className={`stock-paper min-w-[700px] sm:min-w-[760px] md:min-w-[820px] ${isExportSnapshotMode ? 'stock-paper-export' : ''}`}
-              style={isMobileViewport ? { zoom: paperZoom } : undefined}
-            >
-            <div className="stock-date-row">
-              <span>DATE:</span>
-              <span className="stock-date-hand">{formatSheetDate(stockDate)}</span>
-            </div>
-
-            <div className="stock-sec-hdr">INSIDE COOLROOM</div>
-            <div className="stock-inside-grid">
-              <div className="stock-col stock-col-left">
-                {paperSections.leftColumn.map((section) => (
-                  <StockPaperSectionTable
-                    key={section.id}
-                    section={section}
-                    keyPrefix="stock-check-left"
-                    isCollapsed={isStockCheckSectionCollapsed(section.id)}
-                    onToggleCollapse={() => toggleStockCheckSection(section.id)}
-                    getCellClass={getHighlightClass}
-                    renderLabelCell={renderLabelCell}
-                    renderQuantityCell={renderQuantityCell}
-                  />
-                ))}
-              </div>
-
-              <div className="stock-col">
-                {paperSections.rightColumn.map((section) => (
-                  <StockPaperSectionTable
-                    key={section.id}
-                    section={section}
-                    keyPrefix="stock-check-right"
-                    isCollapsed={isStockCheckSectionCollapsed(section.id)}
-                    onToggleCollapse={() => toggleStockCheckSection(section.id)}
-                    getCellClass={getHighlightClass}
-                    renderLabelCell={renderLabelCell}
-                    renderQuantityCell={renderQuantityCell}
-                  />
-                ))}
-              </div>
-            </div>
-
-            <button
-              type="button"
-              className="stock-sec-hdr stock-sec-hdr-btn"
-              onClick={() => toggleStockCheckSection(OUTSIDE_SECTION_ID)}
-              aria-expanded={!isStockCheckSectionCollapsed(OUTSIDE_SECTION_ID)}
-            >
-              <span>OUTSIDE COOLROOM</span>
-              <span className="stock-collapse-indicator" aria-hidden="true">{isStockCheckSectionCollapsed(OUTSIDE_SECTION_ID) ? '+' : '-'}</span>
-            </button>
-            {!isStockCheckSectionCollapsed(OUTSIDE_SECTION_ID) && (
-              <StockPaperThreeColumnTable
-                columns={outsideDisplayColumns}
-                keyPrefix="stock-check-outside"
-                getCellClass={getHighlightClass}
-                renderLabelCell={renderLabelCell}
-                renderQuantityCell={renderQuantityCell}
-              />
-            )}
-
-            {paperSections.unknownRows.left.length > 0 || paperSections.unknownRows.right.length > 0 || paperSections.unknownRows.single.length > 0 ? (
-              <>
-                <button
-                  type="button"
-                  className="stock-sec-hdr stock-sec-hdr-btn !bg-red-900 !text-white"
-                  onClick={() => toggleStockCheckSection(UNKNOWN_SECTION_ID)}
-                  aria-expanded={!isStockCheckSectionCollapsed(UNKNOWN_SECTION_ID)}
-                >
-                  <span>UNCLASSIFIED / STAFF INSPECTION</span>
-                  <span className="stock-collapse-indicator" aria-hidden="true">{isStockCheckSectionCollapsed(UNKNOWN_SECTION_ID) ? '+' : '-'}</span>
-                </button>
-                {!isStockCheckSectionCollapsed(UNKNOWN_SECTION_ID) && (
-                  <StockPaperThreeColumnTable
-                    columns={{
-                      left: paperSections.unknownRows.left,
-                      middle: paperSections.unknownRows.right,
-                      right: paperSections.unknownRows.single,
-                    }}
-                    keyPrefix="stock-check-unknown"
-                    getCellClass={getHighlightClass}
-                    renderLabelCell={renderLabelCell}
-                    renderQuantityCell={renderQuantityCell}
-                  />
-                )}
-              </>
-            ) : null}
-            </div>
-          )}
+        {/* One list at every width; the photo sheet is mounted only while exporting. */}
+        <div className="mt-5 stock-paper-wrap is-ledger">
+          <StockLedger
+            areas={stockLedgerAreas}
+            keyPrefix="stock-check-ledger"
+            quantityLabel="Closing"
+            getRowClass={getCardHighlightClass}
+            renderName={renderLedgerName}
+            renderQuantityCell={renderQuantityCell}
+          />
         </div>
+
+        {isRenderingPhoto ? (
+          <div aria-hidden="true" className="pointer-events-none fixed right-full top-0">
+            <LedgerPhotoSheet
+              ref={closingPhotoRef}
+              title="Closing stock"
+              date={stockDate}
+              quantityLabel="Closing"
+              insideLeft={closingPhoto.insideLeft}
+              insideRight={closingPhoto.insideRight}
+              outside={closingPhoto.outside}
+              unknown={closingPhoto.unknown}
+            />
+          </div>
+        ) : null}
 
         <div className="mobile-sticky-actions mt-5">
           <div className="flex items-center gap-2">
@@ -2555,33 +2000,7 @@ export function EmbeddedStockCheckPanel({
         </ul>
       </Sheet>
 
-      <ConfirmDialog
-        isOpen={pendingStartNew}
-        title="Start a new sheet?"
-        message={`Your draft with ${stockCheckDraftItemCount} counted ${stockCheckDraftItemCount === 1 ? 'item' : 'items'} will be replaced by an empty sheet.`}
-        variant="danger"
-        confirmLabel="Replace draft"
-        cancelLabel="Keep draft"
-        onConfirm={() => {
-          startManualEntry()
-          setPendingStartNew(false)
-        }}
-        onCancel={() => setPendingStartNew(false)}
-      />
 
-      <ConfirmDialog
-        isOpen={pendingModeSwitch !== null}
-        title="Switch entry mode?"
-        message="This will clear your current entries. You'll start with a blank form."
-        variant="danger"
-        confirmLabel="Clear and switch"
-        onConfirm={() => {
-          if (pendingModeSwitch === 'manual') startManualEntry()
-          else startPhotoEntry()
-          setPendingModeSwitch(null)
-        }}
-        onCancel={() => setPendingModeSwitch(null)}
-      />
     </div>
   )
 }

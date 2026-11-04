@@ -10,7 +10,9 @@ import { buildPaperSections, sortIndexedRowsByName, type PaperRowColumns } from 
 import { formatSheetDate } from '../../lib/stock-paper-utils'
 import { formatQuantity, type ItemInsight } from '../../lib/report-insights'
 import { useDailyReportData, type ReportRow, type IndexedReportRow, type ReportCatalogItem } from './useDailyReportData'
-import { StockFlagBadge } from './StockFlagBadge'
+import { EditedMark, StockFlagBadge } from './StockFlagBadge'
+import { FlagPickerSheet } from './FlagPickerSheet'
+import { ReportSources } from './ReportSources'
 import { BrandTile } from './BrandMark'
 import { ReportNotices } from './ReportNotices'
 import { Button, IconButton } from './ui/Button'
@@ -48,10 +50,12 @@ function PhotoColumns({ title, left, right, insights }: {
   )
 }
 
-function ReportArea({ title, groups, insights }: {
+function ReportArea({ title, groups, insights, onSelectItem }: {
   title?: string
   groups: ReportGroup[]
   insights: Record<string, ItemInsight>
+  /** Screen only: tap or Enter on a row opens the badge picker. */
+  onSelectItem?: (row: ReportRow) => void
 }) {
   const visibleGroups = groups.filter(group => group.items.length > 0)
   if (!visibleGroups.length) return null
@@ -68,12 +72,28 @@ function ReportArea({ title, groups, insights }: {
             const insight = insights[row.code]
             const sold = insight?.status === 'ok' ? formatQuantity(insight.sold) : insight?.status === 'negative' ? '?' : '-'
             return (
-              <tr key={index}>
+              <tr
+                key={index}
+                className={onSelectItem ? 'report-row-pressable' : undefined}
+                tabIndex={onSelectItem ? 0 : undefined}
+                aria-label={onSelectItem ? `${row.official_name}: change badge` : undefined}
+                onClick={onSelectItem ? () => onSelectItem(row) : undefined}
+                onKeyDown={onSelectItem ? (event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    onSelectItem(row)
+                  }
+                } : undefined}
+              >
                 <th scope="row">
                   <div className="report-name">
                     {row.redMarked && <span aria-label="Marked for reorder" role="img" className="h-2 w-2 shrink-0 rounded-full bg-danger" />}
                     <span>{row.official_name}</span>
-                    {insight?.stockFlag && <StockFlagBadge flag={insight.stockFlag} />}
+                    {insight?.stockFlag ? (
+                      <StockFlagBadge flag={insight.stockFlag} edited={Boolean(onSelectItem) && insight.flagSource === 'manual'} />
+                    ) : onSelectItem && insight?.flagSource === 'manual' ? (
+                      <EditedMark />
+                    ) : null}
                   </div>
                 </th>
                 <td>{formatQuantity(row.closing)}</td>
@@ -93,7 +113,13 @@ export function DailyReportPanel({ catalogItems }: DailyReportPanelProps) {
   const [exportError, setExportError] = useState<string | null>(null)
   const photoRef = useRef<HTMLDivElement | null>(null)
 
-  const { data, isLoading, error, reload, insights, indexedRows, notices, hasReport } = useDailyReportData(reportDate, catalogItems)
+  const {
+    data, isLoading, error, reload, insights, indexedRows, notices, hasReport,
+    sources, stockInRecordCount, canChangeFlags, setFlagOverride,
+  } = useDailyReportData(reportDate, catalogItems)
+  const [flagPickerRow, setFlagPickerRow] = useState<ReportRow | null>(null)
+
+  const openFlagPicker = (row: ReportRow) => setFlagPickerRow(row)
 
   const sections = useMemo(() => {
     const paper = buildPaperSections(indexedRows)
@@ -143,13 +169,14 @@ export function DailyReportPanel({ catalogItems }: DailyReportPanelProps) {
             <time dateTime={reportDate} className="text-xs font-medium text-muted">{formatSheetDate(reportDate)}</time>
             {photo && <BrandTile className="opacity-80" />}
           </div>
+          {photo ? null : <p className="w-full text-[13px] text-muted">Tap an item to change or remove its badge.</p>}
         </header>
         {photo && sections.right.length > 0 ? (
           <PhotoColumns title="Inside coolroom" left={sections.left} right={sections.right} insights={insights} />
         ) : (
-          <ReportArea title="Inside coolroom" groups={[...sections.left, ...sections.right]} insights={insights} />
+          <ReportArea title="Inside coolroom" groups={[...sections.left, ...sections.right]} insights={insights} onSelectItem={photo ? undefined : openFlagPicker} />
         )}
-        <ReportArea title="Unclassified / staff inspection" groups={[{ items: sections.unknown }]} insights={insights} />
+        <ReportArea title="Unclassified / staff inspection" groups={[{ items: sections.unknown }]} insights={insights} onSelectItem={photo ? undefined : openFlagPicker} />
         {photo && sections.outside.length > 0 ? (
           <PhotoColumns
             title="Outside coolroom"
@@ -158,7 +185,7 @@ export function DailyReportPanel({ catalogItems }: DailyReportPanelProps) {
             insights={insights}
           />
         ) : (
-          <ReportArea title="Outside coolroom" groups={[{ items: sections.outside }]} insights={insights} />
+          <ReportArea title="Outside coolroom" groups={[{ items: sections.outside }]} insights={insights} onSelectItem={photo ? undefined : openFlagPicker} />
         )}
       </div>
     )
@@ -192,6 +219,18 @@ export function DailyReportPanel({ catalogItems }: DailyReportPanelProps) {
       ) : null}
 
       <ReportNotices notices={notices} />
+      <ReportSources sources={sources} stockInRecordCount={stockInRecordCount} />
+
+      <FlagPickerSheet
+        open={flagPickerRow !== null}
+        onClose={() => setFlagPickerRow(null)}
+        itemName={flagPickerRow?.official_name ?? ''}
+        insight={flagPickerRow ? insights[flagPickerRow.code] ?? null : null}
+        unavailable={!canChangeFlags}
+        onChoose={(choice) => {
+          if (flagPickerRow) void setFlagOverride(flagPickerRow.code, choice)
+        }}
+      />
 
       {isLoading && !data ? (
         <div className="flex min-h-[200px] items-center justify-center gap-2 rounded-card border border-line bg-surface text-[15px] text-muted">

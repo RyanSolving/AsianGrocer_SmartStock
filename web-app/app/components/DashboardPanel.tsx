@@ -7,6 +7,7 @@ import { getLocalTodayDate } from '../../lib/date-utils'
 
 import { DailyReportSummary } from './DailyReportSummary'
 import { ReportNotices } from './ReportNotices'
+import { ReportSources } from './ReportSources'
 import { Button, IconButton } from './ui/Button'
 import { inputClass } from './ui/Input'
 import { ActionBar, ScreenHeader } from './ui/Primitives'
@@ -20,7 +21,7 @@ function DailySummaryTab({ catalogItems, date, refreshKey }: { catalogItems: Rep
   const summaryRef = useRef<HTMLDivElement | null>(null)
   const [isExporting, setIsExporting] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
-  const { data, isLoading, error, entries, notices, hasReport } = useDailyReportData(date, catalogItems, refreshKey)
+  const { data, isLoading, error, entries, notices, hasReport, sources, stockInRecordCount } = useDailyReportData(date, catalogItems, refreshKey)
 
   async function exportPhoto() {
     if (!summaryRef.current) return
@@ -52,6 +53,7 @@ function DailySummaryTab({ catalogItems, date, refreshKey }: { catalogItems: Rep
       ) : null}
 
       <ReportNotices notices={notices} />
+      <ReportSources sources={sources} stockInRecordCount={stockInRecordCount} />
 
       {isLoading && !data ? (
         <div className="flex min-h-[240px] items-center justify-center rounded-card border border-line bg-surface">

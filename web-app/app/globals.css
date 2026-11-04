@@ -627,6 +627,98 @@ textarea {
   width: 3.5rem;
 }
 
+/* Check Stock and Stock In phone list: the Daily Report sheet with a count box per row. */
+.stock-paper-wrap.is-ledger {
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+
+.stock-ledger .stock-ledger-qty-col {
+  width: 5.5rem;
+}
+
+.stock-ledger .report-ledger th[scope="row"],
+.stock-ledger .report-ledger td {
+  padding-top: 4px;
+  padding-bottom: 4px;
+  vertical-align: middle;
+}
+
+.stock-ledger .report-ledger th[scope="row"] {
+  font-size: 15px;
+  cursor: text;
+}
+
+.stock-ledger .report-ledger th.report-category {
+  padding: 0;
+}
+
+/* The reorder mark stays beside the name; only the name wraps. */
+.stock-ledger .report-name {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
+
+.stock-ledger .report-name > button {
+  margin-top: 4px;
+}
+
+.stock-ledger .report-name > span {
+  min-width: 0;
+}
+
+.stock-ledger-band-btn {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 0 16px;
+  text-align: left;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+}
+
+.stock-ledger-bar-btn {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.stock-ledger .stock-ledger-alert {
+  background: theme(colors.red.700);
+}
+
+.stock-ledger .stock-qty-input {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: theme(colors.slate.50);
+  color: var(--ink);
+  font-size: 16px; /* never zooms on iOS */
+  font-style: normal;
+  font-weight: 600;
+  text-align: right;
+}
+
+.stock-ledger .stock-qty-input:focus {
+  outline: 2px solid theme(colors.forest.DEFAULT);
+  outline-offset: -1px;
+  background: var(--card);
+}
+
+.stock-ledger .stock-qty-input:placeholder-shown {
+  border-style: dashed;
+}
+
 .report-ledger td {
   font-weight: 700;
 }
@@ -640,4 +732,20 @@ textarea {
   line-height: 1.3;
   letter-spacing: .035em;
   text-transform: uppercase;
+}
+
+/* Daily Report rows open the badge picker on tap. */
+.report-row-pressable {
+  cursor: pointer;
+  transition: background-color 150ms ease-out;
+}
+
+.report-row-pressable:hover,
+.report-row-pressable:active {
+  background: theme(colors.forest.50);
+}
+
+.report-row-pressable:focus-visible {
+  outline: 2px solid theme(colors.forest.DEFAULT);
+  outline-offset: -2px;
 }

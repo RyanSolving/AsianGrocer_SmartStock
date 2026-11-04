@@ -1,6 +1,8 @@
 'use client'
 
 import { useMemo, useState, useEffect, useCallback, useRef, type KeyboardEvent } from 'react'
+import { flushSync } from 'react-dom'
+import { toPng } from 'html-to-image'
 import {
   BarChart3,
   Database,
@@ -30,8 +32,8 @@ import { DashboardPanel } from './components/DashboardPanel'
 import { CatalogManagementView } from './catalog/CatalogManagementView'
 import { CreateCatalogItemModal, type CreateCatalogItemPayload } from './components/CreateCatalogItemModal'
 import { EmbeddedStockCheckPanel } from './components/EmbeddedStockCheckPanel'
-import { EntryMethodToggle } from './components/EntryMethodToggle'
-import { StockPaperCardSection, StockPaperSectionTable, StockPaperThreeColumnTable } from './components/StockPaperTables'
+import { StockLedger, toLedgerAreas } from './components/StockLedger'
+import { LedgerPhotoSheet, type PhotoGroup, type PhotoRow } from './components/LedgerPhotoSheet'
 import { ConfirmDialog, useConfirm } from './components/ConfirmDialog'
 import { SectionLandingState } from './components/SectionLandingState'
 import type { SelectedStockCheckHistoryRecord } from './components/EmbeddedStockCheckPanel'
@@ -53,7 +55,7 @@ import {
   subscribeOfflineQueueUpdates,
   syncOfflineQueue,
 } from '../lib/offline/queue'
-import { formatSheetDate, normalizeInsideSectionLabel } from '../lib/stock-paper-utils'
+import { normalizeInsideSectionLabel } from '../lib/stock-paper-utils'
 import { STATUS } from '../lib/status-messages'
 import { getLocalTodayDate } from '../lib/date-utils'
 import { useHistoryRealtime } from '../lib/realtime/history-realtime'
@@ -258,11 +260,8 @@ type InlineCreateItemForm = {
   inner_quantity: number | null
   inner_unit: CatalogInnerUnit
 }
-const DATA_ENTRY_MOBILE_VIEW_KEY = 'smartstock:data-entry-mobile-view'
-const DATA_ENTRY_EXPANDED_SECTIONS_KEY = 'smartstock:data-entry-expanded-sections'
 const OUTSIDE_SECTION_ID = 'outside-coolroom'
 const UNKNOWN_SECTION_ID = 'unclassified-staff-inspection'
-const AUTO_EXPAND_SECTION_ROW_LIMIT = 20
 const INSIDE_SUB_LOCATION_OPTIONS = ['Apples', 'Citrus', 'Asian', 'Melon', 'All Year', 'Seasonal', 'Stonefruit'] as const
 const OUTSIDE_SUB_LOCATION_OPTIONS = ['Outside Coolroom'] as const
 const INNER_UNIT_OPTIONS: CatalogInnerUnit[] = ['box', 'bag', 'punnet', 'piece', 'tray', 'bunch', 'pack', 'kg', 'g']
@@ -497,7 +496,6 @@ export default function Home() {
   const [isHistorySheetOpen, setIsHistorySheetOpen] = useState(false)
   const [visitedSections, setVisitedSections] = useState<Set<HubSection>>(() => new Set<HubSection>(['data-entry']))
   const [dataEntryMode, setDataEntryMode] = useState<DataEntryMode>('manual')
-  const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [activeCatalog, setActiveCatalog] = useState<CatalogItem[] | null>(null)
   const [isCatalogOpen, setIsCatalogOpen] = useState(false)
   const [parsedData, setParsedData] = useState<ParsedPayload | null>(null)
@@ -506,8 +504,9 @@ export default function Home() {
   const [reviewRequiredCount, setReviewRequiredCount] = useState(0)
   const [catalogSource, setCatalogSource] = useState<'master' | 'uploaded' | 'edited' | null>(null)
   const [catalogItemCount, setCatalogItemCount] = useState<number | null>(null)
-  const [isParsing, setIsParsing] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
+  const [isExportingStockInPhoto, setIsExportingStockInPhoto] = useState(false)
+  const stockInPhotoRef = useRef<HTMLDivElement | null>(null)
   const [isSavingSupabase, setIsSavingSupabase] = useState(false)
   const [isLoadingBigQuery, setIsLoadingBigQuery] = useState(false)
   const [isCatalogUploading, setIsCatalogUploading] = useState(false)
@@ -526,7 +525,6 @@ export default function Home() {
   const [selectedHistoryUid, setSelectedHistoryUid] = useState<string | null>(null)
   const [editingHistoryUid, setEditingHistoryUid] = useState<string | null>(null)
   const [isOnline, setIsOnline] = useState(true)
-  const [pendingModeSwitch, setPendingModeSwitch] = useState<'manual' | 'photo' | null>(null)
   const [pendingHistoryLoad, setPendingHistoryLoad] = useState<string | null>(null)
   const [pendingStockCheckHistoryLoad, setPendingStockCheckHistoryLoad] = useState<SelectedStockCheckHistoryRecord | null>(null)
   const [offlineQueueCount, setOfflineQueueCount] = useState(0)
@@ -536,7 +534,6 @@ export default function Home() {
   const [showOverflow, setShowOverflow] = useState(false)
   const [dataEntrySearchTerm, setDataEntrySearchTerm] = useState('')
   const [dataEntryStatusFilter, setDataEntryStatusFilter] = useState<'all' | 'pending' | 'pushed'>('all')
-  const [dataEntryFindTerm, setDataEntryFindTerm] = useState('')
   const [dataEntryNewItemName, setDataEntryNewItemName] = useState('')
   const [dataEntryAddHighlightIndex, setDataEntryAddHighlightIndex] = useState<number>(-1)
   const [dataEntrySelectedCatalogCode, setDataEntrySelectedCatalogCode] = useState<string | null>(null)
@@ -562,10 +559,6 @@ export default function Home() {
     inner_unit: 'box',
   })
   const [isInlineCreateSaving, setIsInlineCreateSaving] = useState(false)
-  const [isDataEntryMobileViewport, setIsDataEntryMobileViewport] = useState(false)
-  const [dataEntryMobileView, setDataEntryMobileView] = useState<'card' | 'paper'>('card')
-  const [dataEntryExpandedSections, setDataEntryExpandedSections] = useState<Set<string>>(new Set())
-  const [highlightedDataEntryIndex, setHighlightedDataEntryIndex] = useState<number | null>(null)
   const [stockCheckHistory, setStockCheckHistory] = useState<StockCheckHistoryEntry[]>([])
   const [isStockCheckHistoryLoading, setIsStockCheckHistoryLoading] = useState(false)
   const [stockCheckSearchTerm, setStockCheckSearchTerm] = useState('')
@@ -574,10 +567,7 @@ export default function Home() {
   const [hasSavedToSupabase, setHasSavedToSupabase] = useState(false)
   const [hasLoadedToDb, setHasLoadedToDb] = useState(false)
   const [isValidatedByStaff, setIsValidatedByStaff] = useState(false)
-  const dataEntryPaperRef = useRef<HTMLDivElement | null>(null)
-  const dataEntryFindContainerRef = useRef<HTMLDivElement | null>(null)
   const dataEntryAddContainerRef = useRef<HTMLDivElement | null>(null)
-  const dataEntryHighlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const isManualEntryMode = dataEntryMode === 'manual'
   const [confirmAction, confirmElement] = useConfirm()
@@ -881,7 +871,8 @@ export default function Home() {
     const draft = loadOfflineDraft<StockInOfflineDraft>('stock-in')
     if (!draft || !draft.parsedData) return
 
-    setDataEntryMode(draft.dataEntryMode)
+    // Stock in is typed only; a draft saved in the old photo mode opens as a typed sheet.
+    setDataEntryMode('manual')
     setParsedData(draft.parsedData)
     setUnknownItems(Array.isArray(draft.unknownItems) ? draft.unknownItems : [])
     setMissingCatalogItems(Array.isArray(draft.missingCatalogItems) ? draft.missingCatalogItems : [])
@@ -979,84 +970,7 @@ export default function Home() {
   })
 
   useEffect(() => {
-    if (typeof window === 'undefined') return
-
-    const mediaQuery = window.matchMedia('(max-width: 767px)')
-    const updateMobileState = () => {
-      const isMobile = mediaQuery.matches
-      setIsDataEntryMobileViewport(isMobile)
-      if (isMobile) {
-        try {
-          const stored = window.localStorage.getItem(DATA_ENTRY_MOBILE_VIEW_KEY)
-          if (stored === 'card' || stored === 'paper') {
-            setDataEntryMobileView(stored)
-            return
-          }
-        } catch {
-          // Ignore storage availability errors and use default.
-        }
-
-        setDataEntryMobileView('card')
-      }
-    }
-
-    updateMobileState()
-
-    if (typeof mediaQuery.addEventListener === 'function') {
-      mediaQuery.addEventListener('change', updateMobileState)
-      return () => mediaQuery.removeEventListener('change', updateMobileState)
-    }
-
-    mediaQuery.addListener(updateMobileState)
-    return () => mediaQuery.removeListener(updateMobileState)
-  }, [])
-
-  useEffect(() => {
-    if (!isDataEntryMobileViewport || typeof window === 'undefined') return
-
-    try {
-      window.localStorage.setItem(DATA_ENTRY_MOBILE_VIEW_KEY, dataEntryMobileView)
-    } catch {
-      // Ignore storage availability errors.
-    }
-  }, [dataEntryMobileView, isDataEntryMobileViewport])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-
-    try {
-      const stored = window.localStorage.getItem(DATA_ENTRY_EXPANDED_SECTIONS_KEY)
-      if (!stored) return
-
-      const parsed = JSON.parse(stored)
-      if (!Array.isArray(parsed)) return
-
-      const keys = parsed.filter((entry): entry is string => typeof entry === 'string')
-      setDataEntryExpandedSections(new Set(keys))
-    } catch {
-      // Ignore malformed local storage.
-    }
-  }, [])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-
-    try {
-      window.localStorage.setItem(DATA_ENTRY_EXPANDED_SECTIONS_KEY, JSON.stringify(Array.from(dataEntryExpandedSections)))
-    } catch {
-      // Ignore storage availability errors.
-    }
-  }, [dataEntryExpandedSections])
-
-  useEffect(() => {
-    setDataEntryFindTerm('')
     setDataEntryAddHighlightIndex(-1)
-    setHighlightedDataEntryIndex(null)
-
-    if (dataEntryHighlightTimeoutRef.current) {
-      clearTimeout(dataEntryHighlightTimeoutRef.current)
-      dataEntryHighlightTimeoutRef.current = null
-    }
   }, [activeSection])
 
   useEffect(() => {
@@ -1072,26 +986,6 @@ export default function Home() {
     if (apiStatus !== STATUS.READY_MANUAL && apiStatus !== STATUS.STARTING_FRESH) toast.success(apiStatus)
     setApiStatus(null)
   }, [apiStatus])
-
-  useEffect(() => {
-    const handleOutsideFindClick = (event: MouseEvent | TouchEvent) => {
-      if (!dataEntryFindTerm.trim()) return
-
-      const targetNode = event.target as Node | null
-      if (!targetNode) return
-
-      if (dataEntryFindContainerRef.current?.contains(targetNode)) return
-      setDataEntryFindTerm('')
-    }
-
-    document.addEventListener('mousedown', handleOutsideFindClick)
-    document.addEventListener('touchstart', handleOutsideFindClick)
-
-    return () => {
-      document.removeEventListener('mousedown', handleOutsideFindClick)
-      document.removeEventListener('touchstart', handleOutsideFindClick)
-    }
-  }, [dataEntryFindTerm])
 
   useEffect(() => {
     const handleOutsideAddClick = (event: MouseEvent | TouchEvent) => {
@@ -1261,6 +1155,33 @@ export default function Home() {
     [indexedItems]
   )
 
+  /** The export photo lists counted items only, grouped the same way as the list. */
+  const stockInPhoto = useMemo(() => {
+    const toRow = (row: IndexedItem): PhotoRow => {
+      const code = row.item.catalog_code?.trim().toUpperCase() ?? ''
+      const catalogItem = code ? visibleCatalog.find((c) => c.code.trim().toUpperCase() === code) : null
+      return {
+        key: `${row.source}-${row.index}`,
+        name: catalogItem?.official_name ?? row.item.official_name ?? row.item.product_raw ?? '',
+        quantity: String(row.item.quantity ?? ''),
+        tone: row.source === 'missing' ? 'warning' : row.source === 'unknown' ? 'alert' : undefined,
+      }
+    }
+    const counted = (rows: IndexedItem[]) => sortIndexedItemsByName(rows.filter((row) => row.item.quantity !== null)).map(toRow)
+    const toGroups = (sections: typeof paperSections.leftColumn): PhotoGroup[] => sections.map((section) => ({
+      title: section.title,
+      rows: counted([...section.rows.left, ...section.rows.right, ...section.rows.single]),
+    }))
+    const all = (split: typeof paperSections.outsideRows) => [...split.left, ...split.right, ...split.single]
+
+    return {
+      insideLeft: toGroups(paperSections.leftColumn),
+      insideRight: toGroups(paperSections.rightColumn),
+      outside: counted(all(paperSections.outsideRows)),
+      unknown: counted(all(paperSections.unknownRows)),
+    }
+  }, [paperSections, visibleCatalog])
+
   const outsideDisplayColumns = useMemo(() => {
     const combinedOutside = [
       ...paperSections.outsideRows.left,
@@ -1311,105 +1232,10 @@ export default function Home() {
     return sections.filter((section) => section.items.length > 0)
   }, [outsideDisplayColumns.left, outsideDisplayColumns.middle, outsideDisplayColumns.right, paperSections.leftColumn, paperSections.rightColumn, paperSections.unknownRows.left, paperSections.unknownRows.right, paperSections.unknownRows.single])
 
-  const dataEntryIndexToSectionId = useMemo(() => {
-    const map = new Map<number, string>()
-
-    paperSections.leftColumn.forEach((section) => {
-      section.rows.left.forEach((item) => map.set(item.index, section.id))
-      section.rows.right.forEach((item) => map.set(item.index, section.id))
-      section.rows.single.forEach((item) => map.set(item.index, section.id))
-    })
-
-    paperSections.rightColumn.forEach((section) => {
-      section.rows.left.forEach((item) => map.set(item.index, section.id))
-      section.rows.right.forEach((item) => map.set(item.index, section.id))
-      section.rows.single.forEach((item) => map.set(item.index, section.id))
-    })
-
-    outsideDisplayColumns.left.forEach((item) => map.set(item.index, OUTSIDE_SECTION_ID))
-    outsideDisplayColumns.middle.forEach((item) => map.set(item.index, OUTSIDE_SECTION_ID))
-    outsideDisplayColumns.right.forEach((item) => map.set(item.index, OUTSIDE_SECTION_ID))
-
-    paperSections.unknownRows.left.forEach((item) => map.set(item.index, UNKNOWN_SECTION_ID))
-    paperSections.unknownRows.right.forEach((item) => map.set(item.index, UNKNOWN_SECTION_ID))
-    paperSections.unknownRows.single.forEach((item) => map.set(item.index, UNKNOWN_SECTION_ID))
-
-    return map
-  }, [outsideDisplayColumns.left, outsideDisplayColumns.middle, outsideDisplayColumns.right, paperSections.leftColumn, paperSections.rightColumn, paperSections.unknownRows.left, paperSections.unknownRows.right, paperSections.unknownRows.single])
-
-  const isDataEntrySectionCollapsed = useCallback((sectionId: string) => {
-    return !dataEntryExpandedSections.has(sectionId)
-  }, [dataEntryExpandedSections])
-
-  const dataEntrySectionIds = useMemo(() => {
-    const ids = new Set<string>()
-
-    paperSections.leftColumn.forEach((section) => ids.add(section.id))
-    paperSections.rightColumn.forEach((section) => ids.add(section.id))
-    ids.add(OUTSIDE_SECTION_ID)
-
-    if (
-      paperSections.unknownRows.left.length > 0
-      || paperSections.unknownRows.right.length > 0
-      || paperSections.unknownRows.single.length > 0
-    ) {
-      ids.add(UNKNOWN_SECTION_ID)
-    }
-
-    return Array.from(ids)
-  }, [paperSections.leftColumn, paperSections.rightColumn, paperSections.unknownRows.left.length, paperSections.unknownRows.right.length, paperSections.unknownRows.single.length])
-
-  const areAllDataEntrySectionsExpanded = useMemo(() => {
-    if (dataEntrySectionIds.length === 0) return false
-    return dataEntrySectionIds.every((sectionId) => dataEntryExpandedSections.has(sectionId))
-  }, [dataEntryExpandedSections, dataEntrySectionIds])
-
-  useEffect(() => {
-    if (indexedItems.length === 0) {
-      setDataEntryExpandedSections(new Set())
-      return
-    }
-
-    if (indexedItems.length <= AUTO_EXPAND_SECTION_ROW_LIMIT) {
-      setDataEntryExpandedSections(new Set(dataEntrySectionIds))
-    }
-  }, [dataEntrySectionIds, indexedItems.length])
-
-  const toggleDataEntrySection = useCallback((sectionId: string) => {
-    setDataEntryExpandedSections((current) => {
-      const next = new Set(current)
-      if (next.has(sectionId)) {
-        next.delete(sectionId)
-      } else {
-        next.add(sectionId)
-      }
-      return next
-    })
-  }, [])
-
-  const expandAllDataEntrySections = useCallback(() => {
-    setDataEntryExpandedSections(new Set(dataEntrySectionIds))
-  }, [dataEntrySectionIds])
-
-  const collapseAllDataEntrySections = useCallback(() => {
-    setDataEntryExpandedSections(new Set())
-  }, [])
-
-  const dataEntryFindSuggestions = useMemo(() => {
-    const term = dataEntryFindTerm.trim().toLowerCase()
-    if (!term) return []
-
-    return indexedItems
-      .filter(({ item }) => {
-        const official = item.official_name.toLowerCase()
-        const stocklist =
-          'stocklist_name' in item && typeof item.stocklist_name === 'string'
-            ? item.stocklist_name.toLowerCase()
-            : ''
-        return official.includes(term) || stocklist.includes(term)
-      })
-      .slice(0, 8)
-  }, [dataEntryFindTerm, indexedItems])
+  const dataEntryLedgerAreas = useMemo(
+    () => toLedgerAreas(dataEntryCardSections, { outside: OUTSIDE_SECTION_ID, unknown: UNKNOWN_SECTION_ID }),
+    [dataEntryCardSections],
+  )
 
   const existingKnownCodes = useMemo(() => {
     const codes = new Set<string>()
@@ -2077,7 +1903,6 @@ export default function Home() {
     const manualDraft = buildManualParsedPayload(visibleCatalog, stockMode, freshToday)
 
     setDataEntryMode('manual')
-    setPhotoFile(null)
     setParsedData(manualDraft)
     setUnknownItems([])
     setMissingCatalogItems([])
@@ -2091,37 +1916,7 @@ export default function Home() {
     setApiStatus(STATUS.READY_MANUAL)
   }, [visibleCatalog])
 
-  const confirmStartManualEntry = useCallback(() => {
-    if (parsedData && parsedData.items.some(i => i.quantity !== null)) {
-      setPendingModeSwitch('manual')
-    } else {
-      startManualEntry()
-    }
-  }, [parsedData, startManualEntry])
 
-  const startPhotoEntry = useCallback(() => {
-    setDataEntryMode('photo')
-    setPhotoFile(null)
-    setParsedData(null)
-    setUnknownItems([])
-    setMissingCatalogItems([])
-    setLatestGenerateUid(null)
-    setEditingHistoryUid(null)
-    setSelectedHistoryUid(null)
-    setHasSavedToSupabase(false)
-    setHasLoadedToDb(false)
-    setIsValidatedByStaff(false)
-    setApiError(null)
-    setApiStatus('Photo parsing mode selected. Upload an image to generate stock-in lines.') // Still okay as is, or use constant
-  }, [])
-
-  const confirmStartPhotoEntry = useCallback(() => {
-    if (parsedData && parsedData.items.some(i => i.quantity !== null)) {
-      setPendingModeSwitch('photo')
-    } else {
-      startPhotoEntry()
-    }
-  }, [parsedData, startPhotoEntry])
 
   useEffect(() => {
     if (stockInPhase !== 'editing') return
@@ -2136,123 +1931,6 @@ export default function Home() {
     })
   }, [visibleCatalog, isManualEntryMode, stockMode, today, stockInPhase])
 
-  const focusAndHighlightDataEntry = useCallback((index: number) => {
-    setActiveSection('data-entry')
-
-    const sectionId = dataEntryIndexToSectionId.get(index)
-    if (sectionId) {
-      setDataEntryExpandedSections((current) => {
-        if (current.has(sectionId)) return current
-        const next = new Set(current)
-        next.add(sectionId)
-        return next
-      })
-    }
-
-    window.setTimeout(() => {
-      const target = dataEntryPaperRef.current?.querySelector(`[data-entry-row-index="${index}"]`) as HTMLElement | null
-      if (target) {
-        target.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      }
-
-      setHighlightedDataEntryIndex(index)
-      if (dataEntryHighlightTimeoutRef.current) {
-        clearTimeout(dataEntryHighlightTimeoutRef.current)
-      }
-      dataEntryHighlightTimeoutRef.current = setTimeout(() => {
-        setHighlightedDataEntryIndex(null)
-        dataEntryHighlightTimeoutRef.current = null
-      }, 3000)
-    }, 0)
-  }, [dataEntryIndexToSectionId])
-
-  useEffect(() => {
-    return () => {
-      if (dataEntryHighlightTimeoutRef.current) {
-        clearTimeout(dataEntryHighlightTimeoutRef.current)
-      }
-    }
-  }, [])
-
-  async function parsePhoto() {
-    if (!photoFile) {
-      setApiError('Please select a stocklist photo first.')
-      return
-    }
-
-    setDataEntryMode('photo')
-    setEditingHistoryUid(null)
-    setIsParsing(true)
-    setHasSavedToSupabase(false)
-    setHasLoadedToDb(false)
-    setIsValidatedByStaff(false)
-    setApiError(null)
-    setApiStatus(null)
-
-    try {
-      const formData = new FormData()
-      formData.append('photo', photoFile)
-      formData.append('mode', stockMode)
-      if (visibleCatalog.length > 0) {
-        formData.append('catalog', JSON.stringify(visibleCatalog))
-      }
-
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 300000)
-
-      let response: Response
-      try {
-        response = await fetch('/api/parse-photo', {
-          method: 'POST',
-          body: formData,
-          signal: controller.signal,
-        })
-      } finally {
-        clearTimeout(timeoutId)
-      }
-
-      const json = await response.json()
-      if (response.status === 401) {
-        throw new Error('Unauthorized. Please sign in at /login before parsing photos.')
-      }
-      if (!response.ok) {
-        let detailsStr = '';
-        if (json?.details) {
-          detailsStr = typeof json.details === 'object' ? JSON.stringify(json.details) : String(json.details);
-        }
-        throw new Error(detailsStr ? `${json.error} Details: ${detailsStr}` : (json?.error ?? 'Parse request failed.'))
-      }
-
-      setParsedData(json.data)
-      setLatestGenerateUid(typeof json.uid_generate === 'string' ? json.uid_generate : null)
-      setUnknownItems(json.unknown_items ?? [])
-      setMissingCatalogItems(
-        (json.missing_catalog_items ?? []).map((item: CatalogItem) => ({
-          ...item,
-          quantity_raw: item.quantity_raw ?? null,
-          quantity: typeof item.quantity === 'number' ? item.quantity : null,
-          quantity_conflict_flag: Boolean(item.quantity_conflict_flag),
-        }))
-      )
-      setReviewRequiredCount(json.review_required_count ?? 0)
-      setCatalogSource(json.catalog_source ?? null)
-      setCatalogItemCount(typeof json.catalog_item_count === 'number' ? json.catalog_item_count : null)
-      setHasSavedToSupabase(false)
-
-      // Keep history in sync in the background; realtime also refreshes it.
-      void loadTranscriptionHistory({ silent: true })
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        setApiError('Parsing timed out after 5 minutes. The AI is taking longer than expected to process all items.')
-      } else if (error instanceof Error && /failed to fetch|networkerror/i.test(error.message)) {
-        setApiError('Could not reach the parser API. Check that the dev server is running and try a smaller image if the file is large.')
-      } else {
-        setApiError(error instanceof Error ? error.message : 'Unexpected parse error.')
-      }
-    } finally {
-      setIsParsing(false)
-    }
-  }
 
   function toQuantityPatch(val: string): Partial<StockItem> {
     const trimmed = val.trim()
@@ -2268,7 +1946,6 @@ export default function Home() {
 
   function getClasses(row: IndexedItem | undefined, baseCls: string) {
     if (!row) return baseCls
-    if (row.index === highlightedDataEntryIndex) return `${baseCls} !bg-success-soft transition-colors duration-700`
     if (row.source === 'missing') return `${baseCls} !text-warning`
     if (row.source === 'unknown') return `${baseCls} !text-red-600 font-semibold`
     return baseCls
@@ -2276,7 +1953,6 @@ export default function Home() {
 
   function getCardClasses(row: IndexedItem | undefined) {
     if (!row) return ''
-    if (row.index === highlightedDataEntryIndex) return 'ring-2 ring-accent bg-success-soft'
     if (row.source === 'missing') return 'border-warning/30 bg-warning-soft'
     if (row.source === 'unknown') return 'border-red-300 bg-red-50'
     return ''
@@ -2300,6 +1976,15 @@ export default function Home() {
         />
       </div>
     )
+  }
+
+  /** Name cell of the phone list; missing and unknown items keep their warning colours. */
+  function renderDataEntryLedgerName(row: IndexedItem) {
+    const code = row.item.catalog_code?.trim().toUpperCase() ?? ''
+    const latestCatalogItem = code ? visibleCatalog.find((c) => c.code.trim().toUpperCase() === code) : null
+    const displayName = latestCatalogItem?.official_name ?? row.item.official_name ?? row.item.product_raw ?? ''
+    const tone = row.source === 'missing' ? 'text-warning' : row.source === 'unknown' ? 'font-semibold text-red-600' : undefined
+    return <span className={tone}>{displayName}</span>
   }
 
   function renderDataEntryQuantityCell(row: IndexedItem) {
@@ -2343,6 +2028,28 @@ export default function Home() {
 
     return true
   }, [missingCatalogItems, parsedData])
+
+  /** Same as the Daily Report export: render the photo sheet off screen, then download it as PNG. */
+  async function exportStockInPhoto() {
+    if (isExportingStockInPhoto || filledItemCount === 0) return
+    const date = parsedData?.stock_date || today
+
+    try {
+      flushSync(() => setIsExportingStockInPhoto(true))
+      if (!stockInPhotoRef.current) throw new Error('The stock in sheet is no longer available.')
+      const dataUrl = await toPng(stockInPhotoRef.current, { cacheBust: true, pixelRatio: 2, backgroundColor: '#fefefe' })
+      const link = document.createElement('a')
+      link.download = `stock-in-${date}.png`
+      link.href = dataUrl
+      link.click()
+      toast.success('Photo saved to your downloads')
+    } catch (failure) {
+      const friendly = friendlyError(failure instanceof Error ? failure.message : 'Failed to export the stock in photo.')
+      toast.error(friendly.message, { details: friendly.details })
+    } finally {
+      setIsExportingStockInPhoto(false)
+    }
+  }
 
   async function exportCsv() {
     if (!parsedData) {
@@ -2458,7 +2165,7 @@ export default function Home() {
         )
       }
 
-      // setApiStatus(STATUS.SAVED) // Removed to prevent double-toast with "All done!"
+      // setApiStatus(STATUS.SAVED) // Removed to prevent a double toast with "Stock in saved"
       if (typeof payload?.uid_generate === 'string' && payload.uid_generate.length > 0) {
         setLatestGenerateUid(payload.uid_generate)
         if (editingHistoryUid) {
@@ -2587,7 +2294,7 @@ export default function Home() {
         )
       }
 
-      // Success, no extra toast needed since handleStockInDone fires "All done!"
+      // Success, no extra toast needed since handleStockInDone fires "Stock in saved"
       setHasLoadedToDb(true)
       return true
     } catch (error) {
@@ -3065,14 +2772,9 @@ export default function Home() {
                     <ChevronLeft className="h-5 w-5" aria-hidden="true" />
                     Menu
                   </button>
-                  <div className="mt-1 flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
-                    <h1 className="text-[24px] font-semibold leading-tight tracking-[-0.01em] text-ink">
-                      {editingHistoryUid ? 'Edit stock in' : 'Stock in'}
-                    </h1>
-                    <p className="text-[14px] text-muted tabular">
-                      {formatSheetDate(parsedData?.stock_date || today)} · {filledItemCount} {filledItemCount === 1 ? 'item' : 'items'} counted
-                    </p>
-                  </div>
+                  <h1 className="mt-1 text-[24px] font-semibold leading-tight tracking-[-0.01em] text-ink">
+                    {editingHistoryUid ? 'Edit stock in' : 'Stock in'}
+                  </h1>
                 </div>
 
                 {editingHistoryUid && (
@@ -3088,18 +2790,8 @@ export default function Home() {
                   </div>
                 )}
 
+                {/* Stock in is always typed: deliveries are counted item by item, never photographed. */}
                 <div className="grid gap-4">
-                  <EntryMethodToggle
-                    value={isManualEntryMode ? 'manual' : 'photo'}
-                    onManual={confirmStartManualEntry}
-                    onPhoto={confirmStartPhotoEntry}
-                    manualLabel="Type"
-                    photoLabel="Photo"
-                    manualHelpText="Search an item, type the count, press Enter."
-                    photoHelpText="Take or choose a photo of the paper sheet, then check the numbers."
-                  />
-
-                  {isManualEntryMode ? (
                     <div className="grid gap-3 md:grid-cols-2">
                       <div className="md:rounded-card md:border md:border-line md:p-4">
                         <div className="space-y-3">
@@ -3362,53 +3054,6 @@ export default function Home() {
                         )}
                       </div>
                     </div>
-                  ) : (
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 md:p-5">
-                      <div className="grid gap-3 md:grid-cols-[220px_1fr_auto] md:items-end">
-                        <div className="flex w-full flex-col gap-1">
-                          <label htmlFor="paper-stock-date" className="text-[13px] font-medium text-muted">Date</label>
-                          <input
-                            id="paper-stock-date"
-                            type="date"
-                            value={parsedData?.stock_date ?? ''}
-                            onChange={(event) => updateParsedStockDate(event.target.value)}
-                            disabled={!parsedData}
-                            className="min-h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 focus:border-brand-500 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-100"
-                          />
-                        </div>
-
-                        <div>
-                          <input
-                            id="photo-upload"
-                            type="file"
-                            className="hidden"
-                            accept="image/jpeg,image/png"
-                            onChange={(event) => {
-                              const file = event.target.files?.[0]
-                              setPhotoFile(file ?? null)
-                            }}
-                          />
-                          <label
-                            htmlFor="photo-upload"
-                            className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center rounded-lg bg-brand-500 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-brand-600"
-                          >
-                            Choose photo
-                          </label>
-                          <p className="mt-2 text-xs text-slate-500">{photoFile ? `Photo: ${photoFile.name}` : 'JPEG / PNG, max 5MB'}</p>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={parsePhoto}
-                          disabled={isParsing || !photoFile}
-                          className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400 md:w-auto md:min-w-[170px]"
-                        >
-                          {isParsing && <Loader2 className="h-4 w-4 animate-spin" />}
-                          {isParsing ? 'Parsing...' : 'Parse'}
-                        </button>
-                      </div>
-                    </div>
-                  )}
                 </div>
               </section>
 
@@ -3422,204 +3067,53 @@ export default function Home() {
                   </p>
                 </div>
 
-                <div className="mobile-sticky-add mb-4 space-y-3">
-                  <div ref={dataEntryFindContainerRef} className="relative">
-                    <Search className="pointer-events-none absolute left-3 top-[22px] h-5 w-5 -translate-y-1/2 text-slate-400" aria-hidden="true" />
-                    <input
-                      type="search"
-                      value={dataEntryFindTerm}
-                      onChange={(event) => setDataEntryFindTerm(event.target.value)}
-                      placeholder="Find in this list"
-                      aria-label="Find in this list"
-                      className={`${fieldClass} pl-10 pr-10`}
-                    />
-
-                    {dataEntryFindTerm.trim().length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setDataEntryFindTerm('')}
-                        aria-label="Clear stocklist search"
-                        className="absolute right-1 top-0.5 inline-flex h-10 w-10 items-center justify-center rounded-control text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-
-                    {dataEntryFindTerm.trim().length > 0 && (
-                      <div className="absolute z-30 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg">
-                        {dataEntryFindSuggestions.length === 0 ? (
-                          <p className="px-3 py-2 text-sm text-slate-500">No matching items.</p>
-                        ) : (
-                          dataEntryFindSuggestions.map((entry) => (
-                            <button
-                              key={`entry-find-${entry.index}`}
-                              type="button"
-                              onClick={() => {
-                                focusAndHighlightDataEntry(entry.index)
-                                setDataEntryFindTerm('')
-                              }}
-                              className="block w-full border-b border-slate-100 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 last:border-b-0"
-                            >
-                              <p className="truncate font-medium">{entry.item.official_name}</p>
-                              <p className="truncate text-xs text-slate-500">
-                                {'stocklist_name' in entry.item && entry.item.stocklist_name
-                                  ? entry.item.stocklist_name
-                                  : entry.item.product_raw}
-                              </p>
-                            </button>
-                          ))
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
                 <div className="space-y-6">
-                  {isDataEntryMobileViewport && (
-                    <div className="mb-3 flex items-center justify-between gap-2 md:hidden">
-                      <span className="text-[14px] text-muted">View</span>
-                      <div className="flex items-center gap-2">
-                        <div className="grid grid-cols-2 gap-1 rounded-md bg-slate-100 p-1">
-                          <button
-                            type="button"
-                            onClick={() => setDataEntryMobileView('card')}
-                            className={`rounded px-3 py-1.5 text-xs font-semibold ${dataEntryMobileView === 'card' ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-600'}`}
-                          >
-                            Card
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setDataEntryMobileView('paper')}
-                            className={`rounded px-3 py-1.5 text-xs font-semibold ${dataEntryMobileView === 'paper' ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-600'}`}
-                          >
-                            Paper
-                          </button>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={areAllDataEntrySectionsExpanded ? collapseAllDataEntrySections : expandAllDataEntrySections}
-                          className="inline-flex min-h-11 items-center justify-center rounded-md border border-slate-300 bg-white px-3 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
-                          aria-label={areAllDataEntrySectionsExpanded ? 'Collapse all review sections' : 'Expand all review sections'}
-                          title={areAllDataEntrySectionsExpanded ? 'Collapse all review sections' : 'Expand all review sections'}
-                        >
-                          {areAllDataEntrySectionsExpanded ? 'Collapse all' : 'Expand all'}
-                        </button>
-                      </div>
+                  {isExportingStockInPhoto ? (
+                    <div aria-hidden="true" className="pointer-events-none fixed right-full top-0">
+                      <LedgerPhotoSheet
+                        ref={stockInPhotoRef}
+                        title="Stock in"
+                        date={parsedData?.stock_date || today}
+                        quantityLabel="Stock in"
+                        insideLeft={stockInPhoto.insideLeft}
+                        insideRight={stockInPhoto.insideRight}
+                        outside={stockInPhoto.outside}
+                        unknown={stockInPhoto.unknown}
+                      />
                     </div>
-                  )}
+                  ) : null}
 
-                  <div className="stock-paper-wrap overflow-x-auto" ref={dataEntryPaperRef}>
-
-                    {isDataEntryMobileViewport && dataEntryMobileView === 'card' ? (
-                      <div className="space-y-3 md:hidden">
-                        {dataEntryCardSections.map((section) => (
-                          <StockPaperCardSection
-                            key={`data-entry-card-${section.id}`}
-                            title={section.title}
-                            items={section.items}
-                            keyPrefix="data-entry-mobile"
-                            isCollapsed={isDataEntrySectionCollapsed(section.id)}
-                            onToggleCollapse={() => toggleDataEntrySection(section.id)}
-                            getCardClass={(index) => getCardClasses(indexedItems.find((item) => item.index === index))}
-                            onPressRow={(item) => focusAndHighlightDataEntry(item.index)}
-                            renderLabelCell={renderDataEntryLabelCell}
-                            renderQuantityCell={renderDataEntryQuantityCell}
-                          />
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="stock-paper min-w-[820px]">
-                        <div className="stock-date-row">
-                          <span>DATE:</span>
-                          <span className="stock-date-hand">{formatSheetDate(parsedData?.stock_date)}</span>
-                        </div>
-
-                        <div className="stock-sec-hdr">INSIDE COOLROOM</div>
-                        <div className="stock-inside-grid">
-                          <div className="stock-col stock-col-left">
-                            {paperSections.leftColumn.map((section) => (
-                              <StockPaperSectionTable
-                                key={section.id}
-                                section={section}
-                                keyPrefix="data-entry-left"
-                                isCollapsed={isDataEntrySectionCollapsed(section.id)}
-                                onToggleCollapse={() => toggleDataEntrySection(section.id)}
-                                renderLabelCell={renderDataEntryLabelCell}
-                                renderQuantityCell={renderDataEntryQuantityCell}
-                              />
-                            ))}
-                          </div>
-
-                          <div className="stock-col">
-                            {paperSections.rightColumn.map((section) => (
-                              <StockPaperSectionTable
-                                key={section.id}
-                                section={section}
-                                keyPrefix="data-entry-right"
-                                isCollapsed={isDataEntrySectionCollapsed(section.id)}
-                                onToggleCollapse={() => toggleDataEntrySection(section.id)}
-                                renderLabelCell={renderDataEntryLabelCell}
-                                renderQuantityCell={renderDataEntryQuantityCell}
-                              />
-                            ))}
-                          </div>
-                        </div>
-
-                        <button
-                          type="button"
-                          className="stock-sec-hdr stock-sec-hdr-btn"
-                          onClick={() => toggleDataEntrySection(OUTSIDE_SECTION_ID)}
-                          aria-expanded={!isDataEntrySectionCollapsed(OUTSIDE_SECTION_ID)}
-                        >
-                          <span>OUTSIDE COOLROOM</span>
-                          <span className="stock-collapse-indicator" aria-hidden="true">{isDataEntrySectionCollapsed(OUTSIDE_SECTION_ID) ? '+' : '-'}</span>
-                        </button>
-                        {!isDataEntrySectionCollapsed(OUTSIDE_SECTION_ID) && (
-                          <StockPaperThreeColumnTable
-                            columns={outsideDisplayColumns}
-                            keyPrefix="data-entry-outside"
-                            renderLabelCell={renderDataEntryLabelCell}
-                            renderQuantityCell={renderDataEntryQuantityCell}
-                          />
-                        )}
-
-                        {(paperSections.unknownRows.left.length > 0
-                          || paperSections.unknownRows.right.length > 0
-                          || paperSections.unknownRows.single.length > 0) && (
-                            <>
-                              <button
-                                type="button"
-                                className="stock-sec-hdr stock-sec-hdr-btn !bg-red-900 !text-white"
-                                onClick={() => toggleDataEntrySection(UNKNOWN_SECTION_ID)}
-                                aria-expanded={!isDataEntrySectionCollapsed(UNKNOWN_SECTION_ID)}
-                              >
-                                <span>UNCLASSIFIED / STAFF INSPECTION</span>
-                                <span className="stock-collapse-indicator" aria-hidden="true">{isDataEntrySectionCollapsed(UNKNOWN_SECTION_ID) ? '+' : '-'}</span>
-                              </button>
-                              {!isDataEntrySectionCollapsed(UNKNOWN_SECTION_ID) && (
-                                <StockPaperThreeColumnTable
-                                  columns={{
-                                    left: paperSections.unknownRows.left,
-                                    middle: paperSections.unknownRows.right,
-                                    right: paperSections.unknownRows.single,
-                                  }}
-                                  keyPrefix="data-entry-unknown"
-                                  renderLabelCell={renderDataEntryLabelCell}
-                                  renderQuantityCell={renderDataEntryQuantityCell}
-                                />
-                              )}
-                            </>
-                          )}
-                      </div>
-                    )}
+                  {/* One list at every width: every area and category stays open. */}
+                  <div className="stock-paper-wrap is-ledger">
+                    <StockLedger
+                      areas={dataEntryLedgerAreas}
+                      keyPrefix="data-entry-ledger"
+                      quantityLabel="Stock in"
+                      getRowClass={(index) => getCardClasses(indexedItems.find((item) => item.index === index))}
+                      renderName={renderDataEntryLedgerName}
+                      renderQuantityCell={renderDataEntryQuantityCell}
+                    />
                   </div>
                 </div>
+
 
                 <div className="mobile-sticky-actions mt-5 flex items-center gap-2">
                   <button
                     type="button"
+                    onClick={() => void exportStockInPhoto()}
+                    disabled={filledItemCount === 0 || isExportingStockInPhoto || isSavingSupabase}
+                    aria-label="Export photo"
+                    title="Export photo"
+                    className="inline-flex min-h-12 min-w-12 shrink-0 items-center justify-center gap-2 rounded-control border border-line bg-surface px-3 text-[15px] font-semibold text-ink hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-ink/40"
+                  >
+                    {isExportingStockInPhoto ? <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" /> : <FileImage className="h-5 w-5" aria-hidden="true" />}
+                    <span className="hidden sm:inline">Photo</span>
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={handleStockInDone}
-                    disabled={!parsedData || isSavingSupabase || isLoadingBigQuery || isExporting}
+                    disabled={!parsedData || isSavingSupabase || isLoadingBigQuery || isExporting || isExportingStockInPhoto}
                     aria-busy={isSavingSupabase || undefined}
                     className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-control bg-forest px-5 text-[16px] font-semibold text-white transition-colors duration-150 hover:bg-forest-700 disabled:cursor-not-allowed disabled:bg-forest/40"
                   >
@@ -3630,8 +3124,8 @@ export default function Home() {
                       </>
                     ) : (
                       <>
-                        <Check className="h-5 w-5" aria-hidden="true" />
-                        <span>Done · {filledItemCount} {filledItemCount === 1 ? 'item' : 'items'}</span>
+                        <Save className="h-5 w-5" aria-hidden="true" />
+                        <span>Save · {filledItemCount} {filledItemCount === 1 ? 'item' : 'items'}</span>
                       </>
                     )}
                   </button>
@@ -3829,19 +3323,6 @@ export default function Home() {
         onDeleteHistory={deleteStockCheckHistory}
       />
 
-      <ConfirmDialog
-        isOpen={pendingModeSwitch !== null}
-        title="Switch entry mode?"
-        message="This will clear your current entries. You'll start with a blank form."
-        variant="danger"
-        confirmLabel="Clear and switch"
-        onConfirm={() => {
-          if (pendingModeSwitch === 'manual') startManualEntry()
-          else startPhotoEntry()
-          setPendingModeSwitch(null)
-        }}
-        onCancel={() => setPendingModeSwitch(null)}
-      />
 
       <ConfirmDialog
         isOpen={pendingHistoryLoad !== null}

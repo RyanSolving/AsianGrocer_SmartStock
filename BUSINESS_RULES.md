@@ -16,6 +16,11 @@ item code.
 
 Code: `web-app/app/api/daily-report/route.ts`.
 
+**Sources row.** The Daily Report and Dashboard show which records were used: the closing, the
+previous closing and the stock in, each with its date, name and saved time (`created_at` for a
+closing, which is when it was first saved; `log_time` for stock in). When there are several
+stock-in records it says "latest of N". Code: `ReportSources.tsx`.
+
 ## 2. Units sold
 
 ```
@@ -55,6 +60,26 @@ Rules are checked in this order; the first match wins:
 
 Code: `getStockFlag` in `web-app/lib/report-insights.ts`; colours in
 `web-app/app/components/StockFlagBadge.tsx`.
+
+### 3b. Changing a badge by hand
+
+- On the Daily Report, tap an item to open its badge picker. The choices are:
+  - **Automatic:** the calculated flag, with the reason (for example `18 left ÷ 2 sold = 9 days, over 7`);
+  - any of the four flags;
+  - **No badge**.
+- One tap saves and closes. The choice applies to that item **on that date only**.
+- A badge set or removed by hand shows a small pencil mark on screen. Exported photos show the
+  badge without the mark.
+- The choice is used everywhere the flag is: the Daily Report, the Dashboard flag counts, the
+  refill list and the photos.
+- Choosing Automatic deletes the choice, so the calculated flag shows again.
+- Stored in Supabase table `report_flag_override` (migration
+  `20261104_report_flag_overrides.sql`). No row means automatic; `flag = null` means no badge.
+  Until the migration is applied, the report works as before and tapping an item explains
+  what's missing.
+
+Code: `applyFlagOverrides` and `describeAutoFlag` in `web-app/lib/report-insights.ts`;
+`/api/daily-report/flags`; `FlagPickerSheet.tsx`.
 
 ## 4. Refill for tomorrow
 
@@ -133,6 +158,19 @@ or confirm the 0 is right (**Save anyway**).
 
 Code: `findUncountedItems` in `web-app/lib/closing-completeness.ts`; `buildSaveWarnings` and
 `handleSave` in `web-app/app/components/EmbeddedStockCheckPanel.tsx`.
+
+### 8b. Type and Photo on Check Stock
+
+- Switching between **Type** and **Photo** never clears the sheet.
+- A parsed photo is merged into the sheet:
+  - a count that is still blank is filled from the photo;
+  - a count already on the sheet is **kept**, even when the photo read a different number, and
+    the message says how many were kept;
+  - items only the photo has are added.
+- Rows match by catalog code, or by name (ignoring case and spacing) for free-typed items.
+- Stock In has no photo entry: deliveries are always typed.
+
+Code: `mergePhotoRows` in `web-app/lib/photo-merge.ts`.
 
 ## 9. Kept in code, not shown
 

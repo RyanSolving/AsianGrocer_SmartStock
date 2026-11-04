@@ -43,6 +43,10 @@ export type ItemInsight = {
   suggestedQty: number
   flag: OrderFlag
   stockFlag: StockFlag | null
+  /** The calculated flag, kept when staff change it by hand. */
+  autoStockFlag?: StockFlag | null
+  /** 'manual' when staff chose the flag (or removed it) on the Daily Report. */
+  flagSource?: 'auto' | 'manual'
   /** Sold at least FAST_SELL_THROUGH of available stock. Independent of ORDER. */
   fast: boolean
 }
@@ -125,6 +129,46 @@ export function computeItemInsights(input: {
   }
 
   return result
+}
+
+export type FlagOverrides = Record<string, { flag: string | null } | undefined>
+
+function isStockFlag(value: unknown): value is StockFlag {
+  return typeof value === 'string' && (stockFlags as readonly string[]).includes(value)
+}
+
+/**
+ * Staff choices win over the calculated flag (BUSINESS_RULES.md §3b). An override of
+ * `null` removes the badge. Codes match ignoring case and outer spaces.
+ */
+export function applyFlagOverrides(insights: Record<string, ItemInsight>, overrides: FlagOverrides): Record<string, ItemInsight> {
+  const byCode = new Map<string, { flag: string | null }>()
+  for (const [code, override] of Object.entries(overrides)) {
+    if (override) byCode.set(code.trim().toUpperCase(), override)
+  }
+
+  const result: Record<string, ItemInsight> = {}
+  for (const [code, insight] of Object.entries(insights)) {
+    const override = byCode.get(code.trim().toUpperCase())
+    result[code] = override
+      ? { ...insight, autoStockFlag: insight.stockFlag, stockFlag: isStockFlag(override.flag) ? override.flag : null, flagSource: 'manual' }
+      : { ...insight, autoStockFlag: insight.stockFlag, flagSource: 'auto' }
+  }
+  return result
+}
+
+/** One line on why the calculated flag is what it is, for the badge picker. */
+export function describeAutoFlag(insight: Pick<ItemInsight, 'closing' | 'sold' | 'status'> & { autoStockFlag?: StockFlag | null; stockFlag: StockFlag | null }) {
+  const flag = insight.autoStockFlag !== undefined ? insight.autoStockFlag : insight.stockFlag
+  const closing = insight.closing
+  const sold = insight.status === 'ok' ? insight.sold : null
+  if (closing === 0) return 'Closing is 0.'
+  if (closing === null) return 'Not on the closing.'
+  if (sold === null) return insight.status === 'no-baseline' ? 'No earlier closing, so units sold is unknown.' : 'Units sold could not be worked out.'
+  if (sold === 0) return `${formatQuantity(closing)} left and nothing sold.`
+  const cover = Math.round((closing / sold) * 10) / 10
+  const rule = flag === 'Low stock' ? ', under 3' : flag === 'Over-stock' ? ', over 7' : ', between 3 and 7'
+  return `${formatQuantity(closing)} left ÷ ${formatQuantity(sold)} sold = ${cover} days${rule}.`
 }
 
 export type InsightSummary = {
