@@ -8,7 +8,7 @@ import { toPng } from 'html-to-image'
 import { formatDayLabel, getLocalTodayDate } from '../../lib/date-utils'
 import { buildPaperSections, sortIndexedRowsByName, type PaperRowColumns } from '../../lib/stock-paper-layout'
 import { formatSheetDate } from '../../lib/stock-paper-utils'
-import { formatQuantity, type ItemInsight } from '../../lib/report-insights'
+import { formatQuantity, type ItemInsight, type StockFlag } from '../../lib/report-insights'
 import { useDailyReportData, type ReportRow, type IndexedReportRow, type ReportCatalogItem } from './useDailyReportData'
 import { EditedMark, StockFlagBadge } from './StockFlagBadge'
 import { FlagPickerSheet } from './FlagPickerSheet'
@@ -68,9 +68,13 @@ function ReportArea({ title, groups, insights, onSelectItem, stockLabel }: {
   const visibleGroups = groups.filter(group => group.items.length > 0)
   if (!visibleGroups.length) return null
 
+  // The title is a heading above the table, not a <caption>: the exported photo copies the
+  // table's measured height (which includes a caption) onto the table body, which stretched
+  // every row and cut the last rows off the image.
   return (
-    <table className="report-ledger">
-      {title && <caption>{title}</caption>}
+    <>
+    {title ? <h3 className="report-area-title">{title}</h3> : null}
+    <table className="report-ledger" aria-label={title}>
       <colgroup><col /><col className="report-number-column" /><col className="report-number-column" /></colgroup>
       <thead><tr><th scope="col">Item</th><th scope="col">{stockLabel}</th><th scope="col">Sold</th></tr></thead>
       {visibleGroups.map(group => (
@@ -123,8 +127,29 @@ function ReportArea({ title, groups, insights, onSelectItem, stockLabel }: {
         </tbody>
       ))}
     </table>
+    </>
   )
 }
+
+type BadgeKey = StockFlag | 'none'
+const badgeKeys: BadgeKey[] = ['Stock-out', 'Low stock', 'No sell today', 'Over-stock', 'none']
+const badgeLabel: Record<BadgeKey, string> = {
+  'Stock-out': 'Stock-out',
+  'Low stock': 'Low stock',
+  'Over-stock': 'Over-stock',
+  'No sell today': 'No sell',
+  none: 'No badge',
+}
+// Same colours as the badges (StockFlagBadge).
+const badgeDot: Record<StockFlag, string> = {
+  'Stock-out': 'bg-[#B53C2B]',
+  'Low stock': 'bg-[#A8561F]',
+  'Over-stock': 'bg-[#3E2BB5]',
+  'No sell today': 'bg-warning',
+}
+const chipClass = 'inline-flex min-h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-[13px] font-medium transition-colors duration-150'
+const chipOn = 'border-forest bg-forest text-white'
+const chipOff = 'border-line bg-surface text-ink hover:bg-slate-50'
 
 export function DailyReportPanel({ catalogItems, requestedDate, defaultDate, liveKey = 0 }: DailyReportPanelProps) {
   const [reportDate, setReportDate] = useState(() => requestedDate?.date ?? defaultDate ?? getLocalTodayDate())
@@ -151,16 +176,33 @@ export function DailyReportPanel({ catalogItems, requestedDate, defaultDate, liv
 
   const openFlagPicker = (row: ReportRow) => setFlagPickerRow(row)
 
+  // Badge filter: empty means every item. Applies to the screen and the exported photo.
+  const [badgeFilter, setBadgeFilter] = useState<BadgeKey[]>([])
+  const badgeCounts = useMemo(() => {
+    const counts = new Map<BadgeKey, number>()
+    for (const { row } of indexedRows) {
+      const key = insights[row.code]?.stockFlag ?? 'none'
+      counts.set(key, (counts.get(key) ?? 0) + 1)
+    }
+    return counts
+  }, [indexedRows, insights])
+  const toggleBadge = (key: BadgeKey) => setBadgeFilter((current) =>
+    current.includes(key) ? current.filter((value) => value !== key) : [...current, key])
+  const badgeRows = useMemo(() => {
+    if (badgeFilter.length === 0) return indexedRows
+    return indexedRows.filter(({ row }) => badgeFilter.includes(insights[row.code]?.stockFlag ?? 'none'))
+  }, [indexedRows, insights, badgeFilter])
+
   const [query, setQuery] = useState('')
   const terms = useMemo(() => query.trim().toLowerCase().split(/\s+/).filter(Boolean), [query])
   // Every word must appear in the item's name, stocklist name, product, category or code.
   const shownRows = useMemo(() => {
-    if (terms.length === 0) return indexedRows
-    return indexedRows.filter(({ row }) => {
+    if (terms.length === 0) return badgeRows
+    return badgeRows.filter(({ row }) => {
       const haystack = [row.official_name, row.stocklist_name, row.product, row.category, row.code].join(' ').toLowerCase()
       return terms.every((term) => haystack.includes(term))
     })
-  }, [indexedRows, terms])
+  }, [badgeRows, terms])
 
   const toSections = (rows: IndexedReportRow[]) => {
     const paper = buildPaperSections(rows)
@@ -175,8 +217,8 @@ export function DailyReportPanel({ catalogItems, requestedDate, defaultDate, liv
       unknown: orderedRows(paper.unknownRows),
     }
   }
-  // The exported photo always has every item; the search only filters the screen.
-  const allSections = useMemo(() => toSections(indexedRows), [indexedRows])
+  // The exported photo follows the badge filter; the search only narrows the screen.
+  const allSections = useMemo(() => toSections(badgeRows), [badgeRows])
   const screenSections = useMemo(() => toSections(shownRows), [shownRows])
 
   async function exportPhoto() {
@@ -221,6 +263,11 @@ export function DailyReportPanel({ catalogItems, requestedDate, defaultDate, liv
               Sold is for {formatDayLabel(reportDate)}. Current adds stock in from {arrivedDates.map((day) => formatDayLabel(day)).join(', ')}.
             </p>
           ) : null}
+          {badgeFilter.length > 0 ? (
+            <p className="w-full text-[13px] font-medium text-ink">
+              Showing {badgeFilter.map((key) => badgeLabel[key]).join(', ')} · {badgeRows.length} of {indexedRows.length} items
+            </p>
+          ) : null}
           {photo ? null : <p className="w-full text-[13px] text-muted">Tap an item to change or remove its badge.</p>}
         </header>
         {photo && sections.right.length > 0 ? (
@@ -245,7 +292,7 @@ export function DailyReportPanel({ catalogItems, requestedDate, defaultDate, liv
   }
 
   const shownError = exportError ?? error
-  const canExport = hasReport && !isLoading && !isExporting
+  const canExport = hasReport && badgeRows.length > 0 && !isLoading && !isExporting
 
   return (
     <section className="space-y-3">
@@ -323,11 +370,43 @@ export function DailyReportPanel({ catalogItems, requestedDate, defaultDate, liv
         </div>
       ) : null}
 
+      {hasReport ? (
+        <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-0.5 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:px-0" role="group" aria-label="Show items with badge">
+          <button
+            type="button"
+            onClick={() => setBadgeFilter([])}
+            aria-pressed={badgeFilter.length === 0}
+            className={`${chipClass} ${badgeFilter.length === 0 ? chipOn : chipOff}`}
+          >
+            All <span className="tabular opacity-70">{indexedRows.length}</span>
+          </button>
+          {badgeKeys.map((key) => {
+            const on = badgeFilter.includes(key)
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => toggleBadge(key)}
+                aria-pressed={on}
+                className={`${chipClass} ${on ? chipOn : chipOff}`}
+              >
+                {key !== 'none' ? <span className={`h-2 w-2 shrink-0 rounded-full ${badgeDot[key]}`} aria-hidden="true" /> : null}
+                {badgeLabel[key]} <span className="tabular opacity-70">{badgeCounts.get(key) ?? 0}</span>
+              </button>
+            )
+          })}
+        </div>
+      ) : null}
+
+      {hasReport && badgeFilter.length > 0 && badgeRows.length === 0 ? (
+        <p className="px-1 text-[13px] text-muted">No item has {badgeFilter.length === 1 ? 'this badge' : 'these badges'}.</p>
+      ) : null}
+
       {hasReport && terms.length > 0 ? (
         <p className="px-1 text-[13px] text-muted" aria-live="polite">
           {shownRows.length === 0
             ? `No item matches "${query.trim()}".`
-            : `${shownRows.length} of ${indexedRows.length} items`}
+            : `${shownRows.length} of ${badgeRows.length} items`}
         </p>
       ) : null}
 

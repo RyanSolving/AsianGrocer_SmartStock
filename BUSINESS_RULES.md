@@ -118,6 +118,13 @@ Rules are checked in this order; the first match wins:
 Code: `getStockFlag` in `web-app/lib/report-insights.ts`; colours in
 `web-app/app/components/StockFlagBadge.tsx`.
 
+### 3a. Filtering the Daily Report by badge
+
+- Chips under the search: All, Stock-out, Low stock, No sell, Over-stock, No badge, each with
+  its count. Several can be on at once; All clears them.
+- The filter applies to the screen and to the exported photo. The sheet header then says
+  "Showing Stock-out, Low stock · 3 of 120 items". The search box narrows the screen only.
+
 ### 3b. Changing a badge by hand
 
 - On the Daily Report, tap an item to open its badge picker. The choices are:
