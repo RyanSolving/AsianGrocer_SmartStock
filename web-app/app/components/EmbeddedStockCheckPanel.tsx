@@ -1670,7 +1670,7 @@ export function EmbeddedStockCheckPanel({
           aria-label={`Mark ${displayName} as selling fast`}
           aria-pressed={item.row.red_marked}
           onClick={() => toggleRed(item.index)}
-          className={`relative h-3.5 w-3.5 shrink-0 rounded-full border before:absolute before:-inset-3 before:content-[''] ${item.row.red_marked ? 'border-red-600 bg-red-600' : 'border-slate-400 bg-transparent'}`}
+          className={`relative mt-[5px] h-3.5 w-3.5 shrink-0 rounded-full border before:absolute before:-inset-3 before:content-[''] ${item.row.red_marked ? 'border-red-600 bg-red-600' : 'border-slate-400 bg-transparent'}`}
           title="Mark as selling fast"
         />
         <span className={item.row.red_marked ? 'font-semibold text-red-600' : undefined}>{displayName}</span>

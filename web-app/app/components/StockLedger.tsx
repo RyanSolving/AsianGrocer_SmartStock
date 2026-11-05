@@ -156,8 +156,8 @@ export function StockLedger<T extends IndexableRow>({
                                 title="Remove from today's list"
                                 onClick={() => onRemove(item)}
                               >
-                                <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4">
-                                  <path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+                                <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5">
+                                  <path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                                 </svg>
                               </button>
                             </td>

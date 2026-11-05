@@ -706,12 +706,20 @@ textarea {
   align-items: flex-start;
 }
 
+/* Names sit on a 24px line so the first line lines up with the 24px tag button
+   (Stock In); smaller marks centre themselves on that line. Long names wrap below. */
+.stock-ledger .report-name {
+  gap: 8px;
+}
+
 .stock-ledger .report-name > button {
-  margin-top: 4px;
+  margin-top: 0;
+  align-self: flex-start;
 }
 
 .stock-ledger .report-name > span {
   min-width: 0;
+  line-height: 24px;
 }
 
 .stock-ledger-band-btn {
@@ -806,6 +814,7 @@ textarea {
   text-align: center;
 }
 
+/* Quiet: a light grey cross that darkens on hover or press. The tap area stays 36px. */
 .stock-ledger-remove-btn {
   display: inline-flex;
   height: 36px;
@@ -813,12 +822,14 @@ textarea {
   align-items: center;
   justify-content: center;
   border-radius: 8px;
-  color: var(--muted);
+  color: theme(colors.slate.300);
+  transition: color 150ms ease-out, background-color 150ms ease-out;
 }
 
-.stock-ledger-remove-btn:hover {
+.stock-ledger-remove-btn:hover,
+.stock-ledger-remove-btn:active {
   background: theme(colors.slate.100);
-  color: var(--ink);
+  color: var(--muted);
 }
 
 .stock-ledger-remove-btn:focus-visible {
