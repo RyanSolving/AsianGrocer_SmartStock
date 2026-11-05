@@ -684,7 +684,9 @@ export function EmbeddedStockCheckPanel({
       if (!response.ok) {
         const details = payload?.details
         const detailsText = typeof details === 'string' ? details : details ? JSON.stringify(details) : ''
-        throw new Error(detailsText ? `${payload?.error ?? 'Parse request failed.'} Details: ${detailsText}` : (payload?.error ?? 'Parse request failed.'))
+        const headline = String(payload?.error ?? 'Parse request failed.').replace(/[.:]\s*$/, '')
+        // "Headline: details" shows the headline in the toast and the rest under Details.
+        throw new Error(detailsText ? `${headline}: ${detailsText}` : `${headline}.`)
       }
 
       const parsedRows = buildRowsFromParsedPhoto(visibleCatalogItems, payload as ParsedPhotoResponse)

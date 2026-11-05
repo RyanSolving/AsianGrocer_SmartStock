@@ -3,6 +3,7 @@ import OpenAI from 'openai'
 import { z } from 'zod'
 
 import { loadDefaultCatalog, buildCatalogPrompt, parseCSVCatalog } from '../../../lib/fruit-catalog'
+import { describeOpenAIError, readPhotoWithOpenAI } from '../../../lib/openai-photo'
 import { logGenerateEvent } from '../../../lib/supabase/events'
 import { getAuthContext } from '../../../lib/supabase/route-auth'
 import { catalogEntrySchema, parsedStockSchema, stockModeSchema } from '../../../lib/stock-schema'
@@ -95,21 +96,6 @@ const MATCH_WEIGHTS = {
 }
 
 const MATCH_THRESHOLD_FUZZY = 0.62
-
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs)
-    promise
-      .then((result) => {
-        clearTimeout(timer)
-        resolve(result)
-      })
-      .catch((error) => {
-        clearTimeout(timer)
-        reject(error)
-      })
-  })
-}
 
 function normalizeText(value: string) {
   return value
@@ -340,43 +326,16 @@ export async function POST(request: Request) {
 
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
     const model = process.env.OPENAI_VISION_MODEL || 'gpt-6.1-terra'
+    const fallbackModel = process.env.OPENAI_VISION_FALLBACK_MODEL || 'gpt-5.2'
 
     try {
       const catalogPrompt = buildCatalogPrompt(catalog, mode)
-      const completion = await withTimeout(
-        client.chat.completions.create({
-          model,
-          temperature: 0,
-          max_completion_tokens: 16384,
-          response_format: { type: 'json_object' },
-          messages: [
-            {
-              role: 'user',
-              content: [
-                {
-                  type: 'text',
-                  text: catalogPrompt,
-                },
-                {
-                  type: 'image_url',
-                  image_url: {
-                    url: dataUrl,
-                    detail: 'high',
-                  },
-                },
-              ],
-            },
-          ],
-        }),
-        OPENAI_TIMEOUT_MS,
-        `OpenAI request timed out after ${OPENAI_TIMEOUT_MS}ms.`
-      )
-
-      const content = completion.choices[0]?.message?.content ?? ''
+      const content = await readPhotoWithOpenAI(client, { model, fallbackModel, prompt: catalogPrompt, imageUrl: dataUrl, timeoutMs: OPENAI_TIMEOUT_MS })
       parsedJson = tryParseJson(content)
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown OpenAI error'
-      return NextResponse.json({ error: 'Failed to parse image with OpenAI Vision.', details: message }, { status: 502 })
+      const reason = describeOpenAIError(error)
+      console.error('parse-photo: OpenAI request failed', { model, fallbackModel, reason })
+      return NextResponse.json({ error: reason.message, details: reason.details }, { status: 502 })
     }
 
     if (!parsedJson) {

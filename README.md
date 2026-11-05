@@ -31,6 +31,7 @@ By capturing a photo of a handwritten closing stock sheet, this application leve
    ```env
    OPENAI_API_KEY="sk-..."
    OPENAI_VISION_MODEL="gpt-6.1-terra" # default; any OpenAI vision model works
+   OPENAI_VISION_FALLBACK_MODEL="gpt-5.2" # used only when the model above is not available
    NEXT_PUBLIC_SUPABASE_URL="https://YOUR_PROJECT_REF.supabase.co"
    NEXT_PUBLIC_SUPABASE_ANON_KEY="YOUR_SUPABASE_ANON_KEY"
    BIGQUERY_PROJECT_ID="gen-lang-client-0274270007"
