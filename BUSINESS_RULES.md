@@ -65,7 +65,8 @@ units sold (per day) = total ÷ days between the two closings
   added. Example: closing on Thursday, delivery on Friday with no closing, closing on Saturday:
   the Saturday report uses Thursday's closing + Friday's and Saturday's stock in.
 - **Days** = calendar days from the previous closing to this one (Thu → Sat = 2). When it is
-  more than 1, every sold figure in the app is the **daily average**, to one decimal:
+  more than 1, every sold figure in the app is the **daily average, rounded up to a whole
+  unit** (12.5 → 13, 13.33 → 14; a negative miscount rounds away from zero, −2.5 → −3):
   - Daily Report (screen and photo): the column reads "Sold / per day" and the sheet says
     "Sold is a daily average over 2 days (Fri, 6 Nov – Sat, 7 Nov), since the closing on Thu, 5 Nov."
   - Dashboard: "Units sold a day" with the total in the note ("28 over 2 days"); rankings,

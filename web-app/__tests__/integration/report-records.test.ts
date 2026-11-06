@@ -47,8 +47,8 @@ describe('buildSalesTrend', () => {
     })
 
     expect(days[0]).toEqual({ date: '2026-11-03', unitsSold: null, stockIn: 4, closingFound: false })
-    // Against 2 Nov: 10 + 4 (3 Nov stock in) − 7 = 7 over 2 days = 3.5 a day.
-    expect(days[1].unitsSold).toBe(3.5)
+    // Against 2 Nov: 10 + 4 (3 Nov stock in) − 7 = 7 over 2 days = 3.5, rounded up to 4 a day.
+    expect(days[1].unitsSold).toBe(4)
   })
 
   it('has no figure for the first day without an earlier closing', () => {

@@ -224,9 +224,17 @@ describe('closings more than a day apart (Thursday, then Saturday)', () => {
     expect(insight.stockFlag).toBe('Low stock')
   })
 
-  it('rounds the average to one decimal', () => {
-    expect(computeItemInsight('A', { closing: 0, prevClosing: 7, stockIn: 0, days: 3 }).sold).toBe(2.3)
+  it('rounds the average up to a whole unit', () => {
+    expect(perDay(25, 2)).toBe(13) // 12.5
+    expect(perDay(40, 3)).toBe(14) // 13.33
+    expect(perDay(26, 2)).toBe(13) // exact stays
+    expect(perDay(0.3 * 3, 3)).toBe(1) // no floating-point bump past an exact value
     expect(perDay(7, 1)).toBe(7)
+    expect(computeItemInsight('A', { closing: 0, prevClosing: 7, stockIn: 0, days: 3 }).sold).toBe(3)
+  })
+
+  it('rounds a negative average away from zero', () => {
+    expect(perDay(-5, 2)).toBe(-3)
   })
 
   it('averages a negative figure too', () => {
@@ -245,7 +253,7 @@ describe('closings more than a day apart (Thursday, then Saturday)', () => {
     })
     const summary = summarizeInsights(insights)
     expect(summary.totalSoldAllDays).toBe(15)
-    expect(summary.totalSold).toBe(7.5)
+    expect(summary.totalSold).toBe(8) // 7.5 rounded up
     expect(summary.days).toBe(2)
   })
 

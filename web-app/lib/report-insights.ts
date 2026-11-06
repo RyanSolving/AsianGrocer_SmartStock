@@ -50,7 +50,7 @@ export type ItemInsight = {
   arrivedSince: number
   /** closing + arrivedSince: what is on hand now. Null when the item is not on the closing. */
   current: number | null
-  /** Units sold per day: the total ÷ days, to one decimal when days > 1. */
+  /** Units sold per day: the total ÷ days, rounded up to a whole unit when days > 1. */
   sold: number | null
   /** Units sold over all the days since the previous closing. */
   soldTotal: number | null
@@ -148,10 +148,16 @@ export function computeItemInsight(
   return { ...base, sold, soldTotal, sellThroughPct, status: 'ok', suggestedQty, flag, fast, stockFlag: getStockFlag(onHand, sold) }
 }
 
-/** A total over `days` as a daily figure, to one decimal; the total itself when days is 1. */
+/**
+ * A total over `days` as a whole daily figure, rounded up (12.5 → 13, 13.33 → 14); the total
+ * itself when days is 1. A negative figure (a miscount) rounds away from zero the same way
+ * (−2.5 → −3), so the warning never looks smaller than it is.
+ */
 export function perDay(total: number, days: number) {
   if (days <= 1) return total
-  return Math.round((total / days) * 10) / 10
+  // toPrecision drops floating-point noise, so an exact 13 never becomes 14.
+  const average = Number((Math.abs(total) / days).toPrecision(12))
+  return Math.sign(total) * Math.ceil(average)
 }
 
 export function computeItemInsights(input: {
