@@ -6,8 +6,8 @@ import type { ReportEntry } from '../../lib/report-aggregations'
 import { applyFlagOverrides, computeItemInsights, formatQuantity, summarizeInsights, type StockFlag } from '../../lib/report-insights'
 import { friendlyError, toast } from '../../lib/toast-store'
 import type { IndexedPaperRow, PaperRow } from '../../lib/stock-paper-layout'
-import { describeStockInRecords } from '../../lib/report-records'
-import { getLocalTodayDate } from '../../lib/date-utils'
+import { addDays, daysBetween, describeStockInRecords } from '../../lib/report-records'
+import { formatDayLabel, getLocalTodayDate } from '../../lib/date-utils'
 
 /**
  * Loads one day's report data (closing, previous closing, stock-in) and derives the
@@ -68,6 +68,10 @@ export type DailyReportResponse = {
   /** Earlier main Stock In saves for the date, replaced by the latest. */
   stockInReplacedCount?: number
   stockInByCode: Record<string, number>
+  /** Stock dates of the Stock In records counted (after the previous closing, up to date). */
+  stockInDates?: string[]
+  /** Days units sold covers (from the previous closing). */
+  soldDays?: number
   /** True when no later closing has been saved up to today (null for older servers). */
   isLatestClosing?: boolean | null
   /** Stock in saved after this closing date, up to today, while no later closing exists. */
@@ -161,6 +165,10 @@ export function useDailyReportData(date: string, catalogItems: ReportCatalogItem
     void reload()
   }, [reload, refreshKey])
 
+  // Days since the previous closing: units sold is a daily average when it is more than 1
+  // (e.g. Thursday's closing, no closing on Friday, Saturday's closing = 2 days).
+  const soldDays = data?.prevClosingDate ? Math.max(1, daysBetween(data.prevClosingDate, data.date)) : 1
+
   const insights = useMemo(() => {
     if (!data) return {}
     const calculated = computeItemInsights({
@@ -168,6 +176,7 @@ export function useDailyReportData(date: string, catalogItems: ReportCatalogItem
       prevClosingByCode: data.prevClosingByCode,
       stockInByCode: data.stockInByCode,
       arrivedSinceByCode: data.arrivedSinceByCode ?? {},
+      days: data.prevClosingDate ? daysBetween(data.prevClosingDate, data.date) : 1,
     })
     return applyFlagOverrides(calculated, data.flagOverrides ?? {})
   }, [data])
@@ -246,6 +255,10 @@ export function useDailyReportData(date: string, catalogItems: ReportCatalogItem
   )
 
   const arrivedDates = useMemo(() => data?.arrivedSinceDates ?? [], [data])
+  const soldPeriod = useMemo(
+    () => (data?.prevClosingDate && soldDays > 1 ? describeSoldPeriod(data.prevClosingDate, data.date, soldDays) : null),
+    [data, soldDays],
+  )
   const showsCurrent = data?.isLatestClosing === true
 
   const notices = useMemo(() => {
@@ -257,7 +270,13 @@ export function useDailyReportData(date: string, catalogItems: ReportCatalogItem
       list.push({ id: 'no-prev', severity: 'blocking', text: "No earlier closing, so units sold can't be worked out." })
     }
     if (data?.closingFound && data.stockInRecordCount === 0) {
-      list.push({ id: 'no-stock-in', severity: 'note', text: 'No stock-in for this date. Sold assumes nothing arrived.' })
+      list.push({
+        id: 'no-stock-in',
+        severity: 'note',
+        text: soldDays > 1
+          ? 'No stock in since the previous closing. Sold assumes nothing arrived.'
+          : 'No stock-in for this date. Sold assumes nothing arrived.',
+      })
     }
     if (data && (data.stockInExtraCount ?? 0) > 0) {
       const extras = data.stockInExtraCount ?? 0
@@ -279,7 +298,7 @@ export function useDailyReportData(date: string, catalogItems: ReportCatalogItem
     if (negatives.length > 0) {
       const named = negatives
         .slice(0, 3)
-        .map((entry) => `${entry.name} (${formatQuantity(entry.insight.sold).replace('-', '−')})`)
+        .map((entry) => `${entry.name} (${formatQuantity(entry.insight.sold).replace('-', '−')}${soldDays > 1 ? ' a day' : ''})`)
         .join(', ')
       const more = negatives.length > 3 ? ` and ${negatives.length - 3} more` : ''
       list.push({
@@ -290,7 +309,7 @@ export function useDailyReportData(date: string, catalogItems: ReportCatalogItem
       })
     }
     return list
-  }, [data, summary, entries])
+  }, [data, summary, entries, soldDays])
 
   const hasReport = Boolean(data?.closingFound) && indexedRows.length > 0
 
@@ -308,12 +327,35 @@ export function useDailyReportData(date: string, catalogItems: ReportCatalogItem
     /** The stock column shows current stock (closing + later stock in), not only the closing. */
     showsCurrent,
     arrivedDates,
+    /** Days units sold covers; sold figures are per day when more than 1. */
+    soldDays,
+    /** Wording for a multi-day sold figure, or null when the closings are consecutive. */
+    soldPeriod,
     sources: data?.sources ?? null,
     stockInRecordCount: data?.stockInRecordCount ?? 0,
     stockInNote: data
-      ? describeStockInRecords(data.stockInExtraCount ?? 0, data.stockInReplacedCount ?? Math.max(0, data.stockInRecordCount - 1))
+      ? [
+        (data.stockInDates?.length ?? 0) > 1
+          ? `${data.stockInDates!.length} days: ${data.stockInDates!.map((day) => formatDayLabel(day)).join(', ')}`
+          : undefined,
+        describeStockInRecords(data.stockInExtraCount ?? 0, data.stockInReplacedCount ?? Math.max(0, data.stockInRecordCount - 1)),
+      ].filter(Boolean).join(' · ') || undefined
       : undefined,
     canChangeFlags: data?.overridesAvailable !== false,
     setFlagOverride,
+  }
+}
+
+/**
+ * Wording for units sold over several days, e.g. closings on Thursday and Saturday:
+ * short "2-day average", range "Fri, 6 Nov – Sat, 7 Nov", and a sentence for the notes.
+ */
+export function describeSoldPeriod(prevClosingDate: string, date: string, days: number) {
+  const range = `${formatDayLabel(addDays(prevClosingDate, 1))} – ${formatDayLabel(date)}`
+  return {
+    days,
+    short: `${days}-day average`,
+    range,
+    sentence: `Sold is a daily average over ${days} days (${range}), since the closing on ${formatDayLabel(prevClosingDate)}.`,
   }
 }

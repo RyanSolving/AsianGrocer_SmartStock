@@ -56,8 +56,24 @@ stock-in records it says "latest of N". Code: `ReportSources.tsx`.
 ## 2. Units sold
 
 ```
-units sold = previous closing + stock in − closing
+units sold (total)   = previous closing + stock in since then − closing
+units sold (per day) = total ÷ days between the two closings
 ```
+
+- **Stock in** counts every Stock In dated after the previous closing, up to the report date.
+  Each date is combined on its own (latest main save + extra deliveries), then the dates are
+  added. Example: closing on Thursday, delivery on Friday with no closing, closing on Saturday:
+  the Saturday report uses Thursday's closing + Friday's and Saturday's stock in.
+- **Days** = calendar days from the previous closing to this one (Thu → Sat = 2). When it is
+  more than 1, every sold figure in the app is the **daily average**, to one decimal:
+  - Daily Report (screen and photo): the column reads "Sold / per day" and the sheet says
+    "Sold is a daily average over 2 days (Fri, 6 Nov – Sat, 7 Nov), since the closing on Thu, 5 Nov."
+  - Dashboard: "Units sold a day" with the total in the note ("28 over 2 days"); rankings,
+    category bars, refill table and the photo header use the daily figure.
+  - Welcome: "units sold a day" with "2-day average … · 28 in total".
+  - Badge picker: "Sold 2 a day (4 over 2 days)".
+- Badges use the daily figure, so cover stays "days of stock left" (§3). Total units sold is
+  the sum of the totals ÷ days, not a sum of rounded averages.
 
 | Status | When | What the report shows |
 |---|---|---|

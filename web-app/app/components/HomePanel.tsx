@@ -212,8 +212,13 @@ function HomeContent({ catalogItems, onNavigate, refreshKey = 0, now }: HomePane
             <>
               <p className="mt-2 flex items-end gap-2.5">
                 <span className="text-[52px] font-semibold leading-none tracking-[-0.03em] tabular">{formatQuantity(unitsSold)}</span>
-                <span className="pb-1.5 text-[15px] text-white/85">units sold</span>
+                <span className="pb-1.5 text-[15px] text-white/85">{report.soldPeriod ? 'units sold a day' : 'units sold'}</span>
               </p>
+              {report.soldPeriod ? (
+                <p className="mt-1.5 text-[13px] text-white/80">
+                  {report.soldPeriod.short}, {report.soldPeriod.range} · {formatQuantity(report.summary.totalSoldAllDays)} in total
+                </p>
+              ) : null}
               {refillCount > 0 ? (
                 <p className="mt-2.5 text-[13px] text-white/80">{refillCount} to refill today</p>
               ) : null}
@@ -231,11 +236,11 @@ function HomeContent({ catalogItems, onNavigate, refreshKey = 0, now }: HomePane
 
       {hasReport ? (
         <div className="grid grid-cols-2 gap-2.5">
-          <StatTile label="Stock in" value={`${formatQuantity(report.summary.totalStockIn)}`} note="units arrived" />
+          <StatTile label="Stock in" value={`${formatQuantity(report.summary.totalStockIn)}`} note={report.soldPeriod ? `units in ${report.soldPeriod.days} days` : 'units arrived'} />
           <StatTile
             label="Top seller"
             value={topSeller ? topSeller.name : '—'}
-            note={topSeller ? `${formatQuantity(topSeller.sold)} units · ${Math.round(topSeller.share * 100)}% of sales` : 'No sales recorded'}
+            note={topSeller ? `${formatQuantity(topSeller.sold)} units${report.soldPeriod ? ' a day' : ''} · ${Math.round(topSeller.share * 100)}% of sales` : 'No sales recorded'}
           />
           <StatTile label="Stock-out" value={String(stockOuts)} note="items at 0" dot="#B53C2B" onClick={() => onNavigate('daily-report', reportDate ? { reportDate } : undefined)} />
           <StatTile label="Low stock" value={String(lowStock)} note="under 3 days left" dot="#A8561F" onClick={() => onNavigate('daily-report', reportDate ? { reportDate } : undefined)} />

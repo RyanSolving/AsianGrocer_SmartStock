@@ -889,3 +889,13 @@ textarea {
   background: theme(colors.forest.50);
   color: theme(colors.forest.700);
 }
+
+/* Daily Report: "per day" under the Sold heading when the closings are days apart. */
+.report-col-sub {
+  display: block;
+  margin-top: 1px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}

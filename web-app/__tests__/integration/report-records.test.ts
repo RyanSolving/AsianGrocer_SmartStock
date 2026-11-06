@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals'
 
-import { addDays, buildSalesTrend, combineStockInByDate, combineStockInRecords, describeStockInRecords, latestReportDate } from '../../lib/report-records'
+import { addDays, buildSalesTrend, combineStockInByDate, daysBetween, combineStockInRecords, describeStockInRecords, latestReportDate } from '../../lib/report-records'
 
 const closing = (date: string, quantities: Record<string, number>) => ({
   date,
@@ -43,11 +43,12 @@ describe('buildSalesTrend', () => {
       start: '2026-11-03',
       end: '2026-11-04',
       closings: [closing('2026-11-02', { A: 10 }), closing('2026-11-04', { A: 7 })],
-      stockIns: [],
+      stockIns: [stockIn('2026-11-03', { A: 4 })],
     })
 
-    expect(days[0]).toEqual({ date: '2026-11-03', unitsSold: null, stockIn: 0, closingFound: false })
-    expect(days[1].unitsSold).toBe(3) // against 2 Nov, the latest earlier closing
+    expect(days[0]).toEqual({ date: '2026-11-03', unitsSold: null, stockIn: 4, closingFound: false })
+    // Against 2 Nov: 10 + 4 (3 Nov stock in) − 7 = 7 over 2 days = 3.5 a day.
+    expect(days[1].unitsSold).toBe(3.5)
   })
 
   it('has no figure for the first day without an earlier closing', () => {
@@ -149,6 +150,30 @@ describe('combineStockInByDate (stock in since the closing)', () => {
   })
 
   it('is empty without records', () => {
-    expect(combineStockInByDate([], dateOf)).toEqual({ quantities: {}, dates: [] })
+    expect(combineStockInByDate([], dateOf)).toMatchObject({ quantities: {}, dates: [], extraCount: 0, replacedCount: 0, latest: null })
+  })
+})
+
+describe('daysBetween', () => {
+  it('counts calendar days', () => {
+    expect(daysBetween('2026-11-05', '2026-11-07')).toBe(2)
+    expect(daysBetween('2026-10-31', '2026-11-01')).toBe(1)
+    expect(daysBetween('2026-11-07', '2026-11-07')).toBe(0)
+  })
+})
+
+describe('combineStockInByDate counts', () => {
+  it('adds extras and replaced saves over dates and keeps the newest record', () => {
+    const dateOf = (record: { final_output: unknown }) => (record.final_output as { stock_date: string }).stock_date
+    const extra = (record: ReturnType<typeof stockIn>) => ({ ...record, final_output: { ...record.final_output, extra_delivery: true } })
+    const result = combineStockInByDate([
+      stockIn('2026-11-06', { A: 1 }, '2026-11-06T07:00:00Z'),
+      stockIn('2026-11-06', { A: 2 }, '2026-11-06T08:00:00Z'),
+      extra(stockIn('2026-11-07', { B: 3 }, '2026-11-07T09:00:00Z')),
+    ], dateOf)
+    expect(result.quantities).toEqual({ A: 2, B: 3 })
+    expect(result.extraCount).toBe(1)
+    expect(result.replacedCount).toBe(1)
+    expect(result.latest?.log_time).toBe('2026-11-07T09:00:00Z')
   })
 })

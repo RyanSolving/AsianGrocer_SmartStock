@@ -10,6 +10,7 @@ import {
   computeItemInsights,
   describeAutoFlag,
   getStockFlag,
+  perDay,
   summarizeInsights,
 } from '../../lib/report-insights'
 
@@ -209,5 +210,47 @@ describe('new stock not on the closing', () => {
     expect(insights.N.status).toBe('no-closing')
     expect(insights.N.sold).toBeNull()
     expect(insights.N.stockFlag).toBeNull()
+  })
+})
+
+describe('closings more than a day apart (Thursday, then Saturday)', () => {
+  it('shows sold as a daily average and keeps the total', () => {
+    // Thu closing 10, Fri stock in 6, Sat closing 4: 12 sold over 2 days.
+    const insight = computeItemInsight('A', { closing: 4, prevClosing: 10, stockIn: 6, days: 2 })
+    expect(insight.soldTotal).toBe(12)
+    expect(insight.sold).toBe(6)
+    expect(insight.days).toBe(2)
+    // Cover uses the daily figure: 4 left ÷ 6 a day < 3 days.
+    expect(insight.stockFlag).toBe('Low stock')
+  })
+
+  it('rounds the average to one decimal', () => {
+    expect(computeItemInsight('A', { closing: 0, prevClosing: 7, stockIn: 0, days: 3 }).sold).toBe(2.3)
+    expect(perDay(7, 1)).toBe(7)
+  })
+
+  it('averages a negative figure too', () => {
+    const insight = computeItemInsight('A', { closing: 9, prevClosing: 5, stockIn: 0, days: 2 })
+    expect(insight.status).toBe('negative')
+    expect(insight.sold).toBe(-2)
+    expect(insight.soldTotal).toBe(-4)
+  })
+
+  it('summarises units sold per day from the total', () => {
+    const insights = computeItemInsights({
+      closingByCode: { A: 4, B: 0 },
+      prevClosingByCode: { A: 10, B: 3 },
+      stockInByCode: { A: 6 },
+      days: 2,
+    })
+    const summary = summarizeInsights(insights)
+    expect(summary.totalSoldAllDays).toBe(15)
+    expect(summary.totalSold).toBe(7.5)
+    expect(summary.days).toBe(2)
+  })
+
+  it('explains the badge with a per-day rate', () => {
+    const insight = computeItemInsight('A', { closing: 4, prevClosing: 10, stockIn: 6, days: 2 })
+    expect(describeAutoFlag(insight)).toContain('6 sold a day')
   })
 })

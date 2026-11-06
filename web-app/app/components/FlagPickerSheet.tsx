@@ -26,7 +26,14 @@ export function FlagPickerSheet({ open, onClose, itemName, insight, onChoose, un
 
   const isManual = insight.flagSource === 'manual'
   const autoFlag = insight.autoStockFlag !== undefined ? insight.autoStockFlag : insight.stockFlag
-  const sold = insight.status === 'ok' || insight.status === 'negative' ? formatQuantity(insight.sold).replace('-', '−') : '–'
+  const hasSold = insight.status === 'ok' || insight.status === 'negative'
+  const multiDay = hasSold && insight.days > 1
+  // Over several days: "6 a day (12 over 2 days)".
+  const sold = !hasSold
+    ? '–'
+    : multiDay
+      ? `${formatQuantity(insight.sold).replace('-', '−')} a day (${formatQuantity(insight.soldTotal).replace('-', '−')} over ${insight.days} days)`
+      : formatQuantity(insight.sold).replace('-', '−')
 
   const option = (key: string, selected: boolean, onSelect: () => void, label: React.ReactNode, hint?: string) => (
     <li key={key}>

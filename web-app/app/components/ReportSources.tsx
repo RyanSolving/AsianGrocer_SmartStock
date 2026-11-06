@@ -69,7 +69,7 @@ export function ReportSources({ sources, stockInNote, arrivedDates = [] }: { sou
       <ul className="space-y-2 px-3 pb-3 pt-0.5">
         <SourceRow label="Closing" source={sources.closing} missing="No closing saved for this date." />
         <SourceRow label="Previous closing" source={sources.previousClosing} missing="No earlier closing, so units sold is unknown." />
-        <SourceRow label="Stock in" source={sources.stockIn} missing="No stock in for this date." extra={stockInNote} />
+        <SourceRow label="Stock in" source={sources.stockIn} missing="No stock in since the previous closing." extra={stockInNote} />
         {arrivedDates.length > 0 ? (
           <li className="flex items-start gap-2.5">
             <span className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-forest" aria-hidden="true" />

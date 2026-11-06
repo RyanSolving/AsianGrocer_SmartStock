@@ -83,8 +83,8 @@ export function combineStockInRecords<T extends StockInRecord>(records: T[]) {
 }
 
 /**
- * Stock In records from several dates (the days after a closing): each date is combined on
- * its own (latest main save + extra deliveries), then the dates are added together.
+ * Stock In records from several dates (e.g. every day since the previous closing): each date
+ * is combined on its own (latest main save + extra deliveries), then the dates are added.
  */
 export function combineStockInByDate<T extends StockInRecord>(records: T[], dateOf: (record: T) => string | null) {
   const byDate = new Map<string, T[]>()
@@ -94,12 +94,37 @@ export function combineStockInByDate<T extends StockInRecord>(records: T[], date
     byDate.set(date, [...(byDate.get(date) ?? []), record])
   }
   const quantities: QuantityByCode = {}
+  let extraCount = 0
+  let replacedCount = 0
+  /** The newest record used (main or extra), for the Sources row. */
+  let latest: T | null = null
   for (const group of Array.from(byDate.values())) {
-    for (const [code, quantity] of Object.entries(combineStockInRecords(group).quantities)) {
+    const combined = combineStockInRecords(group)
+    extraCount += combined.extras.length
+    replacedCount += combined.replacedCount
+    for (const record of [...(combined.main ? [combined.main] : []), ...combined.extras]) {
+      if (!latest || (record.log_time ?? '') > (latest.log_time ?? '')) latest = record
+    }
+    for (const [code, quantity] of Object.entries(combined.quantities)) {
       quantities[code] = (quantities[code] ?? 0) + quantity
     }
   }
-  return { quantities, dates: Array.from(byDate.keys()).sort() }
+  return { quantities, dates: Array.from(byDate.keys()).sort(), extraCount, replacedCount, latest }
+}
+
+/** Whole calendar days from `from` to `to` (`YYYY-MM-DD`); 0 or less when `to` is not later. */
+export function daysBetween(from: string, to: string) {
+  const toUtc = (iso: string) => {
+    const [year, month, day] = iso.split('-').map(Number)
+    return Date.UTC(year, month - 1, day)
+  }
+  return Math.round((toUtc(to) - toUtc(from)) / 86_400_000)
+}
+
+/** The stock date a Stock In record was saved for, or null. */
+export function stockDateOf(record: { final_output: unknown }) {
+  const value = (record.final_output as { stock_date?: unknown } | null)?.stock_date
+  return typeof value === 'string' ? value : null
 }
 
 /** Short note for the report's Sources row, or undefined when one record was used. */
@@ -160,8 +185,8 @@ export function buildSalesTrend(input: {
   const days: TrendDay[] = []
   for (let date = input.start; date <= input.end; date = addDays(date, 1)) {
     const closing = closingByDate.get(date)
-    const stockInByCode = combineStockInRecords(stockInsByDate.get(date) ?? []).quantities
-    const stockIn = Object.values(stockInByCode).reduce((sum, value) => sum + value, 0)
+    const dayStockIn = combineStockInRecords(stockInsByDate.get(date) ?? []).quantities
+    const stockIn = Object.values(dayStockIn).reduce((sum, value) => sum + value, 0)
     const previous = [...closings].reverse().find((row) => row.date < date)
 
     if (!closing || !previous) {
@@ -169,10 +194,14 @@ export function buildSalesTrend(input: {
       continue
     }
 
+    // Same rule as the Daily Report: every stock in since the previous closing, and sold as a
+    // daily average when the closings are more than a day apart.
+    const sinceRecords = input.stockIns.filter((row) => row.stock_date > previous.date && row.stock_date <= date)
     const insights = computeItemInsights({
       closingByCode: closing,
       prevClosingByCode: closingByDate.get(previous.date) ?? {},
-      stockInByCode,
+      stockInByCode: combineStockInByDate(sinceRecords, (row) => row.stock_date).quantities,
+      days: daysBetween(previous.date, date),
     })
     days.push({ date, unitsSold: summarizeInsights(insights).totalSold, stockIn, closingFound: true })
   }

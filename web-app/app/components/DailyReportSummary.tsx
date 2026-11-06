@@ -132,10 +132,12 @@ function topCategoryLabels(slices: CategorySlice[]) {
  * values (9% vs 8%) can be told apart. One hue: the categories making half of sales are the
  * brand green, the rest the same hue stepped back, split by a cut-off line. "Other" stays last.
  */
-function CategoryBars({ slices, onHover, onLeave }: {
+function CategoryBars({ slices, onHover, onLeave, soldLabel = 'units sold' }: {
   slices: CategorySlice[]
   onHover?: ShowTooltip
   onLeave?: () => void
+  /** "units sold", or "sold a day" when the figures are daily averages. */
+  soldLabel?: string
 }) {
   const emphasised = topCategoryLabels(slices)
   const maxSold = Math.max(1, ...slices.map((slice) => slice.sold))
@@ -151,7 +153,7 @@ function CategoryBars({ slices, onHover, onLeave }: {
         const content = {
           title: slice.label,
           rows: [
-            { label: 'units sold', value: formatQuantity(slice.sold) },
+            { label: soldLabel, value: formatQuantity(slice.sold) },
             { label: 'of sales', value: share },
           ],
         }
@@ -220,6 +222,11 @@ export function DailyReportSummary({ containerRef, photoMode = false, date, prev
   const hiddenRefillCount = refill.length - visibleRefill.length
   const maxSold = Math.max(1, ...products.map((product) => product.sold))
   const unreliable = summary.itemsWithoutBaseline + summary.itemsWithNegative
+  // Closings more than a day apart (e.g. Thursday, then Saturday): every sold figure is a
+  // daily average, and the labels say so.
+  const days = summary.days
+  const multiDay = days > 1
+  const perDay = multiDay ? ' a day' : ''
 
   // The screen's one finding, read first under the title.
   const salesFinding = topContributors.length > 0
@@ -227,7 +234,7 @@ export function DailyReportSummary({ containerRef, photoMode = false, date, prev
         <>
           {topContributors.length} item{topContributors.length === 1 ? '' : 's'} made{' '}
           <span className="font-semibold" style={{ color: C.contributionInk }}>{Math.round(topContributorShare * 100)}%</span> of{' '}
-          <span className="font-semibold">{formatQuantity(summary.totalSold)}</span> units sold
+          <span className="font-semibold">{formatQuantity(summary.totalSold)}</span> units sold{perDay}
         </>
       )
       : 'No sales recorded for this date'
@@ -249,11 +256,18 @@ export function DailyReportSummary({ containerRef, photoMode = false, date, prev
 
   type Kpi = { label: string; value: string; note: string; tier: 'sold' | 'contribution' | 'stock'; share?: number }
   const kpis: Kpi[] = [
-    { label: 'Units sold', value: formatQuantity(summary.totalSold), note: `Stock in today ${formatQuantity(summary.totalStockIn)}`, tier: 'sold' },
+    {
+      label: multiDay ? 'Units sold a day' : 'Units sold',
+      value: formatQuantity(summary.totalSold),
+      note: multiDay
+        ? `${formatQuantity(summary.totalSoldAllDays)} over ${days} days · stock in ${formatQuantity(summary.totalStockIn)}`
+        : `Stock in today ${formatQuantity(summary.totalStockIn)}`,
+      tier: 'sold',
+    },
     {
       label: 'Top selling category',
       value: topCategory?.label ?? '—',
-      note: topCategory ? `${formatQuantity(topCategory.sold)} units · ${Math.round(topCategory.share * 100)}% of sales` : 'No sales recorded',
+      note: topCategory ? `${formatQuantity(topCategory.sold)} units${perDay} · ${Math.round(topCategory.share * 100)}% of sales` : 'No sales recorded',
       tier: 'contribution',
       share: topCategory?.share,
     },
@@ -280,7 +294,11 @@ export function DailyReportSummary({ containerRef, photoMode = false, date, prev
           <div className="text-right">
             <p className="text-[16px] font-semibold tabular-nums">{formatSheetDate(date)}</p>
             <p className="text-[13px]" style={{ color: C.muted }}>
-              {prevClosingDate ? `Sold vs closing of ${formatSheetDate(prevClosingDate)}` : 'No earlier closing found'}
+              {prevClosingDate
+                ? multiDay
+                  ? `Daily average over ${days} days since closing of ${formatSheetDate(prevClosingDate)}`
+                  : `Sold vs closing of ${formatSheetDate(prevClosingDate)}`
+                : 'No earlier closing found'}
             </p>
           </div>
         </div>
@@ -341,8 +359,8 @@ export function DailyReportSummary({ containerRef, photoMode = false, date, prev
         <Panel className="min-w-0 px-5 py-4">
           <PanelTitle
             subtitle={topContributors.length > 0
-              ? `Ranked by units sold. The top ${topContributors.length} make ${Math.round(topContributorShare * 100)}% of sales.`
-              : 'Ranked by units sold'}
+              ? `Ranked by units sold${perDay}. The top ${topContributors.length} make ${Math.round(topContributorShare * 100)}% of sales.`
+              : `Ranked by units sold${perDay}`}
           >
             Top selling products
           </PanelTitle>
@@ -359,7 +377,7 @@ export function DailyReportSummary({ containerRef, photoMode = false, date, prev
                 const tooltipContent = {
                   title: product.name,
                   rows: [
-                    { label: 'units sold', value: formatQuantity(product.sold), color: C.sold },
+                    { label: multiDay ? 'sold a day' : 'units sold', value: formatQuantity(product.sold), color: C.sold },
                     { label: 'of sales', value: `${Math.round(product.share * 100)}%` },
                     { label: 'stock left', value: formatQuantity(product.closing) },
                   ],
@@ -424,11 +442,11 @@ export function DailyReportSummary({ containerRef, photoMode = false, date, prev
         </Panel>
 
         <Panel className="flex min-w-0 flex-col px-5 py-4">
-          <PanelTitle subtitle="Units sold and share of sales, largest first">Sales by category</PanelTitle>
+          <PanelTitle subtitle={`Units sold${perDay} and share of sales, largest first`}>Sales by category</PanelTitle>
           {categorySlices.length === 0 ? (
             <p className="mt-3 text-[14px]" style={{ color: C.muted }}>No sales recorded for this date.</p>
           ) : (
-            <CategoryBars slices={categorySlices} onHover={showTooltip} onLeave={hideTooltip} />
+            <CategoryBars slices={categorySlices} onHover={showTooltip} onLeave={hideTooltip} soldLabel={multiDay ? 'sold a day' : 'units sold'} />
           )}
         </Panel>
       </div>
@@ -456,7 +474,7 @@ export function DailyReportSummary({ containerRef, photoMode = false, date, prev
                   <th className="py-2 pr-2 font-normal">Item</th>
                   <th className={`py-2 pr-2 font-normal ${photoMode ? '' : 'hidden sm:table-cell'}`}>Category</th>
                   <th className="py-2 pr-2 text-right font-normal">{showsCurrent ? 'Current' : 'Closing'}</th>
-                  <th className="py-2 pr-3 text-right font-normal">Sold</th>
+                  <th className="py-2 pr-3 text-right font-normal">{multiDay ? 'Sold/day' : 'Sold'}</th>
                   <th className="py-2 text-right font-normal">Status</th>
                 </tr>
               </thead>
@@ -488,7 +506,9 @@ export function DailyReportSummary({ containerRef, photoMode = false, date, prev
       </Panel>
 
       <p className="mt-3 text-[12px]" style={{ color: C.muted }}>
-        Units sold = previous closing + stock in − closing. Low stock = less than 3× today&apos;s sales left.
+        Units sold = previous closing + stock in − closing.
+        {multiDay ? ` The closings are ${days} days apart, so sold figures are a daily average.` : ''}
+        {' '}Low stock = less than 3× {multiDay ? 'a day\u2019s' : 'today\u2019s'} sales left.
         {unreliable > 0 ? ` ${unreliable} item(s) left out: no earlier closing, or counts that do not add up.` : ''}
       </p>
 

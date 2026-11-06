@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { getAuthContext } from '../../../lib/supabase/route-auth'
 import { isMissingTableError } from '../../../lib/supabase/errors'
-import { combineStockInByDate, combineStockInRecords, readClosingItems } from '../../../lib/report-records'
+import { addDays, combineStockInByDate, daysBetween, readClosingItems, stockDateOf } from '../../../lib/report-records'
 
 export const runtime = 'nodejs'
+
+/** How far back the first Stock In query reaches; older gaps get a second query. */
+const STOCK_IN_WINDOW_DAYS = 31
 
 function isValidDate(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(new Date(`${value}T00:00:00Z`).getTime())
@@ -62,11 +65,14 @@ export async function GET(request: NextRequest) {
         .order('date', { ascending: false })
         .limit(1)
         .maybeSingle(),
+      // Stock in for this report is every day after the previous closing up to this date.
+      // Fetched for a month back in parallel and narrowed once the previous closing is known.
       auth.supabase
         .from('event_generate')
         .select('uid_generate, final_output, log_time, record_name, input_file_name')
         .eq('stock_mode', 'arrival_entry')
-        .eq('final_output->>stock_date', date)
+        .gt('final_output->>stock_date', addDays(date, -STOCK_IN_WINDOW_DAYS))
+        .lte('final_output->>stock_date', date)
         .order('log_time', { ascending: false }),
       auth.supabase
         .from('report_flag_override')
@@ -104,22 +110,40 @@ export async function GET(request: NextRequest) {
 
     const closing = closingResult.data ? readClosingItems(closingResult.data.item_data) : null
     const prevClosing = prevClosingResult.data ? readClosingItems(prevClosingResult.data.item_data) : null
+    const prevClosingDate: string | null = prevClosingResult.data?.date ? String(prevClosingResult.data.date) : null
 
-    // Several Stock In records for one date: the latest main record (earlier ones are
-    // re-saves and would double count) plus every record saved as an extra delivery.
-    const stockInRecords = stockInResult.data ?? []
-    const combinedStockIn = combineStockInRecords(stockInRecords)
+    // Every Stock In after the previous closing up to this date (e.g. Friday's delivery when
+    // the closings are Thursday and Saturday). Without a previous closing, this date only.
+    let stockInRecords = stockInResult.data ?? []
+    if (prevClosingDate && prevClosingDate <= addDays(date, -STOCK_IN_WINDOW_DAYS)) {
+      const older = await auth.supabase
+        .from('event_generate')
+        .select('uid_generate, final_output, log_time, record_name, input_file_name')
+        .eq('stock_mode', 'arrival_entry')
+        .gt('final_output->>stock_date', prevClosingDate)
+        .lte('final_output->>stock_date', addDays(date, -STOCK_IN_WINDOW_DAYS))
+      if (older.error) {
+        return NextResponse.json({ error: 'Failed to load daily report data.', details: older.error.message }, { status: 400 })
+      }
+      stockInRecords = [...stockInRecords, ...(older.data ?? [])]
+    }
+    stockInRecords = stockInRecords.filter((record) => {
+      const stockDate = stockDateOf(record)
+      return stockDate !== null && (prevClosingDate ? stockDate > prevClosingDate : stockDate === date)
+    })
+    // Per date: the latest main record (earlier ones are re-saves and would double count)
+    // plus every record saved as an extra delivery; then the dates are added together.
+    const combinedStockIn = combineStockInByDate(stockInRecords, (record) => stockDateOf(record))
     const stockInByCode = combinedStockIn.quantities
-    const latestStockIn = combinedStockIn.main ?? combinedStockIn.extras[0] ?? null
+    const latestStockIn = combinedStockIn.latest
+    // Units sold covers every day since the previous closing; the app shows a daily average.
+    const soldDays = prevClosingDate ? Math.max(1, daysBetween(prevClosingDate, date)) : 1
 
     // Only while this is the newest closing; stock in on or after a later closing's date
     // belongs to that day's report instead.
     const nextClosingDate: string | null = laterClosingResult.data?.date ? String(laterClosingResult.data.date) : null
     const arrived = nextClosingDate === null
-      ? combineStockInByDate(laterStockInResult.data ?? [], (record) => {
-        const value = (record.final_output as { stock_date?: unknown } | null)?.stock_date
-        return typeof value === 'string' ? value : null
-      })
+      ? combineStockInByDate(laterStockInResult.data ?? [], (record) => stockDateOf(record))
       : { quantities: {}, dates: [] as string[] }
 
     // Overrides are optional: before the migration runs, the report still works without them.
@@ -140,12 +164,16 @@ export async function GET(request: NextRequest) {
         closingFound: Boolean(closingResult.data),
         closingByCode: closing?.quantities ?? {},
         redMarkedByCode: closing?.redMarked ?? {},
-        prevClosingDate: prevClosingResult.data?.date ?? null,
+        prevClosingDate,
         prevClosingByCode: prevClosing?.quantities ?? {},
         stockInRecordCount: stockInRecords.length,
-        stockInExtraCount: combinedStockIn.extras.length,
+        stockInExtraCount: combinedStockIn.extraCount,
         stockInReplacedCount: combinedStockIn.replacedCount,
         stockInByCode,
+        /** Stock dates of the Stock In records counted (after the previous closing, up to date). */
+        stockInDates: combinedStockIn.dates,
+        /** Days units sold covers: from the previous closing to this one (1 when consecutive). */
+        soldDays,
         // True when no later closing exists up to today: the sheet then shows current stock.
         isLatestClosing: today === '' ? null : nextClosingDate === null,
         arrivedSinceByCode: arrived.quantities,
@@ -161,7 +189,7 @@ export async function GET(request: NextRequest) {
           stockIn: latestStockIn
             ? {
               name: latestStockIn.record_name ?? latestStockIn.input_file_name ?? null,
-              date,
+              date: stockDateOf(latestStockIn) ?? date,
               savedAt: latestStockIn.log_time ?? null,
               uid: latestStockIn.uid_generate ?? null,
             }

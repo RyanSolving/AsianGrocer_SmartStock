@@ -1,8 +1,13 @@
 /**
  * Daily report sales insights, computed per catalog code.
  *
- *   sold = previous closing + stock-in - today's closing
- *   current = today's closing + stock in that arrived after it (before the next closing)
+ *   sold total = previous closing + stock in since then - this closing
+ *   sold (per day) = sold total ÷ days between the two closings (1 when consecutive)
+ *   current = this closing + stock in that arrived after it (before the next closing)
+ *
+ * When a closing is skipped (Thursday's closing, then Saturday's), sold covers two days and
+ * is shown as a daily average, so it compares with a normal day and the cover rule still
+ * means "days of stock left".
  *
  * Badges and refill hints use current stock, so a delivery the next morning clears a
  * Stock-out at once; sold stays the day's figure until the next closing is saved.
@@ -45,7 +50,12 @@ export type ItemInsight = {
   arrivedSince: number
   /** closing + arrivedSince: what is on hand now. Null when the item is not on the closing. */
   current: number | null
+  /** Units sold per day: the total ÷ days, to one decimal when days > 1. */
   sold: number | null
+  /** Units sold over all the days since the previous closing. */
+  soldTotal: number | null
+  /** Days since the previous closing that sold covers (1 when the closings are consecutive). */
+  days: number
   sellThroughPct: number | null
   status: InsightStatus
   suggestedQty: number
@@ -79,6 +89,8 @@ export function computeItemInsight(
     prevClosing: number | null | undefined
     stockIn: number | null | undefined
     arrivedSince?: number | null | undefined
+    /** Days since the previous closing. Default 1. */
+    days?: number
   },
 ): ItemInsight {
   const closing = toNumber(input.closing)
@@ -87,6 +99,7 @@ export function computeItemInsight(
   const arrivedSince = toNumber(input.arrivedSince) ?? 0
   // An item not on the closing that has arrived since is new stock: current is what arrived.
   const current = closing === null ? (arrivedSince > 0 ? arrivedSince : null) : closing + arrivedSince
+  const days = input.days !== undefined && Number.isFinite(input.days) && input.days > 1 ? Math.round(input.days) : 1
 
   const base: ItemInsight = {
     code,
@@ -96,6 +109,8 @@ export function computeItemInsight(
     arrivedSince,
     current,
     sold: null,
+    soldTotal: null,
+    days,
     sellThroughPct: null,
     status: 'ok',
     suggestedQty: 0,
@@ -114,14 +129,15 @@ export function computeItemInsight(
   }
 
   const available = prevClosing + stockIn
-  const sold = unitsSold(available, closing)
+  const soldTotal = unitsSold(available, closing)
+  const sold = perDay(soldTotal, days)
 
-  if (sold < 0) {
+  if (soldTotal < 0) {
     // Closing is higher than what could have been available: entry error or missing stock-in.
-    return { ...base, sold, status: 'negative' }
+    return { ...base, sold, soldTotal, status: 'negative' }
   }
 
-  const sellThroughPct = available > 0 ? sold / available : null
+  const sellThroughPct = available > 0 ? soldTotal / available : null
   const onHand = current ?? closing
   const suggestedQty = Math.max(0, Math.ceil(sold - onHand))
   // The refill quantity is a separate one-day demand estimate.
@@ -129,7 +145,13 @@ export function computeItemInsight(
   const flag: OrderFlag = suggestedQty > 0 || soldOut ? 'ORDER' : null
   const fast = sellThroughPct !== null && sellThroughPct >= FAST_SELL_THROUGH
 
-  return { ...base, sold, sellThroughPct, status: 'ok', suggestedQty, flag, fast, stockFlag: getStockFlag(onHand, sold) }
+  return { ...base, sold, soldTotal, sellThroughPct, status: 'ok', suggestedQty, flag, fast, stockFlag: getStockFlag(onHand, sold) }
+}
+
+/** A total over `days` as a daily figure, to one decimal; the total itself when days is 1. */
+export function perDay(total: number, days: number) {
+  if (days <= 1) return total
+  return Math.round((total / days) * 10) / 10
 }
 
 export function computeItemInsights(input: {
@@ -138,6 +160,8 @@ export function computeItemInsights(input: {
   stockInByCode: QuantityMap
   /** Stock in saved after the closing date (and before any later closing). */
   arrivedSinceByCode?: QuantityMap
+  /** Days since the previous closing; sold is averaged per day when more than 1. */
+  days?: number
 }): Record<string, ItemInsight> {
   const result: Record<string, ItemInsight> = {}
 
@@ -149,6 +173,7 @@ export function computeItemInsights(input: {
       prevClosing: input.prevClosingByCode[code],
       stockIn: input.stockInByCode[code],
       arrivedSince: input.arrivedSinceByCode?.[code],
+      days: input.days,
     })
   }
 
@@ -183,7 +208,7 @@ export function applyFlagOverrides(insights: Record<string, ItemInsight>, overri
 
 /** One line on why the calculated flag is what it is, for the badge picker. */
 export function describeAutoFlag(
-  insight: Pick<ItemInsight, 'closing' | 'sold' | 'status'> & { current?: number | null; autoStockFlag?: StockFlag | null; stockFlag: StockFlag | null },
+  insight: Pick<ItemInsight, 'closing' | 'sold' | 'status'> & { current?: number | null; days?: number; autoStockFlag?: StockFlag | null; stockFlag: StockFlag | null },
 ) {
   const flag = insight.autoStockFlag !== undefined ? insight.autoStockFlag : insight.stockFlag
   if (insight.closing === null && (insight.current ?? 0) > 0) return 'New: arrived after the closing, so there is no sold figure yet.'
@@ -193,14 +218,20 @@ export function describeAutoFlag(
   if (closing === null) return 'Not on the closing.'
   if (insight.status === 'negative') return `Sold is ${formatQuantity(insight.sold)}: the closing is above the earlier closing plus stock in. Check both counts.`
   if (sold === null) return insight.status === 'no-baseline' ? 'No earlier closing, so units sold is unknown.' : 'Units sold could not be worked out.'
-  if (sold === 0) return `${formatQuantity(closing)} left and nothing sold.`
+  const days = 'days' in insight && typeof insight.days === 'number' ? insight.days : 1
+  if (sold === 0) return days > 1 ? `${formatQuantity(closing)} left and nothing sold in ${days} days.` : `${formatQuantity(closing)} left and nothing sold.`
   const cover = Math.round((closing / sold) * 10) / 10
   const rule = flag === 'Low stock' ? ', under 3' : flag === 'Over-stock' ? ', over 7' : ', between 3 and 7'
-  return `${formatQuantity(closing)} left ÷ ${formatQuantity(sold)} sold = ${cover} days${rule}.`
+  return `${formatQuantity(closing)} left ÷ ${formatQuantity(sold)} sold${days > 1 ? ' a day' : ''} = ${cover} days${rule}.`
 }
 
 export type InsightSummary = {
+  /** Units sold per day (the total ÷ days when the closings are more than a day apart). */
   totalSold: number
+  /** Units sold over all the days since the previous closing. */
+  totalSoldAllDays: number
+  /** Days the figures cover (1 when the closings are consecutive). */
+  days: number
   totalStockIn: number
   itemsToOrder: number
   itemsWithoutBaseline: number
@@ -210,6 +241,8 @@ export type InsightSummary = {
 export function summarizeInsights(insights: Record<string, ItemInsight>): InsightSummary {
   const summary: InsightSummary = {
     totalSold: 0,
+    totalSoldAllDays: 0,
+    days: 1,
     totalStockIn: 0,
     itemsToOrder: 0,
     itemsWithoutBaseline: 0,
@@ -222,15 +255,17 @@ export function summarizeInsights(insights: Record<string, ItemInsight>): Insigh
     if (insight.status === 'no-baseline') summary.itemsWithoutBaseline += 1
     if (insight.status === 'negative') summary.itemsWithNegative += 1
 
+    summary.days = Math.max(summary.days, insight.days ?? 1)
     if (insight.status === 'ok') {
-      summary.totalSold += insight.sold ?? 0
+      summary.totalSoldAllDays += insight.soldTotal ?? insight.sold ?? 0
       if (insight.flag === 'ORDER') summary.itemsToOrder += 1
     }
     // A negative figure is a miscount (or a missing stock in). It still counts, so a
     // count that was too low one day and corrected the next nets out over the two days.
-    if (insight.status === 'negative') summary.totalSold += insight.sold ?? 0
+    if (insight.status === 'negative') summary.totalSoldAllDays += insight.soldTotal ?? insight.sold ?? 0
   }
 
+  summary.totalSold = perDay(summary.totalSoldAllDays, summary.days)
   return summary
 }
 
