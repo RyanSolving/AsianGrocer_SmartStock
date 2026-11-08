@@ -103,6 +103,7 @@ type StockItem = {
 }
 
 type UnknownItem = {
+  notes?: string | null
   catalog_code: null
   product_raw: string
   category: string
@@ -143,6 +144,7 @@ type CatalogItem = {
   quantity?: number | null
   quantity_conflict_flag?: boolean
   special?: boolean
+  notes?: string | null
 }
 
 type StockMode = 'stock-in' | 'stock-closing'
@@ -572,6 +574,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
   const [dataEntrySelectedCatalogCode, setDataEntrySelectedCatalogCode] = useState<string | null>(null)
   const [manualEntryQuantity, setManualEntryQuantity] = useState('')
   const [manualEntrySpecial, setManualEntrySpecial] = useState(false)
+  const [manualEntryNote, setManualEntryNote] = useState('')
   const [dataEntryTouchedIndexes, setDataEntryTouchedIndexes] = useState<Set<number>>(() => new Set())
   const [lastAddedEntry, setLastAddedEntry] = useState<LastAddedEntry | null>(null)
   const hadParsedDataRef = useRef(false)
@@ -907,7 +910,9 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     if (!draft?.parsedData) return 0
     const counted = (items: Array<{ quantity?: number | null }> | undefined) =>
       (items ?? []).filter((item) => item.quantity !== null && item.quantity !== undefined).length
-    return counted(draft.parsedData.items) + counted(draft.missingCatalogItems) + counted(draft.unknownItems)
+    const total = counted(draft.parsedData.items) + counted(draft.missingCatalogItems) + counted(draft.unknownItems)
+    return total
+
   }, [hasStockInLocalDraft, stockInPhase])
 
   const restoreStockInDraft = useCallback(() => {
@@ -942,6 +947,17 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       return
     }
     hadParsedDataRef.current = true
+
+    // Nothing entered yet (or already saved) is not a draft worth resuming.
+    const hasCount = (items: Array<{ quantity?: number | null }> | undefined) =>
+      (items ?? []).some((item) => item.quantity !== null && item.quantity !== undefined)
+    const hasEntries =
+      hasCount(parsedData.items) || hasCount(missingCatalogItems) || hasCount(unknownItems)
+    if (!hasEntries || hasSavedToSupabase) {
+      clearOfflineDraft('stock-in')
+      setHasStockInLocalDraft(false)
+      return
+    }
 
     // Debounced so typing stays smooth on slow phones; flushed when the app is hidden or closed.
     const save = () => {
@@ -1143,7 +1159,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
         quantity_conflict_flag: Boolean(c_item.quantity_conflict_flag),
         row_position: c_item.row_position || 'single',
         confidence: 'high' as const,
-        notes: null,
+        notes: c_item.notes ?? null,
         special: c_item.special === true,
       },
       index: -1000 - pos,  // Unique index for each missing item
@@ -1219,6 +1235,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
         quantity: String(row.item.quantity ?? ''),
         tone: row.source === 'missing' ? 'warning' : row.source === 'unknown' ? 'alert' : undefined,
         special: row.item.special === true,
+        note: row.item.notes?.trim() || undefined,
       }
     }
     const counted = (rows: IndexedItem[]) => sortIndexedItemsByName(rows.filter((row) => row.item.quantity !== null)).map(toRow)
@@ -1403,7 +1420,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     setIsValidatedByStaff(false)
   }, [])
 
-  const addKnownDataEntryItem = useCallback((catalogItem: CatalogItem, quantityOverride: number | null = null, special = false): boolean => {
+  const addKnownDataEntryItem = useCallback((catalogItem: CatalogItem, quantityOverride: number | null = null, special = false, note = ''): boolean => {
     if (!parsedData) {
       setApiError('Please start manual entry or parse a photo before adding items.')
       return false
@@ -1445,7 +1462,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
             confidence: 'high',
             catalog_match_status: 'exact',
             special,
-            notes: null,
+            notes: note.trim() || null,
           },
         ],
         total_items: current.items.length + 1,
@@ -1553,6 +1570,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
         if (patch.quantity_raw !== undefined) item.quantity_raw = patch.quantity_raw
         if (patch.quantity_conflict_flag !== undefined) item.quantity_conflict_flag = patch.quantity_conflict_flag
         if (patch.special !== undefined) item.special = patch.special
+        if (patch.notes !== undefined) item.notes = patch.notes
         return next
       })
       return
@@ -1572,6 +1590,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
         if (patch.quantity_raw !== undefined) item.quantity_raw = patch.quantity_raw
         if (patch.quantity_conflict_flag !== undefined) item.quantity_conflict_flag = patch.quantity_conflict_flag
         if (patch.special !== undefined) item.special = patch.special
+        if (patch.notes !== undefined) item.notes = patch.notes
         return next
       })
       return
@@ -1663,12 +1682,14 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
           confidence: 'high',
           catalog_match_status: 'unknown',
           special: manualEntrySpecial,
+          notes: manualEntryNote.trim() || null,
         },
       ])
       setDataEntryNewItemName('')
       setDataEntrySelectedCatalogCode(null)
       setManualEntryQuantity('')
       setManualEntrySpecial(false)
+      setManualEntryNote('')
       setApiError(null)
       noteAdded(itemName, quantity, snapshot, 'not in catalog')
       return true
@@ -1683,11 +1704,13 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
         quantity_raw: String(quantity),
         quantity_conflict_flag: false,
         ...(manualEntrySpecial ? { special: true } : {}),
+        ...(manualEntryNote.trim() ? { notes: manualEntryNote.trim() } : {}),
       })
       setDataEntryNewItemName('')
       setDataEntrySelectedCatalogCode(null)
       setManualEntryQuantity('')
       setManualEntrySpecial(false)
+      setManualEntryNote('')
       setApiError(null)
       noteAdded(chosen.official_name, quantity, snapshot)
       return true
@@ -1702,19 +1725,22 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
         quantity_raw: String(quantity),
         quantity_conflict_flag: false,
         ...(manualEntrySpecial ? { special: true } : {}),
+        ...(manualEntryNote.trim() ? { notes: manualEntryNote.trim() } : {}),
       })
       setDataEntryNewItemName('')
       setDataEntrySelectedCatalogCode(null)
       setManualEntryQuantity('')
       setManualEntrySpecial(false)
+      setManualEntryNote('')
       setApiError(null)
       noteAdded(chosen.official_name, quantity, snapshot)
       return true
     }
 
-    const added = addKnownDataEntryItem(chosen, quantity, manualEntrySpecial)
+    const added = addKnownDataEntryItem(chosen, quantity, manualEntrySpecial, manualEntryNote)
     if (added) {
       setManualEntrySpecial(false)
+      setManualEntryNote('')
       noteAdded(chosen.official_name, quantity, snapshot)
     }
     return added
@@ -1726,6 +1752,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     dataEntryNewItemName,
     manualEntryQuantity,
     manualEntrySpecial,
+    manualEntryNote,
     missingCatalogItems,
     parsedData,
     selectedDataEntryCatalogItem,
@@ -2081,6 +2108,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
         <span className={tone}>
           {displayName}
           {special ? <> <span className="report-tag report-tag-special ml-1 align-[1px]">Special</span></> : null}
+          {row.item.notes?.trim() ? <span className="block text-[13px] font-normal italic text-muted">{row.item.notes.trim()}</span> : null}
         </span>
       </div>
     )
@@ -2127,8 +2155,9 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       quantity_raw: row.item.quantity_raw,
       quantity_conflict_flag: row.item.quantity_conflict_flag,
       special: row.item.special,
+      notes: row.item.notes ?? null,
     }
-    updateItem(row.index, { quantity: null, quantity_raw: null, quantity_conflict_flag: false, special: false })
+    updateItem(row.index, { quantity: null, quantity_raw: null, quantity_conflict_flag: false, special: false, notes: null })
     untouch()
     toast.info(`${name} removed`, {
       duration: 6000,
@@ -2377,6 +2406,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
   const clearStockInSheet = useCallback(() => {
     clearOfflineDraft('stock-in')
     setHasStockInLocalDraft(false)
+    setManualEntryNote('')
     setParsedData(null)
     setUnknownItems([])
     setMissingCatalogItems([])
@@ -3135,6 +3165,22 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                               Special (discount)
                             </span>
                           </label>
+
+                          <div>
+                            <label htmlFor="stock-in-note" className="mb-1.5 block text-[14px] font-medium text-ink">Note <span className="font-normal text-muted">(optional)</span></label>
+                            <input
+                              id="stock-in-note"
+                              type="text"
+                              maxLength={200}
+                              autoComplete="off"
+                              enterKeyHint="done"
+                              value={manualEntryNote}
+                              onChange={(event) => setManualEntryNote(event.target.value)}
+                              placeholder="e.g. dropped price to 5.99"
+                              disabled={!parsedData}
+                              className="min-h-12 w-full rounded-control border border-line bg-white px-3 text-[16px] text-ink placeholder:text-muted focus:border-forest focus:outline-none focus:ring-1 focus:ring-forest disabled:opacity-60"
+                            />
+                          </div>
 
                           {lastAddedEntry ? (
                             <div key={lastAddedEntry.id} className="flex animate-fade-in items-center gap-2 rounded-control bg-forest-50 py-1.5 pl-3 pr-1.5" role="status">

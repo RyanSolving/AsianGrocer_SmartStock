@@ -145,6 +145,8 @@ type RecheckWarning = {
   stockIn: number
   currentQuantity: number | null
   reason: 'now_zero' | 'now_blank'
+  /** Index of the sheet row this warning is about, so the count can be typed in place. */
+  rowIndex: number | null
 }
 
 type SaveCheckData = {
@@ -1204,6 +1206,14 @@ export function EmbeddedStockCheckPanel({
     const labelOf = (row: { official_name: string; stocklist_name: string; product: string; code: string | null }) =>
       row.official_name || row.stocklist_name || row.product || row.code || ''
 
+    const knownRowIndex = (code: string) => {
+      const index = rows.findIndex((row) => isKnownRow(row) && row.code === code)
+      return index >= 0 ? index : null
+    }
+    const unknownRowIndex = (compareKey: string) => {
+      const index = rows.findIndex((row) => !row.code && normalizeCompareKey(row.official_name || row.stocklist_name || row.product) === compareKey)
+      return index >= 0 ? index : null
+    }
     const known = rows.filter((row) => isKnownRow(row))
     const sheet = known.map((row) => ({ code: row.code as string, label: labelOf(row), section: sectionOf(row), quantity: parseNumericQuantity(row.quantity) }))
     // Hidden catalog items are left off the sheet on purpose, so they are not asked about.
@@ -1230,6 +1240,7 @@ export function EmbeddedStockCheckPanel({
       stockIn: item.stockIn,
       currentQuantity: item.current,
       reason: item.reason === 'blank' ? 'now_blank' : 'now_zero',
+      rowIndex: knownRowIndex(item.code),
     }))
 
     if (previousRecord) {
@@ -1252,6 +1263,7 @@ export function EmbeddedStockCheckPanel({
             stockIn: 0,
             currentQuantity,
             reason: currentQuantity === null ? 'now_blank' : 'now_zero',
+            rowIndex: unknownRowIndex(compareKey),
           })
         }
       }
@@ -2100,13 +2112,26 @@ export function EmbeddedStockCheckPanel({
                 <p className="truncate text-[13px] text-muted">{warning.section}</p>
               </div>
               <div className="shrink-0 text-right tabular">
-                <p className="text-[15px] text-ink">
+                <p className="text-[12px] text-muted">
                   {warning.previousQuantity}
-                  {warning.stockIn > 0 ? <span className="text-muted"> + {warning.stockIn} in</span> : null}
-                  <span className="text-muted"> → </span>
-                  <span className="font-semibold text-warning">{warning.currentQuantity === null ? 'blank' : warning.currentQuantity}</span>
+                  {warning.stockIn > 0 ? <span> + {warning.stockIn} in</span> : null}
+                  <span> → now</span>
                 </p>
-                <p className="text-[12px] text-muted">{warning.stockIn > 0 ? 'last + arrived → now' : 'last → now'}</p>
+                {warning.rowIndex !== null && rows[warning.rowIndex] ? (
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    enterKeyHint="done"
+                    autoComplete="off"
+                    placeholder="0"
+                    aria-label={`Count for ${warning.label}`}
+                    className="stock-qty-input mt-1 w-20"
+                    value={rows[warning.rowIndex].quantity ?? ''}
+                    onChange={(event) => setQuantity(warning.rowIndex as number, event.target.value)}
+                  />
+                ) : (
+                  <p className="text-[15px] font-semibold text-warning">{warning.currentQuantity === null ? 'blank' : warning.currentQuantity}</p>
+                )}
               </div>
             </li>
           ))}

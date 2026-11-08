@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { Clock, Search, Trash2, X } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Search } from 'lucide-react'
 import { Sheet } from './ui/Sheet'
+import { HistoryCard, HistoryDay, buildGroups, formatTime, groupByDay, type HistoryGroup } from './HistoryParts'
 
 type StockCheckHistoryEntry = {
   uid_stock_check: string
@@ -61,196 +62,86 @@ export function StockCheckHistoryDialog({
 
   useEffect(() => {
     if (!isOpen) return
+    if (selectedUid) setExpandedId(selectedUid)
+  }, [isOpen, selectedUid])
 
-    if (selectedUid) {
-      setExpandedId(selectedUid)
-      return
+  // Counted items only (0 counts too: a closing of 0 is information), grouped by area.
+  const summaries = useMemo(() => {
+    const map = new Map<string, { groups: HistoryGroup[]; items: number; units: number; unknown: number }>()
+    for (const entry of history) {
+      const rows: Array<{ area: string; name: string; quantity: number }> = []
+      for (const row of entry.record_data?.items ?? []) {
+        if (typeof row.quantity !== 'number') continue
+        rows.push({
+          area: `${row.location?.trim() || 'Unknown'} · ${row.sub_location?.trim() || 'General'}`,
+          name: row.official_name?.trim() || row.product?.trim() || 'Unnamed item',
+          quantity: row.quantity,
+        })
+      }
+      let unknown = 0
+      for (const row of entry.record_data?.unknown_items ?? []) {
+        if (typeof row.quantity !== 'number') continue
+        unknown += 1
+        rows.push({ area: 'Unknown · Unclassified', name: row.user_input?.trim() || 'Unknown item', quantity: row.quantity })
+      }
+      map.set(entry.uid_stock_check, {
+        groups: buildGroups(rows),
+        items: rows.length,
+        units: rows.reduce((sum, row) => sum + row.quantity, 0),
+        unknown,
+      })
     }
+    return map
+  }, [history])
 
-    setExpandedId((current) => current ?? history[0]?.uid_stock_check ?? null)
-  }, [history, isOpen, selectedUid])
+  const days = useMemo(() => groupByDay(history, (entry) => entry.timestamp), [history])
 
   if (!isOpen) return null
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString)
-    return date.toLocaleString('en-AU', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  }
-
-  const getModeLabel = (mode: string) => {
-    if (mode === 'closing_check') return 'Closing'
-    if (mode === 'arrival_entry') return 'Arrival'
-    return mode || 'Unknown'
-  }
-
-  const getPaperGroups = (data?: StockCheckHistoryEntry['record_data']) => {
-    if (!data) return []
-
-    const items = data.items || []
-    const unknownItems = data.unknown_items || []
-    
-    const groups: Record<string, Array<{ name: string; quantity: string }>> = {}
-
-    items.forEach((row) => {
-      const location = row.location?.trim() || 'Unknown'
-      const subLocation = row.sub_location?.trim() || 'General'
-      const groupKey = `${location} / ${subLocation}`
-      const name = row.official_name?.trim() || row.product?.trim() || 'Unnamed item'
-      const quantity = typeof row.quantity === 'number' ? String(row.quantity) : '-'
-
-      if (!groups[groupKey]) {
-        groups[groupKey] = []
-      }
-      groups[groupKey].push({ name, quantity })
-    })
-    
-    unknownItems.forEach((row) => {
-      const groupKey = `Unknown / Unclassified`
-      const name = row.user_input?.trim() || 'Unknown item'
-      const quantity = typeof row.quantity === 'number' ? String(row.quantity) : '-'
-
-      if (!groups[groupKey]) {
-        groups[groupKey] = []
-      }
-      groups[groupKey].push({ name, quantity })
-    })
-
-    return Object.entries(groups)
-  }
-
-  const renderPaperDetails = (entry: StockCheckHistoryEntry) => {
-    const groups = getPaperGroups(entry.record_data)
-
-    if (groups.length === 0) {
-      return <p className="mt-2 text-xs text-slate-500">No item rows found for this record.</p>
-    }
-
-    return (
-      <div className="mt-3 space-y-3">
-        <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
-          <span className="font-semibold text-slate-700">Date:</span> {entry.stock_date}
-          <span className="mx-2 text-slate-300">|</span>
-          <span className="font-semibold text-slate-700">Mode:</span> {getModeLabel(entry.mode)}
-        </div>
-
-        {groups.map(([groupName, rows]) => (
-          <div key={groupName} className="rounded-md border border-slate-200 bg-white">
-            <p className="border-b border-slate-200 px-3 py-2 text-[13px] font-semibold text-ink">
-              {groupName}
-            </p>
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="text-left text-slate-500">
-                  <th className="px-3 py-2 font-medium">Item</th>
-                  <th className="px-3 py-2 text-right font-medium">Qty</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row, idx) => (
-                  <tr key={`${groupName}-${idx}`} className="border-t border-slate-100 text-slate-700">
-                    <td className="px-3 py-2">{row.name}</td>
-                    <td className="px-3 py-2 text-right font-semibold">{row.quantity}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ))}
-      </div>
-    )
-  }
-
   return (
     <Sheet open={isOpen} onClose={onClose} title="Stock close history" description="Open a saved stock close to edit it, or delete it." size="lg">
-        <div className="space-y-3">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-brand-600"></div>
-            </div>
-          ) : history.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <Search className="mb-3 h-12 w-12 text-slate-300" />
-              <p className="text-sm font-semibold text-slate-600">No stock-check records yet</p>
-              <p className="mt-1 text-xs text-slate-500">Create and save a stock-check to build history</p>
-            </div>
-          ) : (
-            history.map((entry) => {
-              const isExpanded = expandedId === entry.uid_stock_check
-              return (
-                <div
-                  key={entry.uid_stock_check}
-                  className="rounded-card border border-line bg-surface p-4"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-semibold text-slate-900">
-                          {entry.record_name || `${entry.stock_date} (${entry.item_count} items)`}
-                        </p>
-                        <span className="rounded-full bg-slate-200 px-2 py-1 text-[10px] font-semibold text-slate-700">
-                          {getModeLabel(entry.mode)}
-                        </span>
-                        <span
-                          className={`rounded-full px-2 py-1 text-xs font-semibold ${
-                            entry.validated
-                              ? 'bg-success-soft text-success'
-                              : 'bg-warning-soft text-warning'
-                          }`}
-                        >
-                          {entry.validated ? 'Validated' : 'Unvalidated'}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-xs text-slate-500">{formatDate(entry.timestamp)}</p>
-                      <p className="mt-2 text-sm text-slate-600">
-                        {entry.item_count} known item(s) · {entry.unknown_count} unknown item(s)
-                      </p>
-                    </div>
-                    <div className="flex flex-col gap-2 sm:flex-row">
-                      <button
-                        onClick={() => onLoadToEdit(entry.uid_stock_check)}
-                        className="inline-flex min-h-11 items-center justify-center rounded-control bg-forest px-4 text-[15px] font-semibold text-white transition-colors hover:bg-forest-700"
-                      >
-                        Load to Edit
-                      </button>
-                      <button
-                        onClick={() => onDeleteHistory(entry.uid_stock_check)}
-                        disabled={Boolean(deletingUid)}
-                        className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control px-3 text-[15px] font-medium text-danger transition-colors hover:bg-danger-soft disabled:opacity-50"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        {deletingUid === entry.uid_stock_check ? 'Deleting...' : 'Delete'}
-                      </button>
-                    </div>
-                  </div>
-
-                  {isExpanded && (
-                    <div className="mt-4 border-t border-slate-200 pt-4">
-                      <div className="rounded-md bg-slate-50 p-3">
-                        <p className="text-[13px] font-medium text-muted">
-                          Paper Format
-                        </p>
-                        {renderPaperDetails(entry)}
-                      </div>
-                    </div>
-                  )}
-
-                  <button
-                    onClick={() => setExpandedId(isExpanded ? null : entry.uid_stock_check)}
-                    className="mt-3 text-xs font-medium text-brand-600 hover:text-brand-700"
-                  >
-                    {isExpanded ? 'Show less' : 'Show details'}
-                  </button>
-                </div>
-              )
-            })
-          )}
-        </div>
+      <div className="space-y-5">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-brand-600"></div>
+          </div>
+        ) : history.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <Search className="mb-3 h-12 w-12 text-slate-300" />
+            <p className="text-sm font-semibold text-slate-600">No stock close saved yet</p>
+            <p className="mt-1 text-xs text-slate-500">Saved closing counts will show up here.</p>
+          </div>
+        ) : (
+          days.map((day) => (
+            <HistoryDay key={day.key} heading={day.heading} count={day.entries.length}>
+              {day.entries.map((entry) => {
+                const summary = summaries.get(entry.uid_stock_check)
+                const time = formatTime(new Date(entry.timestamp))
+                const isExpanded = expandedId === entry.uid_stock_check
+                const summaryText = summary && summary.items > 0
+                  ? `${summary.items} ${summary.items === 1 ? 'item' : 'items'} · ${summary.units} units${summary.unknown > 0 ? ` · ${summary.unknown} not in catalog` : ''}`
+                  : 'Nothing counted'
+                return (
+                  <HistoryCard
+                    key={entry.uid_stock_check}
+                    title={`${entry.mode === 'arrival_entry' ? 'Arrival' : 'Closing'} · ${time}`}
+                    subtitle={`Stock date ${entry.stock_date}`}
+                    badge={{ label: entry.validated ? 'Checked' : 'Not checked', tone: entry.validated ? 'success' : 'warning' }}
+                    summary={summaryText}
+                    groups={summary?.groups ?? []}
+                    expanded={isExpanded}
+                    onToggle={() => setExpandedId(isExpanded ? null : entry.uid_stock_check)}
+                    onLoadToEdit={() => onLoadToEdit(entry.uid_stock_check)}
+                    onDelete={() => onDeleteHistory(entry.uid_stock_check)}
+                    isDeleting={deletingUid === entry.uid_stock_check}
+                    deleteDisabled={Boolean(deletingUid)}
+                  />
+                )
+              })}
+            </HistoryDay>
+          ))
+        )}
+      </div>
     </Sheet>
   )
 }

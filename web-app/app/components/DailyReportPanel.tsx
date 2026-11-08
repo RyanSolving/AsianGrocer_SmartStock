@@ -207,6 +207,15 @@ export function DailyReportPanel({ catalogItems, requestedDate, defaultDate, liv
     })
   }, [badgeRows, terms])
 
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [highlight, setHighlight] = useState(0)
+  const suggestions = useMemo(() => (terms.length === 0 ? [] : shownRows.slice(0, 8).map(({ row }) => row)), [shownRows, terms])
+  const showSuggestions = searchOpen && suggestions.length > 0
+  const pickSuggestion = (row: ReportRow) => {
+    setQuery(row.official_name)
+    setSearchOpen(false)
+  }
+
   const toSections = (rows: IndexedReportRow[]) => {
     const paper = buildPaperSections(rows)
     const toGroup = (section: typeof paper.leftColumn[number]) => ({
@@ -352,10 +361,31 @@ export function DailyReportPanel({ catalogItems, requestedDate, defaultDate, liv
           <input
             type="search"
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') setQuery('')
+            onChange={(event) => {
+              setQuery(event.target.value)
+              setHighlight(0)
+              setSearchOpen(true)
             }}
+            onFocus={() => setSearchOpen(true)}
+            onBlur={() => setSearchOpen(false)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                if (showSuggestions) setSearchOpen(false)
+                else setQuery('')
+              } else if (event.key === 'ArrowDown' && showSuggestions) {
+                event.preventDefault()
+                setHighlight((index) => Math.min(index + 1, suggestions.length - 1))
+              } else if (event.key === 'ArrowUp' && showSuggestions) {
+                event.preventDefault()
+                setHighlight((index) => Math.max(index - 1, 0))
+              } else if (event.key === 'Enter' && showSuggestions) {
+                event.preventDefault()
+                pickSuggestion(suggestions[Math.min(highlight, suggestions.length - 1)])
+              }
+            }}
+            role="combobox"
+            aria-expanded={showSuggestions}
+            aria-controls="daily-report-options"
             placeholder="Find an item"
             aria-label="Find an item in the report"
             enterKeyHint="search"
@@ -371,6 +401,27 @@ export function DailyReportPanel({ catalogItems, requestedDate, defaultDate, liv
             >
               <X className="h-5 w-5" aria-hidden="true" />
             </button>
+          ) : null}
+          {showSuggestions ? (
+            <div id="daily-report-options" role="listbox" aria-label="Matching items" className="absolute z-30 mt-1 max-h-60 w-full overflow-y-auto overscroll-contain rounded-control border border-line bg-surface shadow-raised">
+              {suggestions.map((row, index) => (
+                <button
+                  key={row.code}
+                  type="button"
+                  role="option"
+                  aria-selected={index === highlight}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => pickSuggestion(row)}
+                  className={`flex min-h-12 w-full items-center gap-3 border-b border-line px-3 text-left last:border-b-0 ${index === highlight ? 'bg-forest-50' : 'hover:bg-slate-50 active:bg-slate-100'}`}
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[15px] text-ink">{row.official_name}</span>
+                    <span className="block truncate text-[12px] text-muted">{row.category || row.code}</span>
+                  </span>
+                  <span className="shrink-0 rounded-full bg-forest-50 px-2 py-0.5 text-[12px] font-medium text-forest-800 tabular">has {formatQuantity(row.current)}</span>
+                </button>
+              ))}
+            </div>
           ) : null}
         </div>
       ) : null}

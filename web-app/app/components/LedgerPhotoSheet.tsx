@@ -13,6 +13,8 @@ export type PhotoRow = {
   marked?: boolean
   /** Stock In: arrived on a special discount. */
   special?: boolean
+  /** Stock In: short staff note for this item. */
+  note?: string
 }
 
 export type PhotoGroup = { title?: string; rows: PhotoRow[] }
@@ -54,6 +56,7 @@ function PhotoTable({ groups, quantityLabel }: { groups: PhotoGroup[]; quantityL
                   <span className={row.marked ? 'font-semibold text-red-600' : row.tone ? TONE_CLASS[row.tone] : undefined}>{row.name}</span>
                   {row.special ? <span className="report-tag report-tag-special">Special</span> : null}
                 </div>
+                {row.note ? <p className="photo-list-note">{row.note}</p> : null}
               </th>
               <td className="font-semibold">{row.quantity}</td>
             </tr>
@@ -123,7 +126,10 @@ function ListArea({ title, groups }: { title: string; groups: PhotoGroup[] }) {
           <ul>
             {group.rows.map((row) => (
               <li key={row.key} className="photo-list-row">
-                <RowName row={row} />
+                <div className="min-w-0 flex-1">
+                  <RowName row={row} />
+                  {row.note ? <p className="photo-list-note">{row.note}</p> : null}
+                </div>
                 <span className="photo-list-qty">{row.quantity}</span>
               </li>
             ))}

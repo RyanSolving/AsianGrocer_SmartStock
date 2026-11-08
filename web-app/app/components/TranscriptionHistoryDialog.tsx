@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { X, RefreshCw, Clock, FileImage, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { RefreshCw, FileImage } from 'lucide-react'
 import { Sheet } from './ui/Sheet'
+import { HistoryCard, HistoryDay, buildGroups, formatTime, groupByDay, type HistoryGroup } from './HistoryParts'
 
 type HistoryEntry = {
   uid_generate: string
@@ -28,6 +29,17 @@ type TranscriptionHistoryDialogProps = {
   visibleCatalogCodes?: Set<string>
 }
 
+type RawItem = {
+  catalog_code?: string | null
+  location?: string
+  sub_location?: string
+  official_name?: string
+  product_raw?: string
+  quantity?: number | null
+  special?: boolean
+  notes?: string | null
+}
+
 export function TranscriptionHistoryDialog({
   isOpen,
   onClose,
@@ -44,233 +56,105 @@ export function TranscriptionHistoryDialog({
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!isOpen) {
-      return
-    }
+    if (!isOpen) return
 
     if (selectedUid) {
       setExpandedId(selectedUid)
       return
     }
 
-    setExpandedId((current) => current ?? history[0]?.uid_generate ?? null)
-  }, [history, isOpen, selectedUid])
+    setExpandedId((current) => current ?? null)
+  }, [isOpen, selectedUid])
+
+  // Only counted items are listed; a record's blank rows would bury what actually arrived.
+  const summaries = useMemo(() => {
+    const map = new Map<string, { groups: HistoryGroup[]; items: number; units: number; notes: number }>()
+    for (const entry of history) {
+      const items = (entry.transcriptionData as { items?: unknown[] } | null)?.items
+      const rows: Array<{ area: string; name: string; quantity: number; special?: boolean; note?: string }> = []
+      for (const raw of Array.isArray(items) ? items : []) {
+        if (!raw || typeof raw !== 'object') continue
+        const row = raw as RawItem
+        const code = row.catalog_code?.trim().toUpperCase() ?? ''
+        if (code && visibleCatalogCodes && !visibleCatalogCodes.has(code)) continue
+        if (typeof row.quantity !== 'number' || row.quantity <= 0) continue
+        rows.push({
+          area: `${row.location?.trim() || 'Unknown'} · ${row.sub_location?.trim() || 'General'}`,
+          name: row.official_name?.trim() || row.product_raw?.trim() || 'Unnamed item',
+          quantity: row.quantity,
+          special: row.special === true,
+          note: row.notes?.trim() || undefined,
+        })
+      }
+      map.set(entry.uid_generate, {
+        groups: buildGroups(rows),
+        items: rows.length,
+        units: rows.reduce((sum, row) => sum + row.quantity, 0),
+        notes: rows.filter((row) => row.note).length,
+      })
+    }
+    return map
+  }, [history, visibleCatalogCodes])
+
+  const days = useMemo(() => groupByDay(history, (entry) => entry.timestamp), [history])
 
   if (!isOpen) return null
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString)
-    return date.toLocaleString('en-AU', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  }
-
-  const getTranscriptionText = (data: unknown) => {
-    if (!data || typeof data !== 'object') return 'No data'
-    const items = (data as { items?: unknown[] }).items
-    if (Array.isArray(items) && items.length > 0) {
-      return `${items.length} items transcribed`
-    }
-    return 'No items extracted'
-  }
-
-  const getPaperGroups = (data: unknown) => {
-    if (!data) return []
-    if (typeof data !== 'object') return []
-
-    const items = (data as { items?: unknown[] }).items
-    if (!Array.isArray(items)) return []
-
-    const groups: Record<string, Array<{ name: string; quantity: string }>> = {}
-
-    items.forEach((item) => {
-      if (!item || typeof item !== 'object') return
-
-      const row = item as {
-        catalog_code?: string | null
-        location?: string
-        sub_location?: string
-        official_name?: string
-        product_raw?: string
-        quantity?: number | null
-        quantity_raw?: string | null
-      }
-
-      const catalogCode = row.catalog_code?.trim().toUpperCase() ?? ''
-      if (catalogCode && visibleCatalogCodes && !visibleCatalogCodes.has(catalogCode)) {
-        return
-      }
-
-      const location = row.location?.trim() || 'Unknown'
-      const subLocation = row.sub_location?.trim() || 'General'
-      const groupKey = `${location} / ${subLocation}`
-      const name = row.official_name?.trim() || row.product_raw?.trim() || 'Unnamed item'
-      const quantity =
-        typeof row.quantity === 'number'
-          ? String(row.quantity)
-          : row.quantity_raw?.trim() || '-'
-
-      if (!groups[groupKey]) {
-        groups[groupKey] = []
-      }
-
-      groups[groupKey].push({ name, quantity })
-    })
-
-    return Object.entries(groups)
-  }
-
-  const getStockDate = (data: unknown) => {
-    if (!data || typeof data !== 'object') return '-'
-    return (data as { stock_date?: string }).stock_date ?? '-'
-  }
-
-  const getModeLabel = (mode: string) => {
-    if (mode === 'stock-closing') return 'Stock-closing'
-    if (mode === 'stock-in') return 'Stock-in'
-    return mode || '-'
-  }
-
-  const renderPaperDetails = (data: unknown, mode: string) => {
-    const groups = getPaperGroups(data)
-
-    if (groups.length === 0) {
-      return <p className="mt-2 text-xs text-slate-500">No item rows found for this transcription.</p>
-    }
-
-    return (
-      <div className="mt-3 space-y-3">
-        <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
-          <span className="font-semibold text-slate-700">Date:</span> {getStockDate(data)}
-          <span className="mx-2 text-slate-300">|</span>
-          <span className="font-semibold text-slate-700">Mode:</span> {getModeLabel(mode)}
-        </div>
-
-        {groups.map(([groupName, rows]) => (
-          <div key={groupName} className="rounded-md border border-slate-200 bg-white">
-            <p className="border-b border-slate-200 px-3 py-2 text-[13px] font-semibold text-ink">
-              {groupName}
-            </p>
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="text-left text-slate-500">
-                  <th className="px-3 py-2 font-medium">Item</th>
-                  <th className="px-3 py-2 text-right font-medium">Qty</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row, idx) => (
-                  <tr key={`${groupName}-${idx}`} className="border-t border-slate-100 text-slate-700">
-                    <td className="px-3 py-2">{row.name}</td>
-                    <td className="px-3 py-2 text-right font-semibold">{row.quantity}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ))}
-      </div>
-    )
-  }
-
   return (
-    <Sheet open={isOpen} onClose={onClose} title="Stock in history" description="Open a saved stock in to edit it, re-sync it, or delete it." size="lg">
-        <div className="space-y-3">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-brand-600"></div>
-            </div>
-          ) : history.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <FileImage className="mb-3 h-12 w-12 text-slate-300" />
-              <p className="text-sm font-semibold text-slate-600">No transcriptions yet</p>
-              <p className="mt-1 text-xs text-slate-500">Start by uploading a stocklist photo</p>
-            </div>
-          ) : (
-            history.map((entry) => (
-              <div
-                key={entry.uid_generate}
-                className="rounded-card border border-line bg-surface p-4"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-semibold text-slate-900">{entry.filename}</p>
-                      <span className="rounded-full bg-slate-200 px-2 py-1 text-[10px] font-semibold text-slate-700">
-                        {entry.stockMode === 'stock-closing' ? 'Closing' : 'Arrival'}
-                      </span>
-                      <span
-                        className={`rounded-full px-2 py-1 text-xs font-semibold ${
-                          entry.isPushed
-                            ? 'bg-success-soft text-success'
-                            : 'bg-warning-soft text-warning'
-                        }`}
+    <Sheet open={isOpen} onClose={onClose} title="Stock in history" description="Open a saved stock in to edit it or delete it." size="lg">
+      <div className="space-y-5">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-brand-600"></div>
+          </div>
+        ) : history.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <FileImage className="mb-3 h-12 w-12 text-slate-300" />
+            <p className="text-sm font-semibold text-slate-600">No stock in saved yet</p>
+            <p className="mt-1 text-xs text-slate-500">Saved deliveries will show up here.</p>
+          </div>
+        ) : (
+          days.map((day) => (
+            <HistoryDay key={day.key} heading={day.heading} count={day.entries.length}>
+              {day.entries.map((entry) => {
+                const summary = summaries.get(entry.uid_generate)
+                const time = formatTime(new Date(entry.timestamp))
+                const isExpanded = expandedId === entry.uid_generate
+                const summaryText = summary && summary.items > 0
+                  ? `${summary.items} ${summary.items === 1 ? 'item' : 'items'} · ${summary.units} units${summary.notes > 0 ? ` · ${summary.notes} ${summary.notes === 1 ? 'note' : 'notes'}` : ''}`
+                  : 'Nothing counted'
+                return (
+                  <HistoryCard
+                    key={entry.uid_generate}
+                    title={`${entry.stockMode === 'stock-closing' ? 'Closing' : 'Stock in'} · ${time}`}
+                    subtitle={`Stock date ${(entry.transcriptionData as { stock_date?: string } | null)?.stock_date ?? '-'}`}
+                    badge={onRepush ? { label: entry.isPushed ? 'Synced' : 'Not synced', tone: entry.isPushed ? 'success' : 'warning' } : undefined}
+                    summary={summaryText}
+                    groups={summary?.groups ?? []}
+                    expanded={isExpanded}
+                    onToggle={() => setExpandedId(isExpanded ? null : entry.uid_generate)}
+                    onLoadToEdit={() => onLoadToEdit(entry.uid_generate)}
+                    onDelete={() => onDeleteHistory(entry.uid_generate)}
+                    isDeleting={deletingUid === entry.uid_generate}
+                    deleteDisabled={Boolean(deletingUid)}
+                    extraActions={onRepush ? (
+                      <button
+                        type="button"
+                        onClick={() => onRepush(entry.uid_generate)}
+                        disabled={isRepushing}
+                        className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-forest-200 bg-forest-50 px-3 text-[15px] font-medium text-forest-800 transition hover:bg-forest-100 disabled:opacity-50"
                       >
-                        {entry.isPushed ? 'Pushed' : 'Pending'}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-xs text-slate-500">{formatDate(entry.timestamp)}</p>
-                    <p className="mt-2 text-sm text-slate-600">
-                      {getTranscriptionText(entry.transcriptionData)}
-                    </p>
-                  </div>
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <button
-                      onClick={() => onLoadToEdit(entry.uid_generate)}
-                      className="inline-flex min-h-11 items-center justify-center rounded-control bg-forest px-4 text-[15px] font-semibold text-white transition-colors hover:bg-forest-700"
-                    >
-                      Load to Edit
-                    </button>
-                    {onRepush ? (
-                    <button
-                      onClick={() => onRepush(entry.uid_generate)}
-                      disabled={isRepushing}
-                      className="flex items-center justify-center gap-2 rounded-lg border border-forest-200 bg-forest-50 px-3 py-2 text-sm font-medium text-forest-800 transition hover:bg-forest-50 disabled:opacity-50"
-                    >
-                      <RefreshCw className="h-4 w-4" />
-                      Re-push
-                    </button>
+                        <RefreshCw className="h-4 w-4" aria-hidden="true" />
+                        Re-sync
+                      </button>
                     ) : null}
-                    <button
-                      onClick={() => onDeleteHistory(entry.uid_generate)}
-                      disabled={Boolean(deletingUid)}
-                      className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control px-3 text-[15px] font-medium text-danger transition-colors hover:bg-danger-soft disabled:opacity-50"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                      {deletingUid === entry.uid_generate ? 'Deleting...' : 'Delete'}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Expandable Details */}
-                {expandedId === entry.uid_generate && (
-                  <div className="mt-4 border-t border-slate-200 pt-4">
-                    <div className="rounded-md bg-slate-50 p-3">
-                      <p className="text-[13px] font-medium text-muted">
-                        Paper Format
-                      </p>
-                      {renderPaperDetails(entry.transcriptionData, entry.stockMode)}
-                    </div>
-                  </div>
-                )}
-
-                {/* Expand/Collapse */}
-                <button
-                  onClick={() =>
-                    setExpandedId(expandedId === entry.uid_generate ? null : entry.uid_generate)
-                  }
-                  className="mt-3 text-xs font-medium text-brand-600 hover:text-brand-700"
-                >
-                  {expandedId === entry.uid_generate ? 'Show less' : 'Show details'}
-                </button>
-              </div>
-            ))
-          )}
-        </div>
+                  />
+                )
+              })}
+            </HistoryDay>
+          ))
+        )}
+      </div>
     </Sheet>
   )
 }
