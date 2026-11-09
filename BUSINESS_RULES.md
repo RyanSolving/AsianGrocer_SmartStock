@@ -40,7 +40,7 @@ Code: `web-app/app/api/daily-report/route.ts`, `combineStockInRecords` in `web-a
   in the list. Tap the icon again to clear it. Re-adding an item without the tick leaves an
   existing mark alone.
 - A marked item shows a soft green **SPECIAL** tag on screen and in the Stock In photo, and
-  `yes` in the CSV's last column, **Special**.
+  `yes` in the CSV's **Special** column.
 - Saved as `special: true` on the item in the stock-in record (`event_generate.final_output`)
   and in the warehouse JSON `item_data`. Older records have no field, which means not special.
 - It is information only: it doesn't change units sold, flags or refill.
@@ -72,6 +72,8 @@ in `web-app/app/page.tsx`.
 - **Save and photo are one button.** Save stores the Stock In and then downloads its photo. If
   the photo cannot be made, the record is still saved and the sheet stays open: Save again to
   retry the photo.
+- **CSV.** Export CSV ends with **Price** (what the row shows, in dollars and cents) and **Catalog
+  Price** (the catalog price it started from; empty for items typed in by name).
 - Prices are information only: they don't change units sold, flags or refill.
 
 Code: `web-app/lib/stock-price.ts` (parsing, change rule), `web-app/lib/catalog-prices.ts`

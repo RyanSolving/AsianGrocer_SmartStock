@@ -2348,10 +2348,11 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     setApiStatus(null)
 
     try {
+      // Rows go out with the price they show (the catalog price unless changed).
       const filteredItems = parsedData.items.filter((item) => {
         if (!item.catalog_code) return true
         return visibleCatalogCodes.has(item.catalog_code.trim().toUpperCase())
-      })
+      }).map(withPriceStamped)
       const filteredMissingCatalogItems = missingCatalogItems.filter((item) => visibleCatalogCodes.has(item.code.trim().toUpperCase()))
 
       const response = await fetch('/api/export-csv', {
@@ -2360,7 +2361,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
         body: JSON.stringify({
           ...parsedData,
           items: filteredItems,
-          unknown_items: unknownItems,
+          unknown_items: unknownItems.map(withPriceStamped),
           missing_catalog_items: filteredMissingCatalogItems,
           validated: isValidatedByStaff ? 'yes' : 'no',
         }),

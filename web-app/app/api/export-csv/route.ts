@@ -17,6 +17,11 @@ function escapeCsv(value: string) {
   return value
 }
 
+/** A price as dollars and cents for the CSV ("24.50"); empty when there is none. */
+function csvPrice(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(2) : ''
+}
+
 function toCsv(
   data: ParsedStock,
   unknownItems: Record<string, unknown>[] = [],
@@ -43,6 +48,8 @@ function toCsv(
     'Source',
     'Validated',
     'Special',
+    'Price',
+    'Catalog Price',
   ].join(',')
 
   const knownRows = data.items.map((item: StockItem) =>
@@ -66,6 +73,8 @@ function toCsv(
       'known',
       validated,
       item.special ? 'yes' : 'no',
+      csvPrice(item.price),
+      csvPrice(item.catalog_price),
     ]
       .map((value) => escapeCsv(String(value)))
       .join(',')
@@ -92,6 +101,8 @@ function toCsv(
       'unknown',
       validated,
       item.special === true ? 'yes' : 'no',
+      csvPrice(item.price),
+      '',
     ]
       .map((value) => escapeCsv(String(value)))
       .join(',')
@@ -118,6 +129,8 @@ function toCsv(
       'missing_catalog',
       validated,
       item.special === true ? 'yes' : 'no',
+      '',
+      '',
     ]
       .map((value) => escapeCsv(String(value)))
       .join(',')
