@@ -67,7 +67,7 @@ in `web-app/app/page.tsx`.
   (soft yellow) with a note: **Up from $4.99 ea**, **Down from ...**, **Changed from ...** (the unit
   or a deal changed), or **New price**. Items typed in by name have nothing to compare with, so they
   are never highlighted.
-- **Packs have a weight.** Sold by Pack asks for the pack weight (100g ... 2kg) before the price and
+- **Packs have a weight.** Sold by Pack asks for the pack weight (500g, 730g, 1kg, or Other: type the grams) before the price and
   shows it (`$3.99 /250g pack`). A different weight is a price change ("Changed from ..."); the CSV
   Sold By reads `Pack 250g`. Stored in `catalog_items.price_pack_g` (migration 20261111).
 - **Kept note.** The saved record keeps `sell` (price, unit, deals) and `catalog_sell` (the catalog

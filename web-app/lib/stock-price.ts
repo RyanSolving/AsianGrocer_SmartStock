@@ -31,8 +31,8 @@ export type SellPrice = {
 
 export const emptySellPrice: SellPrice = { price: null, unit: 'ea', deals: [], pack_g: null }
 
-/** Weights offered for a pack, in grams. */
-export const PACK_WEIGHTS_G = [100, 150, 200, 250, 300, 400, 500, 750, 1000, 1500, 2000] as const
+/** Weights offered for a pack, in grams; any other weight is typed in. */
+export const PACK_WEIGHTS_G = [500, 730, 1000] as const
 export const MAX_PACK_G = 99999
 
 /** 250 -> "250g", 1000 -> "1kg", 1500 -> "1.5kg". */

@@ -37,9 +37,13 @@ type SellPriceEditorProps = {
  */
 export function SellPriceEditor({ value, onChange, onCommit, rowIndex, onEnter, name, compact = false }: SellPriceEditorProps) {
   const [adding, setAdding] = useState(false)
+  const [otherWeight, setOtherWeight] = useState(false)
   const [qty, setQty] = useState('2')
   const [total, setTotal] = useState<number | null>(null)
   const [dealError, setDealError] = useState<string | null>(null)
+
+  // "Other" is on while a weight that is not one of the buttons is set (or was asked for).
+  const customWeight = otherWeight || (value.pack_g !== null && !(PACK_WEIGHTS_G as readonly number[]).includes(value.pack_g))
 
   function update(next: SellPrice, done: boolean) {
     onChange(next)
@@ -68,6 +72,7 @@ export function SellPriceEditor({ value, onChange, onCommit, rowIndex, onEnter, 
           value={value.unit}
           onChange={(event) => {
             const unit = event.target.value as PriceUnit
+            setOtherWeight(false)
             update({ ...value, unit, pack_g: unit === 'pack' ? value.pack_g : null }, true)
           }}
           className="min-h-10 shrink-0 rounded-lg border border-line bg-surface px-2 text-[16px] text-ink"
@@ -87,19 +92,50 @@ export function SellPriceEditor({ value, onChange, onCommit, rowIndex, onEnter, 
       </div>
 
       {value.unit === 'pack' ? (
-        <label className="flex items-center gap-2 text-[14px] font-medium text-ink">
-          Pack weight
-          <select
-            aria-label={`Pack weight, ${name}`}
-            value={value.pack_g ?? ''}
-            onChange={(event) => update({ ...value, pack_g: event.target.value === '' ? null : Number(event.target.value) }, true)}
-            className="min-h-10 rounded-lg border border-line bg-surface px-2 text-[16px] font-normal text-ink"
-          >
-            <option value="">Choose weight</option>
-            {PACK_WEIGHTS_G.map((grams) => <option key={grams} value={grams}>{formatWeight(grams)}</option>)}
-            {value.pack_g && !(PACK_WEIGHTS_G as readonly number[]).includes(value.pack_g) ? <option value={value.pack_g}>{formatWeight(value.pack_g)}</option> : null}
-          </select>
-        </label>
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[14px] font-medium text-ink">Pack weight</span>
+            {PACK_WEIGHTS_G.map((grams) => (
+              <button
+                key={grams}
+                type="button"
+                aria-pressed={value.pack_g === grams}
+                onClick={() => { setOtherWeight(false); update({ ...value, pack_g: grams }, true) }}
+                className={`min-h-10 rounded-lg border px-3 text-[15px] font-semibold ${value.pack_g === grams ? 'border-forest bg-forest text-white' : 'border-line bg-surface text-ink'}`}
+              >
+                {formatWeight(grams)}
+              </button>
+            ))}
+            <button
+              type="button"
+              aria-pressed={customWeight}
+              onClick={() => { setOtherWeight(true); if (value.pack_g && (PACK_WEIGHTS_G as readonly number[]).includes(value.pack_g)) update({ ...value, pack_g: null }, false) }}
+              className={`min-h-10 rounded-lg border px-3 text-[15px] font-semibold ${customWeight ? 'border-forest bg-forest text-white' : 'border-line bg-surface text-ink'}`}
+            >
+              Other
+            </button>
+          </div>
+          {customWeight ? (
+            <label className="flex items-center gap-2 text-[14px] text-muted">
+              Weight in grams
+              <input
+                type="text"
+                inputMode="numeric"
+                aria-label={`Pack weight in grams, ${name}`}
+                value={value.pack_g ?? ''}
+                placeholder="e.g. 350"
+                onFocus={(event) => event.currentTarget.select()}
+                onChange={(event) => {
+                  const digits = event.target.value.replace(/\D/g, '').slice(0, 5)
+                  update({ ...value, pack_g: digits === '' || Number(digits) === 0 ? null : Number(digits) }, false)
+                }}
+                onBlur={() => onCommit?.(value)}
+                className="min-h-10 w-24 rounded-lg border border-line bg-surface px-2 text-right text-[16px] font-semibold text-ink"
+              />
+              <span>g</span>
+            </label>
+          ) : null}
+        </div>
       ) : null}
 
       {value.deals.length > 0 ? (
