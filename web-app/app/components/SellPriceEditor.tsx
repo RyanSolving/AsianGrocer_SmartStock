@@ -65,7 +65,7 @@ export function SellPriceEditor({ value, onChange, onCommit, rowIndex, onEnter, 
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {/* Sold by first, then the price. */}
         <select
           aria-label={`Sold by, ${name}`}
@@ -75,11 +75,32 @@ export function SellPriceEditor({ value, onChange, onCommit, rowIndex, onEnter, 
             setOtherWeight(false)
             update({ ...value, unit, pack_g: unit === 'pack' ? value.pack_g : null }, true)
           }}
-          className="min-h-10 shrink-0 rounded-lg border border-line bg-surface px-2 text-[16px] text-ink"
+          className="min-h-10 shrink-0 rounded-lg border border-line bg-surface py-0 pl-2 pr-1 text-[16px] text-ink"
         >
           {priceUnits.map((unit) => <option key={unit} value={unit}>{priceUnitNames[unit]}</option>)}
         </select>
-        <div className="w-36 min-w-0">
+        {value.unit === 'pack' ? (
+          <select
+            aria-label={`Pack weight, ${name}`}
+            value={customWeight ? 'other' : value.pack_g ?? ''}
+            onChange={(event) => {
+              const choice = event.target.value
+              if (choice === 'other') {
+                setOtherWeight(true)
+                if (value.pack_g && (PACK_WEIGHTS_G as readonly number[]).includes(value.pack_g)) update({ ...value, pack_g: null }, false)
+              } else {
+                setOtherWeight(false)
+                update({ ...value, pack_g: choice === '' ? null : Number(choice) }, true)
+              }
+            }}
+            className="min-h-10 shrink-0 rounded-lg border border-line bg-surface py-0 pl-2 pr-1 text-[16px] text-ink"
+          >
+            <option value="">Weight</option>
+            {PACK_WEIGHTS_G.map((grams) => <option key={grams} value={grams}>{formatWeight(grams)}</option>)}
+            <option value="other">Other…</option>
+          </select>
+        ) : null}
+        <div className="min-w-[6.25rem] flex-1">
           <PriceInput
             value={value.price}
             rowIndex={rowIndex}
@@ -91,51 +112,25 @@ export function SellPriceEditor({ value, onChange, onCommit, rowIndex, onEnter, 
         </div>
       </div>
 
-      {value.unit === 'pack' ? (
-        <div className="space-y-1.5">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[14px] font-medium text-ink">Pack weight</span>
-            {PACK_WEIGHTS_G.map((grams) => (
-              <button
-                key={grams}
-                type="button"
-                aria-pressed={value.pack_g === grams}
-                onClick={() => { setOtherWeight(false); update({ ...value, pack_g: grams }, true) }}
-                className={`min-h-10 rounded-lg border px-3 text-[15px] font-semibold ${value.pack_g === grams ? 'border-forest bg-forest text-white' : 'border-line bg-surface text-ink'}`}
-              >
-                {formatWeight(grams)}
-              </button>
-            ))}
-            <button
-              type="button"
-              aria-pressed={customWeight}
-              onClick={() => { setOtherWeight(true); if (value.pack_g && (PACK_WEIGHTS_G as readonly number[]).includes(value.pack_g)) update({ ...value, pack_g: null }, false) }}
-              className={`min-h-10 rounded-lg border px-3 text-[15px] font-semibold ${customWeight ? 'border-forest bg-forest text-white' : 'border-line bg-surface text-ink'}`}
-            >
-              Other
-            </button>
-          </div>
-          {customWeight ? (
-            <label className="flex items-center gap-2 text-[14px] text-muted">
-              Weight in grams
-              <input
-                type="text"
-                inputMode="numeric"
-                aria-label={`Pack weight in grams, ${name}`}
-                value={value.pack_g ?? ''}
-                placeholder="e.g. 350"
-                onFocus={(event) => event.currentTarget.select()}
-                onChange={(event) => {
-                  const digits = event.target.value.replace(/\D/g, '').slice(0, 5)
-                  update({ ...value, pack_g: digits === '' || Number(digits) === 0 ? null : Number(digits) }, false)
-                }}
-                onBlur={() => onCommit?.(value)}
-                className="min-h-10 w-24 rounded-lg border border-line bg-surface px-2 text-right text-[16px] font-semibold text-ink"
-              />
-              <span>g</span>
-            </label>
-          ) : null}
-        </div>
+      {value.unit === 'pack' && customWeight ? (
+        <label className="flex items-center gap-2 text-[14px] text-muted">
+          Weight in grams
+          <input
+            type="text"
+            inputMode="numeric"
+            aria-label={`Pack weight in grams, ${name}`}
+            value={value.pack_g ?? ''}
+            placeholder="e.g. 350"
+            onFocus={(event) => event.currentTarget.select()}
+            onChange={(event) => {
+              const digits = event.target.value.replace(/\D/g, '').slice(0, 5)
+              update({ ...value, pack_g: digits === '' || Number(digits) === 0 ? null : Number(digits) }, false)
+            }}
+            onBlur={() => onCommit?.(value)}
+            className="min-h-10 w-24 rounded-lg border border-line bg-surface px-2 text-right text-[16px] font-semibold text-ink"
+          />
+          <span>g</span>
+        </label>
       ) : null}
 
       {value.deals.length > 0 ? (
