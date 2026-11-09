@@ -59,7 +59,9 @@ in `web-app/app/page.tsx`.
   saves and moves to the next item. **Missing price** shows only unpriced items. Editing other
   fields of an item never clears its price.
 - **Stock In.** Every row has a **Price** cell starting at the catalog price. Tap it to change the
-  price, unit or deals for this delivery. The photo, History preview and CSV show the same.
+  price, unit or deals for this delivery. The same can be done while adding: pick the item, then
+  **Price → Change** above the Note. The name column shows only the name and the note; the
+  "Up from ..." text is on the price sheet, the photo and History. The photo, History preview and CSV show the same.
   Stock Close has no prices.
 - **Price change.** A row whose price differs from the catalog price it started from is highlighted
   (soft yellow) with a note: **Up from $4.99 ea**, **Down from ...**, **Changed from ...** (the unit

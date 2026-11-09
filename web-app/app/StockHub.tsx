@@ -601,6 +601,9 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
   const [manualEntryQuantity, setManualEntryQuantity] = useState('')
   const [manualEntrySpecial, setManualEntrySpecial] = useState(false)
   const [manualEntryNote, setManualEntryNote] = useState('')
+  /** Price typed for the item being added; null = the catalog price. */
+  const [manualEntrySell, setManualEntrySell] = useState<SellPrice | null>(null)
+  const [isFormPriceOpen, setIsFormPriceOpen] = useState(false)
   const [dataEntryTouchedIndexes, setDataEntryTouchedIndexes] = useState<Set<number>>(() => new Set())
   const [lastAddedEntry, setLastAddedEntry] = useState<LastAddedEntry | null>(null)
   const hadParsedDataRef = useRef(false)
@@ -1403,6 +1406,9 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     return visibleCatalog.find((item) => item.code.trim().toUpperCase() === normalized) ?? null
   }, [dataEntrySelectedCatalogCode, visibleCatalog])
 
+  // A price typed for one item does not carry over to the next one picked.
+  useEffect(() => { setManualEntrySell(null) }, [dataEntrySelectedCatalogCode])
+
   const editableDataEntryCatalogItem = useMemo(() => {
     if (selectedDataEntryCatalogItem) return selectedDataEntryCatalogItem
 
@@ -1463,7 +1469,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     setIsValidatedByStaff(false)
   }, [])
 
-  const addKnownDataEntryItem = useCallback((catalogItem: CatalogItem, quantityOverride: number | null = null, special = false, note = ''): boolean => {
+  const addKnownDataEntryItem = useCallback((catalogItem: CatalogItem, quantityOverride: number | null = null, special = false, note = '', sell: SellPrice | null = null): boolean => {
     if (!parsedData) {
       setApiError('Please start manual entry or parse a photo before adding items.')
       return false
@@ -1506,6 +1512,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
             catalog_match_status: 'exact',
             special,
             notes: note.trim() || null,
+            ...(sell ? { sell } : {}),
           },
         ],
         total_items: current.items.length + 1,
@@ -1733,7 +1740,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       setDataEntrySelectedCatalogCode(null)
       setManualEntryQuantity('')
       setManualEntrySpecial(false)
-      setManualEntryNote('')
+      setManualEntryNote(''); setManualEntrySell(null)
       setApiError(null)
       noteAdded(itemName, quantity, snapshot, 'not in catalog')
       return true
@@ -1749,12 +1756,13 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
         quantity_conflict_flag: false,
         ...(manualEntrySpecial ? { special: true } : {}),
         ...(manualEntryNote.trim() ? { notes: manualEntryNote.trim() } : {}),
+        ...(manualEntrySell ? { sell: manualEntrySell } : {}),
       })
       setDataEntryNewItemName('')
       setDataEntrySelectedCatalogCode(null)
       setManualEntryQuantity('')
       setManualEntrySpecial(false)
-      setManualEntryNote('')
+      setManualEntryNote(''); setManualEntrySell(null)
       setApiError(null)
       noteAdded(chosen.official_name, quantity, snapshot)
       return true
@@ -1775,16 +1783,16 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       setDataEntrySelectedCatalogCode(null)
       setManualEntryQuantity('')
       setManualEntrySpecial(false)
-      setManualEntryNote('')
+      setManualEntryNote(''); setManualEntrySell(null)
       setApiError(null)
       noteAdded(chosen.official_name, quantity, snapshot)
       return true
     }
 
-    const added = addKnownDataEntryItem(chosen, quantity, manualEntrySpecial, manualEntryNote)
+    const added = addKnownDataEntryItem(chosen, quantity, manualEntrySpecial, manualEntryNote, manualEntrySell)
     if (added) {
       setManualEntrySpecial(false)
-      setManualEntryNote('')
+      setManualEntryNote(''); setManualEntrySell(null)
       noteAdded(chosen.official_name, quantity, snapshot)
     }
     return added
@@ -1797,6 +1805,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     manualEntryQuantity,
     manualEntrySpecial,
     manualEntryNote,
+    manualEntrySell,
     missingCatalogItems,
     parsedData,
     selectedDataEntryCatalogItem,
@@ -2168,7 +2177,6 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     const displayName = latestCatalogItem?.official_name ?? row.item.official_name ?? row.item.product_raw ?? ''
     const tone = row.source === 'missing' ? 'text-warning' : row.source === 'unknown' ? 'font-semibold text-red-600' : undefined
     const special = row.item.special === true
-    const { change } = priceStateOf(row.item)
     return (
       <div className="report-name">
         <button
@@ -2184,7 +2192,6 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
         <span className={tone}>
           {displayName}
           {special ? <> <span className="report-tag report-tag-special ml-1 align-[1px]">Special</span></> : null}
-          {change ? <span className="stock-price-note">{describePriceChange(change)}</span> : null}
           {row.item.notes?.trim() ? <span className="block text-[13px] font-normal italic text-muted">{row.item.notes.trim()}</span> : null}
         </span>
       </div>
@@ -2530,7 +2537,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
   const clearStockInSheet = useCallback(() => {
     clearOfflineDraft('stock-in')
     setHasStockInLocalDraft(false)
-    setManualEntryNote('')
+    setManualEntryNote(''); setManualEntrySell(null)
     setParsedData(null)
     setUnknownItems([])
     setMissingCatalogItems([])
@@ -3300,6 +3307,41 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                               Special (discount)
                             </span>
                           </label>
+
+                          {selectedDataEntryCatalogItem ? (() => {
+                            const catalogSell = catalogSellByCode.get(selectedDataEntryCatalogItem.code.trim().toUpperCase()) ?? emptySellPrice
+                            const current = manualEntrySell ?? catalogSell
+                            return (
+                              <div>
+                                <p className="mb-1.5 block text-[14px] font-medium text-ink">Price <span className="font-normal text-muted">(optional)</span></p>
+                                <button
+                                  type="button"
+                                  onClick={() => setIsFormPriceOpen(true)}
+                                  className={`flex min-h-12 w-full items-center justify-between gap-3 rounded-control border px-3 text-left text-[16px] ${manualEntrySell ? 'border-warning-marker bg-warning-soft' : 'border-line bg-white'}`}
+                                >
+                                  <span className="min-w-0 truncate text-ink">{formatSellPrice(current) || <span className="text-muted">No price yet</span>}</span>
+                                  <span className="shrink-0 text-[14px] font-semibold text-forest">Change</span>
+                                </button>
+                                {isFormPriceOpen ? (
+                                  <Sheet
+                                    open
+                                    onClose={() => setIsFormPriceOpen(false)}
+                                    title={selectedDataEntryCatalogItem.official_name}
+                                    description="Selling price for this delivery. A change is saved to the catalog."
+                                    size="sm"
+                                    footer={<button type="button" onClick={() => setIsFormPriceOpen(false)} className="min-h-12 w-full rounded-control bg-forest px-4 text-[16px] font-semibold text-white">Done</button>}
+                                  >
+                                    <SellPriceEditor
+                                      name={selectedDataEntryCatalogItem.official_name}
+                                      value={current}
+                                      onChange={(next) => setManualEntrySell(next)}
+                                      onEnter={() => setIsFormPriceOpen(false)}
+                                    />
+                                  </Sheet>
+                                ) : null}
+                              </div>
+                            )
+                          })() : null}
 
                           <div>
                             <label htmlFor="stock-in-note" className="mb-1.5 block text-[14px] font-medium text-ink">Note <span className="font-normal text-muted">(optional)</span></label>
