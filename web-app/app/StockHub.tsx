@@ -49,7 +49,7 @@ import type { SelectedStockCheckHistoryRecord } from './components/EmbeddedStock
 import { StockCheckHistoryDialog } from './components/StockCheckHistoryDialog'
 import { TranscriptionHistoryDialog } from './components/TranscriptionHistoryDialog'
 import { filterVisibleCatalogItems } from '../lib/catalog-visibility'
-import { describePriceChange, emptySellPrice, formatDeals, formatMainPrice, formatSellPrice, normalizeSellPrice, priceChangeOf, type PriceDeal, type PriceUnit, type SellPrice } from '../lib/stock-price'
+import { describePriceChange, emptySellPrice, isEmptySellPrice, formatDeals, formatMainPrice, formatSellPrice, normalizeSellPrice, priceChangeOf, type PriceDeal, type PriceUnit, type SellPrice } from '../lib/stock-price'
 import {
   clearOfflineDraft,
   enqueueOfflineRequest,
@@ -3255,11 +3255,10 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                             const change = priceChangeOf(current, catalogSell, true)
                             return (
                               <div className={`rounded-control p-3 ${change ? 'bg-warning-soft' : 'bg-slate-50'}`}>
-                                <p className="mb-2 text-[14px] font-medium text-ink">
-                                  Selling price{' '}
-                                  {change
-                                    ? <span className="font-semibold text-warning">· {describePriceChange(change)}</span>
-                                    : <span className="font-normal text-muted">· from the catalog</span>}
+                                <p className="text-[14px] font-medium text-ink">Selling price</p>
+                                <p className="mb-2 text-[14px] text-muted">
+                                  Current price in the system:{' '}
+                                  <span className="font-semibold text-ink">{formatSellPrice(catalogSell) || 'none yet'}</span>
                                 </p>
                                 <SellPriceEditor
                                   name={selectedDataEntryCatalogItem.official_name}
@@ -3267,6 +3266,11 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                                   onChange={(next) => setManualEntrySell(next)}
                                   onEnter={() => dataEntryQtyInputRef.current?.focus()}
                                 />
+                                <p className={`mt-2 text-[13px] ${change ? 'font-semibold text-warning' : 'text-muted'}`}>
+                                  {change
+                                    ? `New price for this delivery · ${describePriceChange(change)}`
+                                    : isEmptySellPrice(current) ? 'No price set. Enter one to save it to the system.' : 'No change: keeps the current price.'}
+                                </p>
                               </div>
                             )
                           })() : null}
@@ -3464,7 +3468,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                         anchor={priceAnchor}
                         onClose={() => setPriceSheetIndex(null)}
                         title={name}
-                        description={change ? describePriceChange(change) : 'Selling price'}
+                        description={`System price: ${formatSellPrice(priceSheetRow.item.catalog_sell ?? catalogSellByCode.get((priceSheetRow.item.catalog_code ?? '').trim().toUpperCase())) || 'none yet'}${change ? ` · ${describePriceChange(change)}` : ' · no change'}`}
                       >
                         <SellPriceEditor
                           name={name}

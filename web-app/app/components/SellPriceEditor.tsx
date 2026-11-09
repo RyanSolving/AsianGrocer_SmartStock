@@ -58,7 +58,16 @@ export function SellPriceEditor({ value, onChange, onCommit, rowIndex, onEnter, 
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
-        <div className="w-32 shrink-0">
+        {/* Sold by first, then the price. */}
+        <select
+          aria-label={`Sold by, ${name}`}
+          value={value.unit}
+          onChange={(event) => update({ ...value, unit: event.target.value as PriceUnit }, true)}
+          className="min-h-10 shrink-0 rounded-lg border border-line bg-surface px-2 text-[16px] text-ink"
+        >
+          {priceUnits.map((unit) => <option key={unit} value={unit}>{priceUnitNames[unit]}</option>)}
+        </select>
+        <div className="w-36 min-w-0">
           <PriceInput
             value={value.price}
             rowIndex={rowIndex}
@@ -68,14 +77,6 @@ export function SellPriceEditor({ value, onChange, onCommit, rowIndex, onEnter, 
             onEnter={onEnter}
           />
         </div>
-        <select
-          aria-label={`Sold by, ${name}`}
-          value={value.unit}
-          onChange={(event) => update({ ...value, unit: event.target.value as PriceUnit }, true)}
-          className="min-h-10 rounded-lg border border-line bg-surface px-2 text-[16px] text-ink"
-        >
-          {priceUnits.map((unit) => <option key={unit} value={unit}>{priceUnitNames[unit]}</option>)}
-        </select>
       </div>
 
       {value.deals.length > 0 ? (
