@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from 'react'
 
-import { parsePriceInput, roundPrice } from '../../lib/stock-price'
+import { roundPrice } from '../../lib/stock-price'
+
+/** Up to 9 digits: 9,999,999.99. */
+const MAX_DIGITS = 9
 
 type PriceInputProps = {
   /** The saved price; null when there is none. */
@@ -40,7 +43,7 @@ export function PriceInput({ value, onChange, onCommit, onEnter, changed = false
     <span className={`stock-price-field${changed ? ' is-changed' : ''}`}>
       <input
         type="text"
-        inputMode="decimal"
+        inputMode="numeric"
         enterKeyHint="done"
         autoComplete="off"
         data-price-row-index={rowIndex}
@@ -67,9 +70,18 @@ export function PriceInput({ value, onChange, onCommit, onEnter, changed = false
         }}
         onChange={(event) => {
           const next = event.target.value
-          setText(next)
-          const parsed = parsePriceInput(next)
-          if (parsed.ok) onChange(parsed.value)
+          // Like a till: digits come in from the right, so 799 reads 7.99 as it is typed.
+          const digits = next.replace(/\D/g, '').replace(/^0+/, '')
+          if (digits.length > MAX_DIGITS) return
+          if (digits === '') {
+            const typedZero = next.replace(/\D/g, '') !== '' && next.length >= text.length
+            setText(typedZero ? '0.00' : '')
+            onChange(typedZero ? 0 : null)
+            return
+          }
+          const cents = Number(digits)
+          setText((cents / 100).toFixed(2))
+          onChange(cents / 100)
         }}
       />
     </span>

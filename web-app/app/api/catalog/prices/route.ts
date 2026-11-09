@@ -2,12 +2,12 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 
 import { getAuthContext } from '../../../../lib/supabase/route-auth'
-import { normalizeSellPrice, priceUnits, roundPrice } from '../../../../lib/stock-price'
+import { MAX_PRICE, normalizeSellPrice, priceUnits, roundPrice } from '../../../../lib/stock-price'
 
 const bodySchema = z.object({
   prices: z.array(z.object({
     code: z.string().trim().min(1),
-    price: z.number().finite().nonnegative().max(100000).nullable(),
+    price: z.number().finite().nonnegative().max(MAX_PRICE).nullable(),
     unit: z.enum(priceUnits).default('ea'),
     deals: z.array(z.object({ qty: z.number(), total: z.number() })).max(20).default([]),
   })).min(1).max(500),

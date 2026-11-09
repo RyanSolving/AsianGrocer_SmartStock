@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { isEmptySellPrice, normalizeDeals, priceUnits, roundPrice, type SellPrice } from './stock-price'
+import { MAX_PRICE, isEmptySellPrice, normalizeDeals, priceUnits, roundPrice, type SellPrice } from './stock-price'
 
 export const stockModeSchema = z.enum(['stock-in', 'stock-closing'])
 
@@ -33,7 +33,7 @@ const catalogPriceSchema = z.preprocess((value) => {
 }, z.number({ invalid_type_error: 'Price must be a number' })
   .finite()
   .nonnegative('Price must be zero or more')
-  .max(100000, 'Price looks too high')
+  .max(MAX_PRICE, 'Price looks too high')
   .transform(roundPrice)
   .nullable()
   .optional())

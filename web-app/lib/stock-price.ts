@@ -14,6 +14,8 @@ export const priceUnitNames: Record<PriceUnit, string> = { ea: 'Each', kg: 'KG',
 const unitSuffix: Record<PriceUnit, string> = { ea: 'ea', kg: '/kg', pack: '/pack', bunch: '/bunch', punnet: '/punnet' }
 
 export const MAX_DEALS = 5
+/** The biggest price a box takes: 9 digits, 9,999,999.99. */
+export const MAX_PRICE = 9999999.99
 
 /** "qty for $total", e.g. 2 for $9.00. */
 export type PriceDeal = { qty: number; total: number }
@@ -56,7 +58,7 @@ export function parsePriceInput(text: string): ParsedPriceInput {
   if (cleaned === '') return { ok: true, value: null }
   if (!/^\d*\.?\d{0,4}$/.test(cleaned) || cleaned === '.') return { ok: false }
   const value = Number(cleaned)
-  if (!Number.isFinite(value) || value > 100000) return { ok: false }
+  if (!Number.isFinite(value) || value > MAX_PRICE) return { ok: false }
   return { ok: true, value: roundPrice(value) }
 }
 
@@ -72,7 +74,7 @@ export function normalizeDeals(raw: unknown): PriceDeal[] {
     if (!entry || typeof entry !== 'object') continue
     const qty = Number((entry as { qty?: unknown }).qty)
     const total = Number((entry as { total?: unknown }).total)
-    if (!Number.isInteger(qty) || qty < 2 || qty > 99 || !Number.isFinite(total) || total <= 0 || total > 100000) continue
+    if (!Number.isInteger(qty) || qty < 2 || qty > 99 || !Number.isFinite(total) || total <= 0 || total > MAX_PRICE) continue
     byQty.set(qty, { qty, total: roundPrice(total) })
   }
   return Array.from(byQty.values()).sort((a, b) => a.qty - b.qty).slice(0, MAX_DEALS)

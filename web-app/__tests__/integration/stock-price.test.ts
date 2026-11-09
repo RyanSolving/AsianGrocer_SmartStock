@@ -44,7 +44,7 @@ describe('parsePriceInput', () => {
   it('treats an empty box as no price, rounds to the cent and rejects what is not an amount', () => {
     expect(parsePriceInput('')).toEqual({ ok: true, value: null })
     expect(parsePriceInput('1.005')).toEqual({ ok: true, value: 1.01 })
-    for (const bad of ['-3', 'abc', '.', '1.2.3', '999999']) expect(parsePriceInput(bad)).toEqual({ ok: false })
+    for (const bad of ['-3', 'abc', '.', '1.2.3', '99999999']) expect(parsePriceInput(bad)).toEqual({ ok: false })
   })
 })
 
