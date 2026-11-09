@@ -678,6 +678,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
   }, [activeCatalog])
   /** The Stock In row whose price sheet is open (its list index), if any. */
   const [priceSheetIndex, setPriceSheetIndex] = useState<number | null>(null)
+  const [entryPriceOpen, setEntryPriceOpen] = useState(false)
   const visibleCatalogCodes = useMemo(
     () => new Set(visibleCatalog.map((item) => item.code.trim().toUpperCase())),
     [visibleCatalog]
@@ -1406,7 +1407,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
   }, [dataEntrySelectedCatalogCode, visibleCatalog])
 
   // A price typed for one item does not carry over to the next one picked.
-  useEffect(() => { setManualEntrySell(null) }, [dataEntrySelectedCatalogCode])
+  useEffect(() => { setManualEntrySell(null); setEntryPriceOpen(false) }, [dataEntrySelectedCatalogCode])
 
   const editableDataEntryCatalogItem = useMemo(() => {
     if (selectedDataEntryCatalogItem) return selectedDataEntryCatalogItem
@@ -3298,20 +3299,41 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                             const current = manualEntrySell ?? catalogSell
                             const change = priceChangeOf(current, catalogSell, true)
                             return (
-                              <div className={`rounded-control p-3 ${change ? 'bg-warning-soft' : 'bg-slate-50'}`}>
-                                <p className="mb-2 text-[14px] font-medium text-ink">
-                                  Selling price{' '}
-                                  {change
-                                    ? <span className="font-semibold text-warning">· {describePriceChange(change)}</span>
-                                    : <span className="font-normal text-muted">· from the catalog</span>}
-                                </p>
-                                <SellPriceEditor
-                                  name={selectedDataEntryCatalogItem.official_name}
-                                  value={current}
-                                  onChange={(next) => setManualEntrySell(next)}
-                                  onEnter={() => dataEntryQtyInputRef.current?.focus()}
-                                />
-                              </div>
+                              <>
+                                <button
+                                  type="button"
+                                  onMouseDown={(event) => event.preventDefault()}
+                                  onClick={() => setEntryPriceOpen(true)}
+                                  aria-label={`Selling price of ${selectedDataEntryCatalogItem.official_name}. Tap to change.`}
+                                  className={`flex min-h-12 w-full items-center justify-between gap-3 rounded-control px-3 py-2 text-left ${change ? 'bg-warning-soft' : 'bg-slate-50'}`}
+                                >
+                                  <span className="min-w-0">
+                                    <span className="block text-[13px] text-muted">Selling price</span>
+                                    <span className="block text-[16px] font-semibold text-ink">
+                                      {formatSellPrice(current) || 'No price yet'}
+                                    </span>
+                                    {change ? <span className="block text-[13px] font-medium text-warning">{describePriceChange(change)}</span> : null}
+                                  </span>
+                                  <span className="shrink-0 text-[14px] font-semibold text-forest">Change</span>
+                                </button>
+                                {entryPriceOpen ? (
+                                  <Sheet
+                                    open
+                                    onClose={() => setEntryPriceOpen(false)}
+                                    title={selectedDataEntryCatalogItem.official_name}
+                                    description={change ? describePriceChange(change) : 'Selling price, from the catalog. A change is saved to the catalog.'}
+                                    size="sm"
+                                    footer={<button type="button" onClick={() => setEntryPriceOpen(false)} className="min-h-12 w-full rounded-control bg-forest px-4 text-[16px] font-semibold text-white">Done</button>}
+                                  >
+                                    <SellPriceEditor
+                                      name={selectedDataEntryCatalogItem.official_name}
+                                      value={current}
+                                      onChange={(next) => setManualEntrySell(next)}
+                                      onEnter={() => setEntryPriceOpen(false)}
+                                    />
+                                  </Sheet>
+                                ) : null}
+                              </>
                             )
                           })() : null}
 

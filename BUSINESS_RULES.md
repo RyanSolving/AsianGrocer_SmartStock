@@ -60,7 +60,7 @@ in `web-app/app/page.tsx`.
   fields of an item never clears its price.
 - **Stock In.** Every row has a **Price** cell starting at the catalog price. Tap it to change the
   price, unit or deals for this delivery. The same can be done while adding: pick the item, then
-  the **Selling price** box under Quantity (price, sold by, deals). The name column shows only the name and the note; the
+  the **Selling price** box under Quantity (tap it to open a small panel with price, sold by, deals). The name column shows only the name and the note; the
   "Up from ..." text is on the price sheet, the photo and History. The photo, History preview and CSV show the same.
   Stock Close has no prices.
 - **Price change.** A row whose price differs from the catalog price it started from is highlighted
