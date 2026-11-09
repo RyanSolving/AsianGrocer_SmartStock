@@ -615,6 +615,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
   const [dataEntryCreatePrefillName, setDataEntryCreatePrefillName] = useState('')
   const [showCreateDataEntryItemModal, setShowCreateDataEntryItemModal] = useState(false)
   const [isItemProfilesExpanded, setIsItemProfilesExpanded] = useState(false)
+  const [inlineCreateSell, setInlineCreateSell] = useState<SellPrice>(emptySellPrice)
   const [inlineCreateForm, setInlineCreateForm] = useState<InlineCreateItemForm>({
     official_name: '',
     stocklist_name: '',
@@ -1453,9 +1454,14 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     // mid-typing (a typo is enough) pushed the count list off the screen.
     setInlineCreateForm((current) => ({
       ...current,
-      official_name: current.official_name.trim().length > 0 ? current.official_name : term,
-      stocklist_name: current.stocklist_name.trim().length > 0 ? current.stocklist_name : term,
-      product: current.product.trim().length > 0 ? current.product : term,
+      // The name follows what was typed (it must not keep the name of an item picked before).
+      official_name: term,
+      stocklist_name: term,
+      product: term,
+      attribute: '',
+      origin: '',
+      inner_quantity: null,
+      inner_unit: 'box',
     }))
   }, [dataEntryAddSuggestions, dataEntryNewItemName, dataEntrySelectedCatalogCode])
 
@@ -1950,9 +1956,8 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       return
     }
 
-    const editingCatalogItem = editableDataEntryCatalogItem
     const payload: CreateCatalogItemPayload = {
-      code: editingCatalogItem?.code ?? generateCatalogCode(category, product, inlineCreateForm.attribute.trim()),
+      code: generateCatalogCode(category, product, inlineCreateForm.attribute.trim()),
       location: inlineCreateForm.location,
       sub_location: inlineCreateForm.sub_location,
       category,
@@ -1961,13 +1966,14 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       origin: inlineCreateForm.origin.trim(),
       inner_quantity: inlineCreateForm.inner_quantity,
       inner_unit: inlineCreateForm.inner_unit,
-      // Editing a profile keeps the catalog price as it is; a new item starts without one.
-      ...(editingCatalogItem ? {} : { price: null, price_unit: 'ea' as const, price_deals: [] }),
+      price: inlineCreateSell.price,
+      price_unit: inlineCreateSell.unit,
+      price_deals: inlineCreateSell.deals,
       official_name: officialName,
       stocklist_name: stocklistName,
-      navigation_guide: editingCatalogItem?.navigation_guide ?? '',
-      row_position: editingCatalogItem?.row_position ?? 'single',
-      is_visible: editingCatalogItem?.is_visible ?? true,
+      navigation_guide: '',
+      row_position: 'single',
+      is_visible: true,
     }
 
     setIsInlineCreateSaving(true)
@@ -1986,91 +1992,24 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
         throw new Error(message)
       }
 
-      if (editingCatalogItem) {
-        const normalizedCode = editingCatalogItem.code.trim().toUpperCase()
-        const updatedCatalogItem: CatalogItem = {
-          ...editingCatalogItem,
-          ...payload,
-          id: editingCatalogItem.id,
-        }
-
-        setActiveCatalog((current) => {
-          if (!current) return current
-          return current.map((item) => (
-            item.code.trim().toUpperCase() === normalizedCode ? updatedCatalogItem : item
-          ))
-        })
-
-        setParsedData((current) => {
-          if (!current) return current
-          return {
-            ...current,
-            items: current.items.map((item) => (
-              (item.catalog_code ?? '').trim().toUpperCase() === normalizedCode
-                ? {
-                    ...item,
-                    product_raw: payload.stocklist_name || payload.official_name,
-                    location: payload.location,
-                    sub_location: payload.sub_location,
-                    category: payload.category,
-                    product: payload.product,
-                    attribute: payload.attribute,
-                    origin: payload.origin,
-                    inner_quantity: payload.inner_quantity,
-                    inner_unit: payload.inner_unit,
-                    official_name: payload.official_name,
-                    stocklist_name: payload.stocklist_name,
-                    navigation_guide: payload.navigation_guide,
-                    row_position: payload.row_position,
-                  }
-                : item
-            )),
-          }
-        })
-
-        setMissingCatalogItems((current) => current.map((item) => (
-          item.code.trim().toUpperCase() === normalizedCode
-            ? {
-                ...item,
-                location: payload.location,
-                sub_location: payload.sub_location,
-                category: payload.category,
-                product: payload.product,
-                attribute: payload.attribute,
-                origin: payload.origin,
-                inner_quantity: payload.inner_quantity,
-                inner_unit: payload.inner_unit,
-                official_name: payload.official_name,
-                stocklist_name: payload.stocklist_name,
-                navigation_guide: payload.navigation_guide,
-                row_position: payload.row_position,
-              }
-            : item
-        )))
-
-        setHasSavedToSupabase(false)
-        setHasLoadedToDb(false)
-        setIsValidatedByStaff(false)
-        setApiStatus(`Updated catalog profile for ${payload.official_name}.`)
-      } else {
-        addCreatedDataEntryItem(payload)
-        setInlineCreateForm((current) => ({
-          ...current,
-          official_name: '',
-          stocklist_name: '',
-          product: '',
-          attribute: '',
-          origin: '',
-          inner_quantity: null,
-          inner_unit: 'box',
-        }))
-      }
+      addCreatedDataEntryItem(payload)
+      setInlineCreateSell(emptySellPrice)
+      setInlineCreateForm((current) => ({
+        ...current,
+        official_name: '',
+        stocklist_name: '',
+        product: '',
+        attribute: '',
+        origin: '',
+        inner_quantity: null,
+        inner_unit: 'box',
+      }))
     } catch (error) {
       setApiError(error instanceof Error ? error.message : 'Failed to save catalog item.')
     } finally {
       setIsInlineCreateSaving(false)
     }
-  }, [addCreatedDataEntryItem, editableDataEntryCatalogItem, inlineCreateForm, parsedData])
+  }, [addCreatedDataEntryItem, inlineCreateForm, inlineCreateSell, parsedData])
 
   const startManualEntry = useCallback(() => {
     const freshToday = getLocalTodayDate()
@@ -3383,145 +3322,89 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                         </div>
                       </div>
 
-                      <div className="rounded-lg bg-white p-3">
-                        <button
-                          type="button"
-                          onClick={() => setIsItemProfilesExpanded((current) => !current)}
-                          aria-expanded={isItemProfilesExpanded}
-                          className="flex min-h-11 w-full items-center justify-between gap-3 rounded-md text-left"
-                        >
-                          <div>
-                            <p className="text-[14px] font-semibold text-ink">Item profile</p>
-                            <p className="mt-0.5 text-[13px] text-muted">
-                              {editableDataEntryCatalogItem ? 'Edit this item in the catalog.' : 'New item? Add it to the catalog.'}
-                            </p>
-                          </div>
-                          <ChevronDown className={`h-5 w-5 shrink-0 text-muted transition-transform duration-150 ${isItemProfilesExpanded ? 'rotate-180' : ''}`} aria-hidden="true" />
-                        </button>
+                      {!editableDataEntryCatalogItem ? (
+                        <div className="rounded-lg bg-white p-3">
+                          <button
+                            type="button"
+                            onClick={() => setIsItemProfilesExpanded((current) => !current)}
+                            aria-expanded={isItemProfilesExpanded}
+                            className="flex min-h-11 w-full items-center justify-between gap-3 rounded-md text-left"
+                          >
+                            <div>
+                              <p className="text-[14px] font-semibold text-ink">
+                                {dataEntryNewItemName.trim() ? `Not in the catalog? Add “${dataEntryNewItemName.trim()}”` : 'Not in the catalog? Add a new item'}
+                              </p>
+                              <p className="mt-0.5 text-[13px] text-muted">Existing items are changed in the Catalog.</p>
+                            </div>
+                            <ChevronDown className={`h-5 w-5 shrink-0 text-muted transition-transform duration-150 ${isItemProfilesExpanded ? 'rotate-180' : ''}`} aria-hidden="true" />
+                          </button>
 
-                        {isItemProfilesExpanded && (
-                          <>
-                            <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                              <label className="text-[13px] font-medium text-muted">
-                                Official Name
+                          {isItemProfilesExpanded && (
+                            <div className="mt-2 space-y-3">
+                              <label className="block text-[14px] font-medium text-ink">
+                                Name
                                 <input
                                   type="text"
                                   value={inlineCreateForm.official_name}
-                                  onChange={(event) => setInlineCreateForm((current) => ({ ...current, official_name: event.target.value }))}
-                                  placeholder="Official Name"
-                                  className="mt-1 min-h-10 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal normal-case tracking-normal text-slate-700 focus:border-brand-500 focus:outline-none"
+                                  onChange={(event) => setInlineCreateForm((current) => ({ ...current, official_name: event.target.value, stocklist_name: event.target.value, product: event.target.value }))}
+                                  placeholder="e.g. Pink Lady Apples"
+                                  className="mt-1 min-h-11 w-full rounded-control border border-slate-300 px-3 text-[16px] font-normal focus:border-brand-500 focus:outline-none"
                                 />
                               </label>
-                              <label className="text-[13px] font-medium text-muted">
-                                Origin
-                                <input
-                                  type="text"
-                                  value={inlineCreateForm.origin}
-                                  onChange={(event) => setInlineCreateForm((current) => ({ ...current, origin: event.target.value }))}
-                                  placeholder="Origin"
-                                  className="mt-1 min-h-10 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal normal-case tracking-normal text-slate-700 focus:border-brand-500 focus:outline-none"
+                              <div className="grid grid-cols-2 gap-2">
+                                <label className="block text-[14px] font-medium text-ink">
+                                  Category
+                                  <select
+                                    value={inlineCreateForm.category}
+                                    onChange={(event) => setInlineCreateForm((current) => ({ ...current, category: event.target.value }))}
+                                    className="mt-1 min-h-11 w-full rounded-control border border-slate-300 px-2 text-[16px] font-normal focus:border-brand-500 focus:outline-none"
+                                  >
+                                    <option value="">Select</option>
+                                    {dataEntryCreateCategories.map((category) => (
+                                      <option key={category} value={category}>{category}</option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <label className="block text-[14px] font-medium text-ink">
+                                  Where
+                                  <select
+                                    value={`${inlineCreateForm.location}|${inlineCreateForm.sub_location}`}
+                                    onChange={(event) => {
+                                      const [location, subLocation] = event.target.value.split('|')
+                                      setInlineCreateForm((current) => ({ ...current, location: location as 'Inside Coolroom' | 'Outside Coolroom', sub_location: subLocation }))
+                                    }}
+                                    className="mt-1 min-h-11 w-full rounded-control border border-slate-300 px-2 text-[16px] font-normal focus:border-brand-500 focus:outline-none"
+                                  >
+                                    {INSIDE_SUB_LOCATION_OPTIONS.map((sub) => (
+                                      <option key={`in-${sub}`} value={`Inside Coolroom|${sub}`}>Inside · {sub}</option>
+                                    ))}
+                                    {OUTSIDE_SUB_LOCATION_OPTIONS.map((sub) => (
+                                      <option key={`out-${sub}`} value={`Outside Coolroom|${sub}`}>Outside · {sub}</option>
+                                    ))}
+                                  </select>
+                                </label>
+                              </div>
+                              <div>
+                                <p className="mb-1 text-[14px] font-medium text-ink">Selling price <span className="font-normal text-muted">(optional)</span></p>
+                                <SellPriceEditor
+                                  name={inlineCreateForm.official_name || 'new item'}
+                                  value={inlineCreateSell}
+                                  onChange={setInlineCreateSell}
                                 />
-                              </label>
-                              <label className="text-[13px] font-medium text-muted">
-                                Category
-                                <select
-                                  value={inlineCreateForm.category}
-                                  onChange={(event) => setInlineCreateForm((current) => ({ ...current, category: event.target.value }))}
-                                  className="mt-1 min-h-10 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal normal-case tracking-normal text-slate-700 focus:border-brand-500 focus:outline-none"
-                                >
-                                  <option value="">Select category</option>
-                                  {dataEntryCreateCategories.map((category) => (
-                                    <option key={category} value={category}>{category}</option>
-                                  ))}
-                                </select>
-                              </label>
-                              <label className="text-[13px] font-medium text-muted">
-                                Location
-                                <select
-                                  value={inlineCreateForm.location}
-                                  onChange={(event) => {
-                                    const nextLocation = event.target.value as 'Inside Coolroom' | 'Outside Coolroom'
-                                    setInlineCreateForm((current) => ({
-                                      ...current,
-                                      location: nextLocation,
-                                      sub_location: nextLocation === 'Outside Coolroom' ? OUTSIDE_SUB_LOCATION_OPTIONS[0] : INSIDE_SUB_LOCATION_OPTIONS[0],
-                                    }))
-                                  }}
-                                  className="mt-1 min-h-10 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal normal-case tracking-normal text-slate-700 focus:border-brand-500 focus:outline-none"
-                                >
-                                  <option value="Inside Coolroom">Inside Coolroom</option>
-                                  <option value="Outside Coolroom">Outside Coolroom</option>
-                                </select>
-                              </label>
-                              <label className="text-[13px] font-medium text-muted">
-                                Sub-location
-                                <select
-                                  value={inlineCreateForm.sub_location}
-                                  onChange={(event) => setInlineCreateForm((current) => ({ ...current, sub_location: event.target.value }))}
-                                  className="mt-1 min-h-10 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal normal-case tracking-normal text-slate-700 focus:border-brand-500 focus:outline-none"
-                                >
-                                  {(inlineCreateForm.location === 'Outside Coolroom' ? OUTSIDE_SUB_LOCATION_OPTIONS : INSIDE_SUB_LOCATION_OPTIONS).map((subLocation) => (
-                                    <option key={subLocation} value={subLocation}>{subLocation}</option>
-                                  ))}
-                                </select>
-                              </label>
-                            </div>
-                            <div className="mt-2 flex flex-wrap items-center gap-2">
-                              <label className="min-w-[150px] flex-1 text-[13px] font-medium text-muted">
-                                Attribute
-                                <input
-                                  type="text"
-                                  value={inlineCreateForm.attribute}
-                                  onChange={(event) => setInlineCreateForm((current) => ({ ...current, attribute: event.target.value }))}
-                                  placeholder="e.g. Loose"
-                                  className="mt-1 min-h-10 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal normal-case tracking-normal text-slate-700 focus:border-brand-500 focus:outline-none"
-                                />
-                              </label>
-                              <label className="w-32 text-[13px] font-medium text-muted">
-                                Quantity / Weight (items)
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="1"
-                                  value={inlineCreateForm.inner_quantity ?? ''}
-                                  onChange={(event) => setInlineCreateForm((current) => ({ ...current, inner_quantity: event.target.value === '' ? null : Number(event.target.value) }))}
-                                  placeholder="e.g. 8"
-                                  className="mt-1 min-h-10 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal normal-case tracking-normal text-slate-700 focus:border-brand-500 focus:outline-none"
-                                />
-                              </label>
-                              <label className="w-32 text-[13px] font-medium text-muted">
-                                Unit
-                                <select
-                                  value={inlineCreateForm.inner_unit}
-                                  onChange={(event) => setInlineCreateForm((current) => ({ ...current, inner_unit: event.target.value as CatalogInnerUnit }))}
-                                  className="mt-1 min-h-10 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal normal-case tracking-normal text-slate-700 focus:border-brand-500 focus:outline-none"
-                                >
-                                  {INNER_UNIT_OPTIONS.map((unit) => (
-                                    <option key={unit} value={unit}>{unit}</option>
-                                  ))}
-                                </select>
-                              </label>
+                              </div>
                               <button
                                 type="button"
                                 onClick={submitInlineCreateItem}
-                                disabled={isInlineCreateSaving || !parsedData}
-                                className="inline-flex min-h-10 items-center justify-center gap-2 self-end rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+                                disabled={isInlineCreateSaving || !parsedData || !inlineCreateForm.official_name.trim() || !inlineCreateForm.category}
+                                className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-control bg-forest px-3 text-[16px] font-semibold text-white hover:bg-forest-700 disabled:cursor-not-allowed disabled:bg-forest/30"
                               >
-                                {isInlineCreateSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : editableDataEntryCatalogItem ? <Save className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-                                {isInlineCreateSaving ? 'Saving...' : editableDataEntryCatalogItem ? 'Save profile' : 'Add item if new'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={openDataEntryCreateItemModal}
-                                disabled={!parsedData || dataEntryNewItemName.trim().length === 0}
-                                className="inline-flex min-h-10 items-center justify-center gap-2 self-end rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                              >
-                                Advanced Form
+                                {isInlineCreateSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-5 w-5" />}
+                                {isInlineCreateSaving ? 'Saving...' : 'Add to catalog and list'}
                               </button>
                             </div>
-                          </>
-                        )}
-                      </div>
+                          )}
+                        </div>
+                      ) : null}
                     </div>
                 </div>
               </section>
