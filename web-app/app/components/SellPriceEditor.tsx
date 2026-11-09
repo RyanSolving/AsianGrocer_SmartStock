@@ -25,13 +25,15 @@ type SellPriceEditorProps = {
   onEnter?: () => void
   /** Item name, for the boxes' accessible labels. */
   name: string
+  /** Less space: Add deal is a text link and the deal chips are small. */
+  compact?: boolean
 }
 
 /**
  * The selling price of one item: the normal price, what it is sold by (Each, KG, ...), and
  * combo deals such as "2 for $9.00". Used in the catalog form, Quick prices and Stock In.
  */
-export function SellPriceEditor({ value, onChange, onCommit, rowIndex, onEnter, name }: SellPriceEditorProps) {
+export function SellPriceEditor({ value, onChange, onCommit, rowIndex, onEnter, name, compact = false }: SellPriceEditorProps) {
   const [adding, setAdding] = useState(false)
   const [qty, setQty] = useState('2')
   const [total, setTotal] = useState<number | null>(null)
@@ -130,7 +132,9 @@ export function SellPriceEditor({ value, onChange, onCommit, rowIndex, onEnter, 
         <button
           type="button"
           onClick={() => setAdding(true)}
-          className="inline-flex min-h-9 items-center gap-1 rounded-full border border-dashed border-line px-3 text-[14px] font-medium text-forest hover:bg-forest-50"
+          className={compact
+            ? 'inline-flex min-h-9 items-center gap-1 text-[14px] font-medium text-forest'
+            : 'inline-flex min-h-9 items-center gap-1 rounded-full border border-dashed border-line px-3 text-[14px] font-medium text-forest hover:bg-forest-50'}
         >
           <Plus className="h-4 w-4" aria-hidden="true" /> Add deal <span className="font-normal text-muted">(e.g. 2 for $9)</span>
         </button>

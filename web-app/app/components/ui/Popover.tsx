@@ -15,25 +15,30 @@ type PopoverProps = {
 
 const MARGIN = 8
 const WIDTH = 340
+/** The bottom navigation bar covers this much of the screen. */
+const NAV_SPACE = 84
 
 /** A small panel next to the tapped element: below it, or above it when there is no room. */
 export function Popover({ anchor, onClose, title, description, children }: PopoverProps) {
   const panelRef = useRef<HTMLDivElement>(null)
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
-  const [style, setStyle] = useState<{ top: number; left: number; width: number; maxHeight: number } | null>(null)
+  const [style, setStyle] = useState<{ top: number; left: number; width: number } | null>(null)
 
+  // The panel sits in the page (not fixed to the screen), next to the tapped price: the keyboard
+  // opening or a scroll can then never push it off screen, and the browser brings the focused
+  // price box into view by itself.
   useLayoutEffect(() => {
     const width = Math.min(WIDTH, window.innerWidth - MARGIN * 2)
-    const height = panelRef.current?.offsetHeight ?? 260
-    const spaceBelow = window.innerHeight - anchor.bottom - MARGIN
-    const spaceAbove = anchor.top - MARGIN
-    const below = spaceBelow >= height || spaceBelow >= spaceAbove
-    const maxHeight = Math.max(160, below ? spaceBelow : spaceAbove)
-    const shown = Math.min(height, maxHeight)
-    const top = below ? anchor.bottom + 4 : Math.max(MARGIN, anchor.top - shown - 4)
+    const height = panelRef.current?.offsetHeight ?? 300
+    const scrollY = window.scrollY
+    const visibleBottom = scrollY + window.innerHeight - NAV_SPACE
+    const below = anchor.bottom + scrollY + 4
+    const above = anchor.top + scrollY - height - 4
+    // Below the price when it fits on screen; otherwise above it; otherwise below.
+    const top = below + height <= visibleBottom ? below : above >= scrollY + MARGIN ? above : below
     const left = Math.min(Math.max(MARGIN, anchor.right - width), window.innerWidth - width - MARGIN)
-    setStyle({ top, left, width, maxHeight })
+    setStyle({ top, left, width })
   }, [anchor])
 
   useEffect(() => {
@@ -46,7 +51,9 @@ export function Popover({ anchor, onClose, title, description, children }: Popov
     }
     document.addEventListener('keydown', onKey)
     const frame = requestAnimationFrame(() => {
-      panelRef.current?.querySelector<HTMLElement>('input')?.focus({ preventScroll: true })
+      const panel = panelRef.current
+      panel?.querySelector<HTMLElement>('input')?.focus({ preventScroll: true })
+      panel?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
     })
     return () => {
       cancelAnimationFrame(frame)
@@ -58,15 +65,15 @@ export function Popover({ anchor, onClose, title, description, children }: Popov
   if (typeof document === 'undefined') return null
 
   return createPortal(
-    <div className="fixed inset-0 z-[70]">
-      <div className="absolute inset-0 bg-forest-950/20" aria-hidden="true" onClick={onClose} />
+    <>
+      <div className="fixed inset-0 z-[70] bg-forest-950/20" aria-hidden="true" onClick={onClose} />
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label={typeof title === 'string' ? title : 'Change price'}
-        style={style ? { top: style.top, left: style.left, width: style.width, maxHeight: style.maxHeight } : { top: 0, left: 0, width: Math.min(WIDTH, 320), visibility: 'hidden' }}
-        className="absolute overflow-y-auto rounded-control border border-slate-200 bg-white p-3 shadow-xl"
+        style={style ? { top: style.top, left: style.left, width: style.width } : { top: 0, left: 0, width: Math.min(WIDTH, 320), visibility: 'hidden' }}
+        className="absolute z-[71] rounded-control border border-slate-200 bg-white p-3 shadow-xl"
       >
         <div className="mb-2 flex items-start justify-between gap-2">
           <div className="min-w-0">
@@ -80,7 +87,7 @@ export function Popover({ anchor, onClose, title, description, children }: Popov
         {children}
         <button type="button" onClick={onClose} className="mt-3 min-h-11 w-full rounded-control bg-forest px-4 text-[16px] font-semibold text-white">Done</button>
       </div>
-    </div>,
+    </>,
     document.body,
   )
 }

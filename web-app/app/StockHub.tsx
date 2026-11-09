@@ -1835,6 +1835,29 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     }
   }, [addManualKnownItem])
 
+  /** Add item: a changed selling price is confirmed first (it becomes the system price on Save). */
+  const handleAddItemClick = useCallback(async () => {
+    const chosen = selectedDataEntryCatalogItem
+    if (chosen && manualEntrySell) {
+      const catalogSell = catalogSellByCode.get(chosen.code.trim().toUpperCase()) ?? emptySellPrice
+      const change = priceChangeOf(manualEntrySell, catalogSell, true)
+      if (change) {
+        const answer = await ask({
+          title: `Change the price of ${chosen.official_name}?`,
+          message: `${change.from ? formatSellPrice(change.from) : 'No price'} → ${formatSellPrice(change.to)}. It becomes the system price when you save this Stock In.`,
+          choices: [
+            { value: 'change', label: 'Yes, change the price', description: 'Use the new price', primary: true },
+            { value: 'keep', label: 'Keep the current price', description: change.from ? formatSellPrice(change.from) : 'Leave it without a price' },
+          ],
+        })
+        if (!answer) return
+        if (answer === 'keep') setManualEntrySell(null)
+        if (answer === 'keep') return
+      }
+    }
+    submitManualEntry()
+  }, [ask, catalogSellByCode, manualEntrySell, selectedDataEntryCatalogItem, submitManualEntry])
+
   const openDataEntryCreateItemModal = useCallback(() => {
     if (!parsedData) {
       setApiError('Please start manual entry or parse a photo before adding items.')
@@ -3216,37 +3239,25 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                             )}
                           </div>
 
-                          <div className="flex items-end gap-2">
-                            <div className="w-1/2 min-w-0">
-                              <label htmlFor="stock-in-qty" className="mb-1.5 block text-[14px] font-medium text-ink">Quantity</label>
-                              <NumberInput
-                                id="stock-in-qty"
-                                ref={dataEntryQtyInputRef}
-                                inputMode="numeric"
-                                enterKeyHint="done"
-                                value={manualEntryQuantity}
-                                onChange={(event) => setManualEntryQuantity(event.target.value)}
-                                onKeyDown={(event) => {
-                                  if (event.key === 'Enter') {
-                                    event.preventDefault()
-                                    submitManualEntry()
-                                  }
-                                }}
-                                placeholder="0"
-                                disabled={!parsedData}
-                                className="min-h-12 text-[18px] font-semibold"
-                              />
-                            </div>
-                            <button
-                              type="button"
-                              onMouseDown={(event) => event.preventDefault()}
-                              onClick={submitManualEntry}
-                              disabled={!parsedData || !parsedData.stock_date || dataEntryNewItemName.trim().length === 0 || parseWholeQuantity(manualEntryQuantity) === null}
-                              className="inline-flex min-h-12 flex-1 items-center justify-center gap-1.5 rounded-control bg-forest px-3 text-[16px] font-semibold text-white transition-colors duration-150 hover:bg-forest-700 disabled:cursor-not-allowed disabled:bg-forest/30"
-                            >
-                              <Plus className="h-5 w-5" aria-hidden="true" />
-                              Add item
-                            </button>
+                          <div>
+                            <label htmlFor="stock-in-qty" className="mb-1.5 block text-[14px] font-medium text-ink">Quantity</label>
+                            <NumberInput
+                              id="stock-in-qty"
+                              ref={dataEntryQtyInputRef}
+                              inputMode="numeric"
+                              enterKeyHint="done"
+                              value={manualEntryQuantity}
+                              onChange={(event) => setManualEntryQuantity(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') {
+                                  event.preventDefault()
+                                  void handleAddItemClick()
+                                }
+                              }}
+                              placeholder="0"
+                              disabled={!parsedData}
+                              className="min-h-12 text-[18px] font-semibold"
+                            />
                           </div>
 
                           {selectedDataEntryCatalogItem ? (() => {
@@ -3254,23 +3265,19 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                             const current = manualEntrySell ?? catalogSell
                             const change = priceChangeOf(current, catalogSell, true)
                             return (
-                              <div className={`rounded-control p-3 ${change ? 'bg-warning-soft' : 'bg-slate-50'}`}>
-                                <p className="text-[14px] font-medium text-ink">Selling price</p>
-                                <p className="mb-2 text-[14px] text-muted">
-                                  Current price in the system:{' '}
-                                  <span className="font-semibold text-ink">{formatSellPrice(catalogSell) || 'none yet'}</span>
-                                </p>
+                              <div className={`rounded-control px-3 py-2.5 ${change ? 'bg-warning-soft' : 'bg-slate-50'}`}>
+                                <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-3">
+                                  <p className="text-[14px] font-medium text-ink">Selling price</p>
+                                  <p className="text-[13px] text-muted">System: <span className="font-semibold text-ink">{formatSellPrice(catalogSell) || 'none yet'}</span></p>
+                                </div>
                                 <SellPriceEditor
+                                  compact
                                   name={selectedDataEntryCatalogItem.official_name}
                                   value={current}
                                   onChange={(next) => setManualEntrySell(next)}
                                   onEnter={() => dataEntryQtyInputRef.current?.focus()}
                                 />
-                                <p className={`mt-2 text-[13px] ${change ? 'font-semibold text-warning' : 'text-muted'}`}>
-                                  {change
-                                    ? `New price for this delivery · ${describePriceChange(change)}`
-                                    : isEmptySellPrice(current) ? 'No price set. Enter one to save it to the system.' : 'No change: keeps the current price.'}
-                                </p>
+                                {change ? <p className="mt-1.5 text-[13px] font-semibold text-warning">New price · {describePriceChange(change)}</p> : null}
                               </div>
                             )
                           })() : null}
@@ -3304,6 +3311,17 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                               className="min-h-12 w-full rounded-control border border-line bg-white px-3 text-[16px] text-ink placeholder:text-muted focus:border-forest focus:outline-none focus:ring-1 focus:ring-forest disabled:opacity-60"
                             />
                           </div>
+
+                          <button
+                            type="button"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => void handleAddItemClick()}
+                            disabled={!parsedData || !parsedData.stock_date || dataEntryNewItemName.trim().length === 0 || parseWholeQuantity(manualEntryQuantity) === null}
+                            className="inline-flex min-h-12 w-full items-center justify-center gap-1.5 rounded-control bg-forest px-3 text-[16px] font-semibold text-white transition-colors duration-150 hover:bg-forest-700 disabled:cursor-not-allowed disabled:bg-forest/30"
+                          >
+                            <Plus className="h-5 w-5" aria-hidden="true" />
+                            Add item
+                          </button>
 
                           {lastAddedEntry ? (
                             <div key={lastAddedEntry.id} className="flex animate-fade-in items-center gap-2 rounded-control bg-forest-50 py-1.5 pl-3 pr-1.5" role="status">
