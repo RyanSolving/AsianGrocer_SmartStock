@@ -7,7 +7,6 @@ import {
   BarChart3,
   Database,
   Download,
-  FileImage,
   History,
   Loader2,
   ClipboardList,
@@ -42,12 +41,14 @@ import { CreateCatalogItemModal, type CreateCatalogItemPayload } from './compone
 import { EmbeddedStockCheckPanel } from './components/EmbeddedStockCheckPanel'
 import { StockLedger, toLedgerAreas } from './components/StockLedger'
 import { LedgerPhotoSheet, type PhotoGroup, type PhotoRow } from './components/LedgerPhotoSheet'
+import { PriceInput } from './components/PriceInput'
 import { ConfirmDialog, useConfirm } from './components/ConfirmDialog'
 import { SectionLandingState } from './components/SectionLandingState'
 import type { SelectedStockCheckHistoryRecord } from './components/EmbeddedStockCheckPanel'
 import { StockCheckHistoryDialog } from './components/StockCheckHistoryDialog'
 import { TranscriptionHistoryDialog } from './components/TranscriptionHistoryDialog'
 import { filterVisibleCatalogItems } from '../lib/catalog-visibility'
+import { describePriceChange, formatPrice, priceChangeOf } from '../lib/stock-price'
 import {
   clearOfflineDraft,
   enqueueOfflineRequest,
@@ -100,6 +101,10 @@ type StockItem = {
   notes: string | null
   /** Arrived on a special discount (BUSINESS_RULES.md §1b). */
   special?: boolean
+  /** Price of one counted unit on this delivery. Left out = the catalog price (BUSINESS_RULES.md §1d). */
+  price?: number | null
+  /** The catalog price this row started from, set when the delivery is saved. */
+  catalog_price?: number | null
 }
 
 type UnknownItem = {
@@ -122,6 +127,7 @@ type UnknownItem = {
   confidence: 'high' | 'medium' | 'low'
   catalog_match_status: 'unknown'
   special?: boolean
+  price?: number | null
 }
 
 type CatalogItem = {
@@ -145,6 +151,8 @@ type CatalogItem = {
   quantity_conflict_flag?: boolean
   special?: boolean
   notes?: string | null
+  /** Normal price of one counted unit. */
+  price?: number | null
 }
 
 type StockMode = 'stock-in' | 'stock-closing'
@@ -394,6 +402,14 @@ function isIsoDate(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value)
 }
 
+/** A saved row's price field, kept as saved (a number, or null for "no price"); nothing when absent. */
+function readSavedPrice(row: Record<string, unknown>, key: 'price' | 'catalog_price'): { price?: number | null; catalog_price?: number | null } {
+  const value = row[key]
+  if (value === null) return { [key]: null }
+  if (typeof value === 'number' && Number.isFinite(value)) return { [key]: value }
+  return {}
+}
+
 function mapHistoryEntryToEditablePayload(entry: HistoryEntry, fallbackDate: string): {
   parsedData: ParsedPayload
   unknownItems: UnknownItem[]
@@ -455,6 +471,9 @@ function mapHistoryEntryToEditablePayload(entry: HistoryEntry, fallbackDate: str
         ? row.catalog_match_status
         : undefined,
       notes: typeof row.notes === 'string' ? row.notes : null,
+      ...(row.special === true ? { special: true } : {}),
+      ...readSavedPrice(row, 'price'),
+      ...readSavedPrice(row, 'catalog_price'),
     }
 
     items.push(normalizedRow)
@@ -478,6 +497,8 @@ function mapHistoryEntryToEditablePayload(entry: HistoryEntry, fallbackDate: str
         row_position: normalizedRow.row_position,
         confidence: normalizedRow.confidence,
         catalog_match_status: 'unknown',
+        ...(normalizedRow.special ? { special: true } : {}),
+        ...(normalizedRow.price !== undefined ? { price: normalizedRow.price } : {}),
       })
     }
   })
@@ -542,6 +563,10 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
   const [isExporting, setIsExporting] = useState(false)
   const [isExportingStockInPhoto, setIsExportingStockInPhoto] = useState(false)
   const stockInPhotoRef = useRef<HTMLDivElement | null>(null)
+  /** Latest exportStockInPhoto, so the Save flow (awaiting a save) always uses the current sheet. */
+  const exportPhotoRef = useRef<(() => Promise<boolean>) | null>(null)
+  /** Catalog prices the last save updated, for the "saved" message. */
+  const catalogPricesUpdatedRef = useRef(0)
   const [isSavingSupabase, setIsSavingSupabase] = useState(false)
   const [isLoadingBigQuery, setIsLoadingBigQuery] = useState(false)
   const [isCatalogUploading, setIsCatalogUploading] = useState(false)
@@ -640,6 +665,14 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
   }, [])
 
   const visibleCatalog = useMemo(() => filterVisibleCatalogItems(activeCatalog), [activeCatalog])
+  /** Catalog price by item code (hidden items too), for the Stock In price column. */
+  const catalogPriceByCode = useMemo(() => {
+    const prices = new Map<string, number | null>()
+    for (const item of activeCatalog ?? []) {
+      prices.set(item.code.trim().toUpperCase(), typeof item.price === 'number' ? item.price : null)
+    }
+    return prices
+  }, [activeCatalog])
   const visibleCatalogCodes = useMemo(
     () => new Set(visibleCatalog.map((item) => item.code.trim().toUpperCase())),
     [visibleCatalog]
@@ -1229,6 +1262,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     const toRow = (row: IndexedItem): PhotoRow => {
       const code = row.item.catalog_code?.trim().toUpperCase() ?? ''
       const catalogItem = code ? visibleCatalog.find((c) => c.code.trim().toUpperCase() === code) : null
+      const { price, change } = priceStateOf(row.item)
       return {
         key: `${row.source}-${row.index}`,
         name: catalogItem?.official_name ?? row.item.official_name ?? row.item.product_raw ?? '',
@@ -1236,6 +1270,9 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
         tone: row.source === 'missing' ? 'warning' : row.source === 'unknown' ? 'alert' : undefined,
         special: row.item.special === true,
         note: row.item.notes?.trim() || undefined,
+        price: formatPrice(price),
+        priceNote: change ? describePriceChange(change) : undefined,
+        priceChanged: change !== null,
       }
     }
     const counted = (rows: IndexedItem[]) => sortIndexedItemsByName(rows.filter((row) => row.item.quantity !== null)).map(toRow)
@@ -1251,7 +1288,9 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       outside: counted(all(paperSections.outsideRows)),
       unknown: counted(all(paperSections.unknownRows)),
     }
-  }, [paperSections, visibleCatalog])
+    // priceStateOf reads the catalog prices, so the photo follows them.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paperSections, visibleCatalog, catalogPriceByCode])
 
   const outsideDisplayColumns = useMemo(() => {
     const combinedOutside = [
@@ -1586,6 +1625,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
         // Update applicable fields from the patch
         if (patch.official_name !== undefined) item.official_name = patch.official_name
         if (patch.product_raw !== undefined) item.product_raw = patch.product_raw
+        if (patch.price !== undefined) item.price = patch.price
         if (patch.quantity !== undefined) item.quantity = patch.quantity
         if (patch.quantity_raw !== undefined) item.quantity_raw = patch.quantity_raw
         if (patch.quantity_conflict_flag !== undefined) item.quantity_conflict_flag = patch.quantity_conflict_flag
@@ -1810,6 +1850,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       origin: created.origin,
       inner_quantity: created.inner_quantity,
       inner_unit: created.inner_unit,
+      price: created.price,
       official_name: created.official_name,
       stocklist_name: created.stocklist_name,
       navigation_guide: created.navigation_guide,
@@ -1897,6 +1938,8 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       origin: inlineCreateForm.origin.trim(),
       inner_quantity: inlineCreateForm.inner_quantity,
       inner_unit: inlineCreateForm.inner_unit,
+      // Editing a profile keeps the catalog price as it is; a new item starts without one.
+      price: editingCatalogItem?.price ?? null,
       official_name: officialName,
       stocklist_name: stocklistName,
       navigation_guide: editingCatalogItem?.navigation_guide ?? '',
@@ -2086,6 +2129,31 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     )
   }
 
+  /**
+   * Price of a Stock In row and the change it makes. The price is the catalog price until staff
+   * type another; the change is measured against the catalog price the row started from (kept
+   * on the row once saved, so a reopened Stock In still shows what changed).
+   */
+  function priceStateOf(item: { catalog_code: string | null; price?: number | null; catalog_price?: number | null }) {
+    const code = item.catalog_code?.trim().toUpperCase() ?? ''
+    const inCatalog = code !== '' && (catalogPriceByCode.has(code) || item.catalog_price !== undefined)
+    const liveCatalogPrice = code !== '' ? catalogPriceByCode.get(code) ?? null : null
+    const price = item.price !== undefined ? item.price : liveCatalogPrice
+    const reference = item.catalog_price !== undefined ? item.catalog_price : liveCatalogPrice
+    return { price, change: priceChangeOf(price, reference, inCatalog) }
+  }
+
+  /** Writes the price and the catalog price it started from on each counted row, for saving. */
+  function withPriceStamped<T extends { catalog_code: string | null; quantity: number | null; price?: number | null; catalog_price?: number | null }>(item: T): T {
+    if (item.quantity === null) return item
+    const code = item.catalog_code?.trim().toUpperCase() ?? ''
+    const inCatalog = code !== '' && catalogPriceByCode.has(code)
+    const liveCatalogPrice = inCatalog ? catalogPriceByCode.get(code) ?? null : null
+    const price = item.price !== undefined ? item.price : liveCatalogPrice
+    const catalogPrice = item.catalog_price !== undefined ? item.catalog_price : (inCatalog ? liveCatalogPrice : undefined)
+    return { ...item, price, ...(catalogPrice !== undefined ? { catalog_price: catalogPrice } : {}) }
+  }
+
   /** Name cell of the phone list; missing and unknown items keep their warning colours. */
   function renderDataEntryLedgerName(row: IndexedItem) {
     const code = row.item.catalog_code?.trim().toUpperCase() ?? ''
@@ -2093,6 +2161,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     const displayName = latestCatalogItem?.official_name ?? row.item.official_name ?? row.item.product_raw ?? ''
     const tone = row.source === 'missing' ? 'text-warning' : row.source === 'unknown' ? 'font-semibold text-red-600' : undefined
     const special = row.item.special === true
+    const { change } = priceStateOf(row.item)
     return (
       <div className="report-name">
         <button
@@ -2108,9 +2177,25 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
         <span className={tone}>
           {displayName}
           {special ? <> <span className="report-tag report-tag-special ml-1 align-[1px]">Special</span></> : null}
+          {change ? <span className="stock-price-note">{describePriceChange(change)}</span> : null}
           {row.item.notes?.trim() ? <span className="block text-[13px] font-normal italic text-muted">{row.item.notes.trim()}</span> : null}
         </span>
       </div>
+    )
+  }
+
+  /** Price box of the phone list; a changed price is highlighted. */
+  function renderDataEntryPriceCell(row: IndexedItem) {
+    const { price, change } = priceStateOf(row.item)
+    const name = row.item.official_name || row.item.product_raw || 'item'
+    return (
+      <PriceInput
+        value={price}
+        changed={change !== null}
+        rowIndex={row.index}
+        aria-label={`Price for ${name}`}
+        onChange={(next) => updateItem(row.index, { price: next })}
+      />
     )
   }
 
@@ -2156,8 +2241,10 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       quantity_conflict_flag: row.item.quantity_conflict_flag,
       special: row.item.special,
       notes: row.item.notes ?? null,
+      price: row.item.price,
+      catalog_price: row.item.catalog_price,
     }
-    updateItem(row.index, { quantity: null, quantity_raw: null, quantity_conflict_flag: false, special: false, notes: null })
+    updateItem(row.index, { quantity: null, quantity_raw: null, quantity_conflict_flag: false, special: false, notes: null, price: undefined, catalog_price: undefined })
     untouch()
     toast.info(`${name} removed`, {
       duration: 6000,
@@ -2213,9 +2300,14 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     return true
   }, [missingCatalogItems, parsedData])
 
-  /** Same as the Daily Report export: render the photo sheet off screen, then download it as PNG. */
-  async function exportStockInPhoto() {
-    if (isExportingStockInPhoto || filledItemCount === 0) return
+  /**
+   * Same as the Daily Report export: render the photo sheet off screen, then download it as PNG.
+   * Part of Save (one button does both). Returns whether a photo was made; a sheet with no
+   * counted items has nothing to photograph and counts as done.
+   */
+  async function exportStockInPhoto(): Promise<boolean> {
+    if (isExportingStockInPhoto) return false
+    if (filledItemCount === 0) return true
     const date = parsedData?.stock_date || today
 
     try {
@@ -2226,14 +2318,19 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       link.download = `stock-in-${date}.png`
       link.href = dataUrl
       link.click()
-      toast.success('Photo saved to your downloads')
+      return true
     } catch (failure) {
       const friendly = friendlyError(failure instanceof Error ? failure.message : 'Failed to export the stock in photo.')
-      toast.error(friendly.message, { details: friendly.details })
+      toast.error(`Saved, but the photo failed: ${friendly.message}`, {
+        details: friendly.details ?? 'Tap Save again to try the photo once more.',
+        duration: 8000,
+      })
+      return false
     } finally {
       setIsExportingStockInPhoto(false)
     }
   }
+  exportPhotoRef.current = exportStockInPhoto
 
   async function exportCsv() {
     if (!parsedData) {
@@ -2306,13 +2403,14 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     setApiStatus(null)
 
     const requestPayload: Record<string, unknown> = {
-      data: { ...parsedData, ...overrides },
+      data: { ...parsedData, ...overrides, items: parsedData.items.map(withPriceStamped) },
       validated: 'yes',
-      unknown_items: unknownItems,
+      unknown_items: unknownItems.map(withPriceStamped),
       missing_catalog_items: missingCatalogItems,
       uid_generate: latestGenerateUid ?? undefined,
       persist_only: true,
     }
+    catalogPricesUpdatedRef.current = 0
 
     if (typeof window !== 'undefined' && !window.navigator.onLine) {
       enqueueOfflineRequest({
@@ -2350,6 +2448,9 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       }
 
       // setApiStatus(STATUS.SAVED) // Removed to prevent a double toast with "Stock in saved"
+      if (typeof payload?.catalog_prices_updated === 'number') {
+        catalogPricesUpdatedRef.current = payload.catalog_prices_updated
+      }
       if (typeof payload?.uid_generate === 'string' && payload.uid_generate.length > 0) {
         setLatestGenerateUid(payload.uid_generate)
         if (editingHistoryUid) {
@@ -2476,18 +2577,29 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     const saved = await saveToSupabase(overrides)
     if (!saved) return
 
-    // Step 4: empty the sheet and return to the menu right away. Emptying the sheet (not only the
+    // Step 4: the photo of the saved sheet downloads as part of the same Save. If it cannot be
+    // made the sheet stays open (the record is saved), so Save again tries the photo once more.
+    const photoMade = await exportPhotoRef.current?.()
+    if (photoMade === false) return
+    const pricesUpdated = catalogPricesUpdatedRef.current
+    if (pricesUpdated > 0) void loadCatalogFromApi().catch(() => undefined)
+
+    // Step 5: empty the sheet and return to the menu right away. Emptying the sheet (not only the
     // stored draft) matters: saving updates the sheet, which schedules a draft auto-save, and that
     // save would otherwise write the finished sheet back as "Continue draft" a moment later.
     const uid = typeof saved === 'string' ? saved : latestGenerateUid
     clearStockInSheet()
 
-    // Step 5: warehouse (BigQuery) sync runs in the background with its own progress toast.
+    // Step 6: warehouse (BigQuery) sync runs in the background with its own progress toast.
     // Paused for now (lib/warehouse-sync): Supabase is the only store.
     if (WAREHOUSE_SYNC_ENABLED && uid && window.navigator.onLine) {
       syncStockInToWarehouse(uid)
     } else if (window.navigator.onLine) {
-      toast.success('Stock in saved')
+      toast.success([
+        'Stock in saved',
+        'photo downloaded',
+        pricesUpdated > 0 ? `${pricesUpdated} catalog ${pricesUpdated === 1 ? 'price' : 'prices'} updated` : null,
+      ].filter(Boolean).join(' · '))
     }
   }, [parsedData, normalizeAndMarkValidated, latestGenerateUid, saveToSupabase, syncStockInToWarehouse, clearStockInSheet, ask, historyData])
 
@@ -3379,9 +3491,15 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                       areas={dataEntryLedgerAreas}
                       keyPrefix="data-entry-ledger"
                       quantityLabel="Stock in"
-                      getRowClass={(index) => getCardClasses(indexedItems.find((item) => item.index === index))}
+                      priceLabel="Price"
+                      getRowClass={(index) => {
+                        const row = indexedItems.find((item) => item.index === index)
+                        const changed = row ? priceStateOf(row.item).change !== null : false
+                        return [getCardClasses(row), changed ? 'stock-row-price-changed' : ''].filter(Boolean).join(' ')
+                      }}
                       renderName={renderDataEntryLedgerName}
                       renderQuantityCell={renderDataEntryQuantityCell}
+                      renderPriceCell={renderDataEntryPriceCell}
                       onRemove={removeDataEntryRow}
                       getItemLabel={(row) => row.item.official_name || row.item.product_raw || 'item'}
                     />
@@ -3392,27 +3510,16 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                 <div className="mobile-sticky-actions mt-5 flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => void exportStockInPhoto()}
-                    disabled={filledItemCount === 0 || isExportingStockInPhoto || isSavingSupabase}
-                    aria-label="Export photo"
-                    title="Export photo"
-                    className="inline-flex min-h-12 min-w-12 shrink-0 items-center justify-center gap-2 rounded-control border border-line bg-surface px-3 text-[15px] font-semibold text-ink hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-ink/40"
-                  >
-                    {isExportingStockInPhoto ? <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" /> : <FileImage className="h-5 w-5" aria-hidden="true" />}
-                    <span className="hidden sm:inline">Photo</span>
-                  </button>
-
-                  <button
-                    type="button"
                     onClick={handleStockInDone}
                     disabled={!parsedData || isSavingSupabase || isLoadingBigQuery || isExporting || isExportingStockInPhoto}
-                    aria-busy={isSavingSupabase || undefined}
+                    aria-busy={isSavingSupabase || isExportingStockInPhoto || undefined}
+                    title="Saves the stock in and downloads its photo"
                     className="inline-flex min-h-12 min-w-0 flex-1 items-center whitespace-nowrap justify-center gap-2 rounded-control bg-forest px-3 text-[16px] font-semibold text-white transition-colors duration-150 hover:bg-forest-700 disabled:cursor-not-allowed disabled:bg-forest/40"
                   >
-                    {isSavingSupabase ? (
+                    {isSavingSupabase || isExportingStockInPhoto ? (
                       <>
                         <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
-                        <span>Saving…</span>
+                        <span>{isSavingSupabase ? 'Saving…' : 'Making photo…'}</span>
                       </>
                     ) : (
                       <>

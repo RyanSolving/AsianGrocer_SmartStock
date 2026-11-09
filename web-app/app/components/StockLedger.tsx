@@ -54,6 +54,9 @@ type StockLedgerProps<T extends IndexableRow> = {
   keyPrefix: string
   /** Header of the number column, e.g. "Closing" or "Stock in". */
   quantityLabel: string
+  /** Stock In: header of an extra price column, drawn when `renderPriceCell` is given. */
+  priceLabel?: string
+  renderPriceCell?: (item: T) => ReactNode
   isCollapsed?: (id: string) => boolean
   onToggleCollapse?: (id: string) => void
   getRowClass?: (index?: number) => string
@@ -74,6 +77,8 @@ export function StockLedger<T extends IndexableRow>({
   areas,
   keyPrefix,
   quantityLabel,
+  priceLabel = 'Price',
+  renderPriceCell,
   isCollapsed,
   onToggleCollapse,
   getRowClass,
@@ -82,7 +87,7 @@ export function StockLedger<T extends IndexableRow>({
   onRemove,
   getItemLabel,
 }: StockLedgerProps<T>) {
-  const columnCount = onRemove ? 3 : 2
+  const columnCount = 2 + (renderPriceCell ? 1 : 0) + (onRemove ? 1 : 0)
   if (areas.length === 0) return null
 
   return (
@@ -108,12 +113,14 @@ export function StockLedger<T extends IndexableRow>({
                 <colgroup>
                   <col />
                   <col className="stock-ledger-qty-col" />
+                  {renderPriceCell ? <col className="stock-ledger-price-col" /> : null}
                   {onRemove ? <col className="stock-ledger-remove-col" /> : null}
                 </colgroup>
                 <thead>
                   <tr>
                     <th scope="col">Item</th>
                     <th scope="col">{quantityLabel}</th>
+                    {renderPriceCell ? <th scope="col">{priceLabel}</th> : null}
                     {onRemove ? <th scope="col"><span className="sr-only">Remove</span></th> : null}
                   </tr>
                 </thead>
@@ -147,6 +154,7 @@ export function StockLedger<T extends IndexableRow>({
                         >
                           <th scope="row">{renderName(item)}</th>
                           <td>{renderQuantityCell(item)}</td>
+                          {renderPriceCell ? <td className="stock-ledger-price-cell">{renderPriceCell(item)}</td> : null}
                           {onRemove ? (
                             <td className="stock-ledger-remove-cell">
                               <button

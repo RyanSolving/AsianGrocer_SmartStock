@@ -15,6 +15,12 @@ export type PhotoRow = {
   special?: boolean
   /** Stock In: short staff note for this item. */
   note?: string
+  /** Stock In: price of one unit as text ("$24.50"; empty when none). Undefined = no price column. */
+  price?: string
+  /** Stock In: why the price is highlighted, e.g. "Up from $20.00". */
+  priceNote?: string
+  /** Stock In: the price differs from the catalog price. */
+  priceChanged?: boolean
 }
 
 export type PhotoGroup = { title?: string; rows: PhotoRow[] }
@@ -109,7 +115,7 @@ function RowName({ row }: { row: PhotoRow }) {
 }
 
 /** One area of the long-list photo: a bar with the area's total, then light category labels. */
-function ListArea({ title, groups }: { title: string; groups: PhotoGroup[] }) {
+function ListArea({ title, groups, showPrices }: { title: string; groups: PhotoGroup[]; showPrices: boolean }) {
   const visible = groups.filter((group) => group.rows.length > 0)
   if (visible.length === 0) return null
   const total = visible.reduce((sum, group) => sum + group.rows.reduce((inner, row) => inner + toNumber(row.quantity), 0), 0)
@@ -125,12 +131,20 @@ function ListArea({ title, groups }: { title: string; groups: PhotoGroup[] }) {
           {group.title ? <p className="photo-list-category">{sentenceCase(group.title)}</p> : null}
           <ul>
             {group.rows.map((row) => (
-              <li key={row.key} className="photo-list-row">
+              <li key={row.key} className={`photo-list-row${row.priceChanged ? ' is-price-changed' : ''}`}>
                 <div className="min-w-0 flex-1">
                   <RowName row={row} />
+                  {row.priceNote ? <span className="stock-price-note">{row.priceNote}</span> : null}
                   {row.note ? <p className="photo-list-note">{row.note}</p> : null}
                 </div>
-                <span className="photo-list-qty">{row.quantity}</span>
+                {showPrices ? (
+                  <span className="photo-list-figures">
+                    <span className="photo-list-price">{row.price || '–'}</span>
+                    <span className="photo-list-qty photo-list-qty-col">{row.quantity}</span>
+                  </span>
+                ) : (
+                  <span className="photo-list-qty">{row.quantity}</span>
+                )}
               </li>
             ))}
           </ul>
@@ -143,6 +157,8 @@ function ListArea({ title, groups }: { title: string; groups: PhotoGroup[] }) {
 function ListSheet({ title, date, insideLeft, insideRight, outside, unknown }: Omit<LedgerPhotoSheetProps, 'layout' | 'quantityLabel'>) {
   const all = [...insideLeft, ...insideRight].flatMap((group) => group.rows).concat(outside, unknown)
   const units = all.reduce((sum, row) => sum + toNumber(row.quantity), 0)
+  // Stock In passes a price with every row; Check Stock has none, so its photo stays as it was.
+  const showPrices = all.some((row) => row.price !== undefined)
   const [year, month, day] = date.split('-').map(Number)
   const longDate = year && month && day
     ? new Date(year, month - 1, day).toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
@@ -160,9 +176,18 @@ function ListSheet({ title, date, insideLeft, insideRight, outside, unknown }: O
         </div>
         <BrandTile />
       </header>
-      <ListArea title="Inside coolroom" groups={[...insideLeft, ...insideRight]} />
-      <ListArea title="Unclassified / staff inspection" groups={[{ rows: unknown }]} />
-      <ListArea title="Outside coolroom" groups={[{ rows: outside }]} />
+      {showPrices ? (
+        <div className="photo-list-head" aria-hidden="true">
+          <span>Item</span>
+          <span className="photo-list-figures">
+            <span className="photo-list-price">Price</span>
+            <span className="photo-list-qty-col">Stock in</span>
+          </span>
+        </div>
+      ) : null}
+      <ListArea title="Inside coolroom" groups={[...insideLeft, ...insideRight]} showPrices={showPrices} />
+      <ListArea title="Unclassified / staff inspection" groups={[{ rows: unknown }]} showPrices={showPrices} />
+      <ListArea title="Outside coolroom" groups={[{ rows: outside }]} showPrices={showPrices} />
     </>
   )
 }

@@ -17,6 +17,7 @@ type CatalogRow = {
   origin: string
   inner_quantity: number | null
   inner_unit: 'box' | 'bag' | 'punnet' | 'piece' | 'tray' | 'bunch' | 'pack' | 'kg' | 'g'
+  price: number | null
   official_name: string
   stocklist_name: string
   navigation_guide: string
@@ -40,6 +41,28 @@ function isMissingColumnError(error: SupabaseErrorLike | null | undefined) {
   if (!error) return false
   if (error.code === '42703') return true
   return /column .* does not exist/i.test(error.message ?? '')
+}
+
+const BASE_COLUMNS = 'code, location, sub_location, category, product, attribute, official_name, stocklist_name, navigation_guide, row_position, is_visible'
+const ORIGIN_COLUMNS = `${BASE_COLUMNS}, origin, inner_quantity, inner_unit`
+const PRICE_COLUMNS = `${ORIGIN_COLUMNS}, price`
+
+/**
+ * Reads the catalog with the newest columns the database has: price, then origin and inner
+ * pack, then the original ones. A missing column (migration not run yet) steps down one level.
+ */
+async function selectCatalogRows(supabase: any) {
+  for (const columns of [PRICE_COLUMNS, ORIGIN_COLUMNS, BASE_COLUMNS]) {
+    const result: any = await supabase.from('catalog_items').select(columns).order('code', { ascending: true })
+    if (!isMissingColumnError(result.error as SupabaseErrorLike)) return result
+  }
+  return await supabase.from('catalog_items').select(BASE_COLUMNS).order('code', { ascending: true })
+}
+
+function toPrice(value: unknown) {
+  if (value === null || value === undefined || value === '') return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
 }
 
 function fallbackCatalogResponse(reason: string) {
@@ -67,6 +90,7 @@ function mapRowsToCatalog(rows: CatalogRow[]) {
     origin: entry.origin ?? '',
     inner_quantity: entry.inner_quantity ?? null,
     inner_unit: entry.inner_unit ?? 'box',
+    price: entry.price ?? null,
     official_name: entry.official_name,
     stocklist_name: entry.stocklist_name,
     navigation_guide: entry.navigation_guide,
@@ -76,17 +100,7 @@ function mapRowsToCatalog(rows: CatalogRow[]) {
 }
 
 async function loadCatalogFromSingleTable(supabase: any) {
-  let result: any = await supabase
-    .from('catalog_items')
-    .select('code, location, sub_location, category, product, attribute, origin, inner_quantity, inner_unit, official_name, stocklist_name, navigation_guide, row_position, is_visible')
-    .order('code', { ascending: true })
-
-  if (isMissingColumnError(result.error as SupabaseErrorLike)) {
-    result = await supabase
-      .from('catalog_items')
-      .select('code, location, sub_location, category, product, attribute, official_name, stocklist_name, navigation_guide, row_position, is_visible')
-      .order('code', { ascending: true })
-  }
+  const result: any = await selectCatalogRows(supabase)
 
   if (result.error) {
     return {
@@ -106,6 +120,7 @@ async function loadCatalogFromSingleTable(supabase: any) {
     origin: entry.origin ?? '',
     inner_quantity: entry.inner_quantity == null ? null : Number(entry.inner_quantity),
     inner_unit: entry.inner_unit ?? 'box',
+    price: toPrice(entry.price),
     official_name: entry.official_name,
     stocklist_name: entry.stocklist_name,
     navigation_guide: entry.navigation_guide,
@@ -169,6 +184,7 @@ async function loadCatalogFromLegacyTables(supabase: any) {
     origin: '',
     inner_quantity: null,
     inner_unit: 'box',
+    price: null,
     official_name: entry.official_name,
     stocklist_name: entry.stocklist_name,
     navigation_guide: entry.navigation_guide,
@@ -338,19 +354,9 @@ export async function POST(request: Request) {
   }
 
   // Fetch the updated catalog
-  let result: any = await auth.supabase
-    .from('catalog_items')
-    .select('code, location, sub_location, category, product, attribute, origin, inner_quantity, inner_unit, official_name, stocklist_name, navigation_guide, row_position, is_visible')
-    .order('code', { ascending: true })
+  const result: any = await selectCatalogRows(auth.supabase)
 
-  if (isMissingColumnError(result.error as SupabaseErrorLike)) {
-    result = await auth.supabase
-      .from('catalog_items')
-      .select('code, location, sub_location, category, product, attribute, official_name, stocklist_name, navigation_guide, row_position, is_visible')
-      .order('code', { ascending: true })
-  }
-
-  const catalog = (result.data ?? []).map((entry) => normalizeCatalogEntry({
+  const catalog = (result.data ?? []).map((entry: any) => normalizeCatalogEntry({
     id: 0,
     code: entry.code,
     location: entry.location,
@@ -361,6 +367,7 @@ export async function POST(request: Request) {
     origin: entry.origin ?? '',
     inner_quantity: entry.inner_quantity == null ? null : Number(entry.inner_quantity),
     inner_unit: entry.inner_unit ?? 'box',
+    price: toPrice(entry.price),
     official_name: entry.official_name,
     stocklist_name: entry.stocklist_name,
     navigation_guide: entry.navigation_guide,

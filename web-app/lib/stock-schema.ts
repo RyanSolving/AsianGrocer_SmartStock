@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { roundPrice } from './stock-price'
+
 export const stockModeSchema = z.enum(['stock-in', 'stock-closing'])
 
 export const catalogLocationOptions = ['Inside Coolroom', 'Outside Coolroom'] as const
@@ -19,6 +21,22 @@ const catalogInnerQuantitySchema = z.preprocess((value) => {
 const catalogInnerUnitSchema = z.preprocess((value) => (
   value === null || value === undefined || value === '' ? 'box' : value
 ), z.enum(catalogInnerUnitOptions))
+/**
+ * Price of one counted unit (one box, bag, ...), in dollars, to the cent. Left out = keep the
+ * saved price; null or an empty string = clear it.
+ */
+const catalogPriceSchema = z.preprocess((value) => {
+  if (value === undefined) return undefined
+  if (value === null || value === '') return null
+  if (typeof value === 'string') return Number(value.replace(/[$,\s]/g, ''))
+  return value
+}, z.number({ invalid_type_error: 'Price must be a number' })
+  .finite()
+  .nonnegative('Price must be zero or more')
+  .max(100000, 'Price looks too high')
+  .transform(roundPrice)
+  .nullable()
+  .optional())
 
 export const catalogItemSchema = z.object({
   code: catalogTextSchema.min(1, 'Item code is required'),
@@ -30,6 +48,7 @@ export const catalogItemSchema = z.object({
   origin: catalogTextSchema.default(''),
   inner_quantity: catalogInnerQuantitySchema.default(null),
   inner_unit: catalogInnerUnitSchema.default('box'),
+  price: catalogPriceSchema,
   official_name: catalogTextSchema.min(1, 'Official name is required'),
   stocklist_name: catalogTextSchema.min(1, 'Name on stocklist is required'),
   navigation_guide: catalogTextSchema.default(''),
@@ -62,6 +81,8 @@ export const catalogEntrySchema = z.object({
   origin: z.string().default(''),
   inner_quantity: z.number().nullable().default(null),
   inner_unit: catalogInnerUnitSchema.default('box'),
+  /** Normal price of one counted unit; null/absent when not set. */
+  price: z.number().nullable().optional(),
   official_name: z.string(),
   stocklist_name: z.string(),
   navigation_guide: z.string(),
@@ -100,6 +121,10 @@ export const itemSchema = z.object({
   notes: z.string().nullable().default(null),
   /** Stock In: the item arrived on a special discount (BUSINESS_RULES.md §1b). */
   special: z.boolean().optional(),
+  /** Stock In: price of one counted unit on this delivery. */
+  price: z.number().nonnegative().nullable().optional(),
+  /** Stock In: the catalog price this row started from; a price different from it is a price change. */
+  catalog_price: z.number().nonnegative().nullable().optional(),
 })
 
 export const parsedStockSchema = z.object({
@@ -160,6 +185,7 @@ function catalogEntryToStagedItem(entry: CatalogEntry): StockItem {
     confidence: 'high',
     catalog_match_status: 'unknown',
     notes: null,
+    ...(entry.price != null ? { price: entry.price } : {}),
   }
 }
 

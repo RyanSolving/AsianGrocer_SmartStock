@@ -3,7 +3,17 @@
 import type { ReactNode } from 'react'
 import { ChevronDown, Trash2 } from 'lucide-react'
 
-export type HistoryRow = { name: string; quantity: number; special?: boolean; note?: string }
+export type HistoryRow = {
+  name: string
+  quantity: number
+  special?: boolean
+  note?: string
+  /** Stock In: price of one unit as text ("$24.50"; empty when none). Undefined = no price column. */
+  price?: string
+  /** Stock In: why the price is highlighted, e.g. "Up from $20.00". */
+  priceNote?: string
+  priceChanged?: boolean
+}
 export type HistoryGroup = { title: string; rows: HistoryRow[] }
 
 /** "Sun 8 Nov 2026" */
@@ -111,13 +121,17 @@ export function HistoryCard({
                   <p className="bg-slate-50 px-3 py-2 text-[13px] font-semibold text-ink">{group.title}</p>
                   <ul className="divide-y divide-line">
                     {group.rows.map((row, index) => (
-                      <li key={`${row.name}-${index}`} className="flex items-start gap-3 px-3 py-2 text-[14px]">
+                      <li key={`${row.name}-${index}`} className={`flex items-start gap-3 px-3 py-2 text-[14px] ${row.priceChanged ? 'bg-warning-soft' : ''}`}>
                         <span className="min-w-0 flex-1">
                           <span className="text-ink">{row.name}</span>
                           {row.special ? <span className="report-tag report-tag-special ml-1.5 align-[1px]">Special</span> : null}
+                          {row.priceNote ? <span className="stock-price-note">{row.priceNote}</span> : null}
                           {row.note ? <span className="block text-[13px] italic text-muted">{row.note}</span> : null}
                         </span>
-                        <span className="shrink-0 font-semibold tabular text-ink">{row.quantity}</span>
+                        {row.price !== undefined ? (
+                          <span className={`shrink-0 tabular ${row.priceChanged ? 'font-semibold text-warning' : 'text-muted'}`}>{row.price || '–'}</span>
+                        ) : null}
+                        <span className="w-8 shrink-0 text-right font-semibold tabular text-ink">{row.quantity}</span>
                       </li>
                     ))}
                   </ul>

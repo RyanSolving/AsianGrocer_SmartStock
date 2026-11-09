@@ -68,6 +68,8 @@ export async function PUT(request: Request) {
       origin: item.origin,
       inner_quantity: item.inner_quantity,
       inner_unit: item.inner_unit,
+      // Left out when the request has no price, so editing other fields never clears it.
+      ...(item.price !== undefined ? { price: item.price } : {}),
       official_name: item.official_name,
       stocklist_name: item.stocklist_name,
       navigation_guide: item.navigation_guide,
@@ -90,9 +92,9 @@ export async function PUT(request: Request) {
     if (isMissingColumnError(result.error)) {
       return NextResponse.json(
         {
-          error: 'Catalog write requires the origin and inner pack schema.',
+          error: 'Catalog write needs a newer database schema.',
           details: result.error.message,
-          hint: 'Run migration 20260610_catalog_origin_inner_pack.sql to add origin, inner_quantity, and inner_unit to public.catalog_items.',
+          hint: 'Run migrations 20260610_catalog_origin_inner_pack.sql and 20261109_catalog_price.sql to add origin, inner pack and price to public.catalog_items.',
         },
         { status: 409 }
       )

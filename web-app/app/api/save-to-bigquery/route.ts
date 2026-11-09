@@ -6,6 +6,7 @@ import {
   getRawStockTableName,
   insertRawStockRecord,
 } from '../../../lib/bigquery/warehouse'
+import { applyCatalogPriceChanges, collectPriceChanges } from '../../../lib/catalog-prices'
 import { buildManualEntryRecordName } from '../../../lib/record-names'
 import { getAuthContext } from '../../../lib/supabase/route-auth'
 import { logPushToBigQueryEvent } from '../../../lib/supabase/events'
@@ -187,10 +188,16 @@ export async function POST(request: Request) {
       savedUidGenerate = insertedGenerate?.uid_generate ?? null
     }
 
+    // A price changed on this delivery becomes the catalog price (BUSINESS_RULES.md §1d).
+    const appliedPriceChanges = stagedRecord.mode === 'stock-in'
+      ? await applyCatalogPriceChanges(auth.supabase, collectPriceChanges(stagedRecord.item_data))
+      : []
+
     return NextResponse.json(
       {
         success: true,
         uid_generate: savedUidGenerate,
+        catalog_prices_updated: appliedPriceChanges.length,
         message: 'Saved to Supabase. You can keep editing before loading to BigQuery.',
       },
       { status: 200 },

@@ -659,6 +659,14 @@ textarea {
   width: 5.5rem;
 }
 
+.stock-ledger .stock-ledger-price-col {
+  width: 5.75rem;
+}
+
+.stock-ledger .report-ledger td.stock-ledger-price-cell {
+  padding-right: 6px;
+}
+
 /* Narrow phones (Galaxy S at 360px, less with larger font or screen zoom): the list runs to
    the card's edges and the count and remove columns slim down, so names keep one line. */
 @media (max-width: 419px) {
@@ -669,6 +677,15 @@ textarea {
 
   .stock-ledger col.stock-ledger-qty-col {
     width: 4.5rem;
+  }
+
+  /* With a price column the count box is a little narrower (three digits still fit). */
+  .stock-ledger col.stock-ledger-qty-col:has(+ col.stock-ledger-price-col) {
+    width: 4rem;
+  }
+
+  .stock-ledger col.stock-ledger-price-col {
+    width: 5.5rem;
   }
 
   .stock-ledger col.stock-ledger-remove-col {
@@ -804,6 +821,75 @@ textarea {
   outline-offset: -2px;
 }
 
+/* Stock In: price box ($ is drawn inside the box, so the figure stays right-aligned). */
+.stock-price-field {
+  position: relative;
+  display: block;
+}
+
+.stock-price-field::before {
+  content: '$';
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 500;
+  pointer-events: none;
+}
+
+.stock-ledger .stock-price-input {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 6px 0 15px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 16px; /* never zooms on iOS */
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.stock-ledger .stock-price-input::placeholder {
+  color: theme(colors.slate.300);
+  font-weight: 400;
+}
+
+.stock-ledger .stock-price-input:placeholder-shown {
+  border-style: dashed;
+}
+
+.stock-ledger .stock-price-input:focus {
+  outline: 2px solid theme(colors.forest.DEFAULT);
+  outline-offset: -1px;
+  background: var(--card);
+}
+
+/* A price different from the catalog's: highlighted in the row and in the photo. */
+.stock-ledger tr.stock-row-price-changed > th,
+.stock-ledger tr.stock-row-price-changed > td {
+  background: theme(colors.warning.soft);
+}
+
+.stock-price-field.is-changed .stock-price-input {
+  border-color: theme(colors.warning.marker);
+  border-style: solid;
+  background: #fff;
+  font-weight: 600;
+}
+
+.stock-price-note {
+  display: block;
+  margin-top: 1px;
+  color: theme(colors.warning.DEFAULT);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
 /* Check Stock: remove an item from today's list. */
 .stock-ledger .stock-ledger-remove-col {
   width: 2.5rem;
@@ -844,6 +930,26 @@ textarea {
 }
 
 /* Stock In photo as one long list (LedgerPhotoSheet layout="list"). */
+.photo-list-head .photo-list-price {
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.photo-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 20px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
 .photo-list-category {
   background: theme(colors.forest.50);
   color: var(--brand);
@@ -882,6 +988,37 @@ textarea {
   font-size: 16px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+}
+
+/* Stock In photo: price beside the count; a changed price is highlighted with a note. */
+.photo-list-figures {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  gap: 14px;
+}
+
+.photo-list-price {
+  min-width: 64px;
+  text-align: right;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.photo-list-qty-col {
+  min-width: 52px;
+  text-align: right;
+}
+
+.photo-list-row.is-price-changed {
+  background: theme(colors.warning.soft);
+}
+
+.photo-list-row.is-price-changed .photo-list-price {
+  color: theme(colors.warning.DEFAULT);
+  font-weight: 700;
 }
 
 .report-photo.is-list .report-area-title {

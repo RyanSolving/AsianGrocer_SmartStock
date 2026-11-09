@@ -170,6 +170,44 @@ describe('Data Entry manual save flow', () => {
     })
   })
 
+  it('saves the price with each line and sets a changed price as the catalog price', async () => {
+    const payload = buildPersistOnlyPayload(4, 'uid-data-entry-001') as { data: { items: Array<Record<string, unknown>> } }
+    payload.data.items[0] = { ...payload.data.items[0], price: 22, catalog_price: 20 }
+
+    const response = await POST(
+      new Request('http://localhost/api/save-to-bigquery', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }),
+    )
+
+    expect(response.status).toBe(200)
+    expect(updateCalls[0]).toMatchObject({
+      final_output: { items: [{ quantity: 4, price: 22, catalog_price: 20 }] },
+    })
+    // The second update is the catalog item taking the new price.
+    expect(updateCalls[1]).toEqual({ price: 22 })
+    expect(await response.json()).toMatchObject({ success: true, catalog_prices_updated: 1 })
+  })
+
+  it('leaves the catalog alone when a line keeps the catalog price', async () => {
+    const payload = buildPersistOnlyPayload(4, 'uid-data-entry-001') as { data: { items: Array<Record<string, unknown>> } }
+    payload.data.items[0] = { ...payload.data.items[0], price: 20, catalog_price: 20 }
+
+    const response = await POST(
+      new Request('http://localhost/api/save-to-bigquery', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }),
+    )
+
+    expect(response.status).toBe(200)
+    expect(updateCalls).toHaveLength(1)
+    expect(await response.json()).toMatchObject({ success: true, catalog_prices_updated: 0 })
+  })
+
   it('creates a manual draft row when no uid exists, then updates the same row on later saves', async () => {
     const firstResponse = await POST(
       new Request('http://localhost/api/save-to-bigquery', {

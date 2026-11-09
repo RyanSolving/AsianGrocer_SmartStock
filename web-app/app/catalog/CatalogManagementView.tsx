@@ -27,6 +27,7 @@ import {
   catalogSubLocationOutsideOptions,
   type CatalogItem,
 } from '../../lib/stock-schema'
+import { formatPrice } from '../../lib/stock-price'
 
 function getApiErrorMessage(payload: any, fallback: string) {
   const details = typeof payload?.details === 'string'
@@ -67,6 +68,7 @@ const emptyItem = (defaultCategory: string = 'Apples'): CatalogItem => ({
   origin: '',
   inner_quantity: null,
   inner_unit: 'box',
+  price: null,
   official_name: '',
   stocklist_name: '',
   navigation_guide: '',
@@ -324,6 +326,28 @@ function ItemModal({
             </div>
           </div>
 
+          {/* Price */}
+          <div>
+            <label className="block text-[14px] font-medium text-ink" htmlFor="catalog-item-price">Price</label>
+            <div className="relative mt-1">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[16px] text-slate-400" aria-hidden="true">$</span>
+              <input
+                id="catalog-item-price"
+                type="number"
+                min="0"
+                step="0.01"
+                inputMode="decimal"
+                className={`w-full rounded-lg border ${errors.price ? 'border-red-400' : 'border-slate-300'} min-h-11 pl-7 pr-3 text-[16px]`}
+                value={form.price ?? ''}
+                onChange={(e) => updateField('price', e.target.value === '' ? null : Number(e.target.value))}
+                placeholder="e.g. 24.50"
+              />
+            </div>
+            {errors.price
+              ? <p className="mt-1 text-xs text-red-500">{errors.price}</p>
+              : <p className="mt-1 text-xs text-slate-400">What one unit counted at Stock In (one box, bag, ...) costs. Stock In starts from this price.</p>}
+          </div>
+
           {/* Official Name & Stocklist Name */}
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -440,6 +464,7 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
             origin: entry?.origin ?? '',
             inner_quantity: entry?.inner_quantity == null ? null : Number(entry.inner_quantity),
             inner_unit: entry?.inner_unit ?? 'box',
+            price: entry?.price == null ? null : Number(entry.price),
             official_name: entry?.official_name ?? '',
             stocklist_name: entry?.stocklist_name ?? '',
             navigation_guide: entry?.navigation_guide ?? '',
@@ -673,6 +698,7 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
                   <th className="px-4 py-3 font-semibold">Category</th>
                   <th className="px-4 py-3 font-semibold">Origin</th>
                   <th className="px-4 py-3 font-semibold">Inner Pack</th>
+                  <th className="px-4 py-3 text-right font-semibold">Price</th>
                   <th className="px-4 py-3 font-semibold">Location</th>
                   <th className="px-4 py-3 font-semibold">Row</th>
                   <th className="px-4 py-3 font-semibold">Visibility</th>
@@ -682,14 +708,14 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
               <tbody className="divide-y divide-slate-100">
                 {isLoading ? (
                   <tr>
-                    <td colSpan={10} className="px-4 py-10 text-center text-slate-400">
+                    <td colSpan={11} className="px-4 py-10 text-center text-slate-400">
                       <RefreshCw className="mx-auto h-5 w-5 animate-spin" />
                       <p className="mt-2 text-xs">Loading catalog...</p>
                     </td>
                   </tr>
                 ) : filteredItems.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="px-4 py-10 text-center text-slate-400">
+                    <td colSpan={11} className="px-4 py-10 text-center text-slate-400">
                       {searchTerm || locationFilter !== 'all'
                         ? 'No items match your filters.'
                         : 'No catalog items yet. Click "Add Item" to get started.'}
@@ -710,6 +736,7 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
                       <td className="px-4 py-3 text-xs text-slate-500">
                         {item.inner_quantity == null ? '-' : `${item.inner_quantity} ${item.inner_unit}`}
                       </td>
+                      <td className="tabular px-4 py-3 text-right text-xs text-slate-700">{formatPrice(item.price) || <span className="text-slate-400">-</span>}</td>
                       <td className="px-4 py-3 text-xs text-slate-500">
                         {item.location} / {item.sub_location}
                       </td>

@@ -48,6 +48,36 @@ Code: `web-app/app/api/daily-report/route.ts`, `combineStockInRecords` in `web-a
 Code: `special` in `itemSchema` (`web-app/lib/stock-schema.ts`); `renderDataEntryLedgerName`
 in `web-app/app/page.tsx`.
 
+### 1d. Prices (Catalog and Stock In)
+
+- **Catalog price.** Each catalog item can have a **Price**: what one unit counted at Stock In
+  (one box, bag, ...) costs, in dollars and cents. Set it in Catalog → Edit item / New item. Empty
+  means no price yet. Editing other fields of an item never clears its price.
+- **Stock In price column.** Every Stock In row has a **Price** box, starting at the item's
+  catalog price. Staff can type another price for this delivery. The photo and the History
+  preview show the same column. Stock Close has no prices.
+- **Price change.** A row whose price differs from the catalog price it started from is a
+  *price change*. It is highlighted (soft yellow) in the list, in the photo and in History, with
+  a note under the name: **Up from $20.00**, **Down from $20.00**, or **New price** (the item
+  had none). Items typed in by name (not in the catalog) have nothing to compare with, so they
+  are never highlighted.
+- **Kept note.** The saved record keeps, on each counted item, `price` and `catalog_price` (the
+  catalog price the row started from). A reopened Stock In still shows what changed, even after
+  the catalog price has moved on.
+- **Saving updates the catalog.** Saving a Stock In sets the catalog price of each changed
+  item to the new price, and the Saved message says how many. A price is only replaced while the
+  catalog still holds the price the row started from: re-saving an old Stock In, or two phones
+  changing the same item, never puts an older price back. A failed catalog update never fails
+  the save.
+- **Save and photo are one button.** Save stores the Stock In and then downloads its photo. If
+  the photo cannot be made, the record is still saved and the sheet stays open: Save again to
+  retry the photo.
+- Prices are information only: they don't change units sold, flags or refill.
+
+Code: `web-app/lib/stock-price.ts` (parsing, change rule), `web-app/lib/catalog-prices.ts`
+(catalog update on save), `PriceInput.tsx`, `StockLedger.tsx`, `LedgerPhotoSheet.tsx`.
+Migration: `web-app/supabase/migrations/20261109_catalog_price.sql`.
+
 **Sources row.** The Daily Report and Dashboard show which records were used: the closing, the
 previous closing and the stock in, each with its date, name and saved time (`created_at` for a
 closing, which is when it was first saved; `log_time` for stock in). When there are several

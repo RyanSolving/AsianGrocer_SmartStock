@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { RefreshCw, FileImage } from 'lucide-react'
 import { Sheet } from './ui/Sheet'
-import { HistoryCard, HistoryDay, buildGroups, formatTime, groupByDay, type HistoryGroup } from './HistoryParts'
+import { HistoryCard, HistoryDay, buildGroups, formatTime, groupByDay, type HistoryGroup, type HistoryRow } from './HistoryParts'
+import { describePriceChange, formatPrice, priceChangeOf } from '../../lib/stock-price'
 
 type HistoryEntry = {
   uid_generate: string
@@ -38,6 +39,19 @@ type RawItem = {
   quantity?: number | null
   special?: boolean
   notes?: string | null
+  price?: number | null
+  catalog_price?: number | null
+}
+
+/** A saved row's price column: the price, and what it changed from when it differs from the catalog's. */
+function priceFields(row: RawItem): Pick<HistoryRow, 'price' | 'priceNote' | 'priceChanged'> {
+  if (row.price === undefined) return {}
+  const change = row.catalog_price !== undefined ? priceChangeOf(row.price, row.catalog_price, true) : null
+  return {
+    price: formatPrice(row.price),
+    priceNote: change ? describePriceChange(change) : undefined,
+    priceChanged: change !== null,
+  }
 }
 
 export function TranscriptionHistoryDialog({
@@ -68,10 +82,10 @@ export function TranscriptionHistoryDialog({
 
   // Only counted items are listed; a record's blank rows would bury what actually arrived.
   const summaries = useMemo(() => {
-    const map = new Map<string, { groups: HistoryGroup[]; items: number; units: number; notes: number }>()
+    const map = new Map<string, { groups: HistoryGroup[]; items: number; units: number; notes: number; priceChanges: number }>()
     for (const entry of history) {
       const items = (entry.transcriptionData as { items?: unknown[] } | null)?.items
-      const rows: Array<{ area: string; name: string; quantity: number; special?: boolean; note?: string }> = []
+      const rows: Array<HistoryRow & { area: string }> = []
       for (const raw of Array.isArray(items) ? items : []) {
         if (!raw || typeof raw !== 'object') continue
         const row = raw as RawItem
@@ -84,6 +98,8 @@ export function TranscriptionHistoryDialog({
           quantity: row.quantity,
           special: row.special === true,
           note: row.notes?.trim() || undefined,
+          // Saved prices only: records from before prices have none, so they list as they did.
+          ...priceFields(row),
         })
       }
       map.set(entry.uid_generate, {
@@ -91,6 +107,7 @@ export function TranscriptionHistoryDialog({
         items: rows.length,
         units: rows.reduce((sum, row) => sum + row.quantity, 0),
         notes: rows.filter((row) => row.note).length,
+        priceChanges: rows.filter((row) => row.priceChanged).length,
       })
     }
     return map
@@ -121,7 +138,7 @@ export function TranscriptionHistoryDialog({
                 const time = formatTime(new Date(entry.timestamp))
                 const isExpanded = expandedId === entry.uid_generate
                 const summaryText = summary && summary.items > 0
-                  ? `${summary.items} ${summary.items === 1 ? 'item' : 'items'} · ${summary.units} units${summary.notes > 0 ? ` · ${summary.notes} ${summary.notes === 1 ? 'note' : 'notes'}` : ''}`
+                  ? `${summary.items} ${summary.items === 1 ? 'item' : 'items'} · ${summary.units} units${summary.notes > 0 ? ` · ${summary.notes} ${summary.notes === 1 ? 'note' : 'notes'}` : ''}${summary.priceChanges > 0 ? ` · ${summary.priceChanges} price ${summary.priceChanges === 1 ? 'change' : 'changes'}` : ''}`
                   : 'Nothing counted'
                 return (
                   <HistoryCard
