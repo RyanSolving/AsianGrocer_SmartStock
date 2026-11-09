@@ -50,7 +50,9 @@ export type ParsedPriceInput =
 
 /** Reads what staff typed: empty clears the price, "$12.5" and "12,50" are fine, negatives are not. */
 export function parsePriceInput(text: string): ParsedPriceInput {
-  const cleaned = text.replace(/[$\s]/g, '').replace(',', '.')
+  let cleaned = text.replace(/[$\s]/g, '')
+  // "1,234.50" has a thousands comma; "12,50" is a decimal comma.
+  cleaned = cleaned.includes('.') ? cleaned.replace(/,/g, '') : cleaned.replace(',', '.')
   if (cleaned === '') return { ok: true, value: null }
   if (!/^\d*\.?\d{0,4}$/.test(cleaned) || cleaned === '.') return { ok: false }
   const value = Number(cleaned)

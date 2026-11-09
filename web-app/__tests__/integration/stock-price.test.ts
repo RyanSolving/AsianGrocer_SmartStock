@@ -166,10 +166,10 @@ describe('saved Stock In lines keep their price', () => {
 describe('collectPriceChanges', () => {
   it('lists the lines whose price differs from the catalog price they started from', () => {
     expect(collectPriceChanges([
-      { catalog_code: 'A', sell: sell(22), catalog_sell: sell(20) },
-      { catalog_code: 'B', sell: sell(10), catalog_sell: sell(10) },
-      { catalog_code: 'C', sell: sell(5, 'kg'), catalog_sell: sell(null) },
-      { catalog_code: 'D', sell: sell(4.99, 'ea', [{ qty: 2, total: 9 }]), catalog_sell: sell(4.99) },
+      { catalog_code: 'A', quantity: 1, sell: sell(22), catalog_sell: sell(20) },
+      { catalog_code: 'B', quantity: 1, sell: sell(10), catalog_sell: sell(10) },
+      { catalog_code: 'C', quantity: 1, sell: sell(5, 'kg'), catalog_sell: sell(null) },
+      { catalog_code: 'D', quantity: 1, sell: sell(4.99, 'ea', [{ qty: 2, total: 9 }]), catalog_sell: sell(4.99) },
     ])).toEqual([
       { code: 'A', from: sell(20), to: sell(22) },
       { code: 'C', from: null, to: sell(5, 'kg') },
@@ -179,21 +179,21 @@ describe('collectPriceChanges', () => {
 
   it('skips unknown items, unpriced lines and lines that were never stamped', () => {
     expect(collectPriceChanges([
-      { catalog_code: null, sell: sell(5), catalog_sell: sell(4) },
-      { catalog_code: 'A', sell: sell(null), catalog_sell: sell(4) },
-      { catalog_code: 'B', sell: sell(9) },
-      { catalog_code: '  ', sell: sell(9), catalog_sell: sell(8) },
+      { catalog_code: null, quantity: 1, sell: sell(5), catalog_sell: sell(4) },
+      { catalog_code: 'A', quantity: 1, sell: sell(null), catalog_sell: sell(4) },
+      { catalog_code: 'B', quantity: 1, sell: sell(9) },
+      { catalog_code: '  ', quantity: 1, sell: sell(9), catalog_sell: sell(8) },
     ])).toEqual([])
   })
 
   it('keeps one change per item, the later line winning, and drops it when the later line is back to the catalog price', () => {
     expect(collectPriceChanges([
-      { catalog_code: 'A', sell: sell(22), catalog_sell: sell(20) },
-      { catalog_code: 'A', sell: sell(23), catalog_sell: sell(20) },
+      { catalog_code: 'A', quantity: 1, sell: sell(22), catalog_sell: sell(20) },
+      { catalog_code: 'A', quantity: 1, sell: sell(23), catalog_sell: sell(20) },
     ])).toEqual([{ code: 'A', from: sell(20), to: sell(23) }])
     expect(collectPriceChanges([
-      { catalog_code: 'A', sell: sell(22), catalog_sell: sell(20) },
-      { catalog_code: 'A', sell: sell(20), catalog_sell: sell(20) },
+      { catalog_code: 'A', quantity: 1, sell: sell(22), catalog_sell: sell(20) },
+      { catalog_code: 'A', quantity: 1, sell: sell(20), catalog_sell: sell(20) },
     ])).toEqual([])
   })
 })
@@ -245,5 +245,39 @@ describe('applyCatalogPriceChanges', () => {
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
     await expect(applyCatalogPriceChanges(supabase, [{ code: 'A', from: sell(1), to: sell(2) }])).resolves.toEqual([])
     errorSpy.mockRestore()
+  })
+})
+
+describe('price save rules (review fixes)', () => {
+  const s = (price: number) => ({ price, unit: 'ea' as const, deals: [] })
+
+  it('ignores rows that were not counted', () => {
+    expect(collectPriceChanges([{ catalog_code: 'A', quantity: null, sell: s(5), catalog_sell: s(4) }])).toEqual([])
+  })
+
+  it('accepts a corrected re-save when the catalog holds the price this record set before', async () => {
+    const calls: Array<{ price: unknown }> = []
+    const catalogPrice = 40 // the typo price, already in the catalog
+    const supabase = {
+      from: () => {
+        const filters: Record<string, unknown> = {}
+        const q: any = {
+          update: () => q,
+          eq: (k: string, v: unknown) => { filters[k] = v; return q },
+          is: (k: string, v: unknown) => { filters[k] = v; return q },
+          select: async () => { calls.push({ price: filters.price }); return { data: filters.price === catalogPrice ? [{ code: 'A' }] : [], error: null } },
+        }
+        return q
+      },
+    }
+    const changes = collectPriceChanges([{ catalog_code: 'A', quantity: 2, sell: s(4), catalog_sell: s(20) }])
+    const applied = await applyCatalogPriceChanges(supabase, changes, new Map([['A', s(40)]]))
+    expect(applied).toHaveLength(1)
+    expect(calls.map((c) => c.price)).toEqual([20, 40])
+  })
+
+  it('reads a thousands comma', () => {
+    expect(parsePriceInput('1,234.50')).toEqual({ ok: true, value: 1234.5 })
+    expect(parsePriceInput('12,50')).toEqual({ ok: true, value: 12.5 })
   })
 })

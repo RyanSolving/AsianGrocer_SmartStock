@@ -28,9 +28,9 @@ export type CreateCatalogItemPayload = {
   inner_quantity: number | null
   inner_unit: 'box' | 'bag' | 'punnet' | 'piece' | 'tray' | 'bunch' | 'pack' | 'kg' | 'g'
   /** Normal selling price; null when not set. */
-  price: number | null
-  price_unit: PriceUnit
-  price_deals: PriceDeal[]
+  price?: number | null
+  price_unit?: PriceUnit
+  price_deals?: PriceDeal[]
   official_name: string
   stocklist_name: string
   navigation_guide: string

@@ -27,7 +27,7 @@ import {
   catalogSubLocationOutsideOptions,
   type CatalogItem,
 } from '../../lib/stock-schema'
-import { formatDeals, formatMainPrice, normalizeSellPrice } from '../../lib/stock-price'
+import { formatDeals, formatMainPrice, normalizeSellPrice, sameSellPrice } from '../../lib/stock-price'
 import { SellPriceEditor } from '../components/SellPriceEditor'
 import { QuickPriceEntry } from './QuickPriceEntry'
 
@@ -535,7 +535,14 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
       const res = await fetch('/api/catalog/item', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(item),
+        // The price is sent only when it was changed here, so a stale copy of the catalog on this
+        // phone never puts an older price back.
+        body: JSON.stringify(
+          editingItem && sameSellPrice(
+            normalizeSellPrice({ price: item.price, unit: item.price_unit, deals: item.price_deals }),
+            normalizeSellPrice({ price: editingItem.price, unit: editingItem.price_unit, deals: editingItem.price_deals }),
+          ) ? { ...item, price: undefined, price_unit: undefined, price_deals: undefined } : item,
+        ),
       })
       if (!res.ok) {
         const data = await res.json()
@@ -585,7 +592,7 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
       const res = await fetch('/api/catalog/item', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...item, is_visible: nextVisible }),
+        body: JSON.stringify({ ...item, is_visible: nextVisible, price: undefined, price_unit: undefined, price_deals: undefined }),
       })
 
       if (!res.ok) {

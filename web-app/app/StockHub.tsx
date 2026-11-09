@@ -156,6 +156,9 @@ type CatalogItem = {
   price?: number | null
   price_unit?: PriceUnit
   price_deals?: PriceDeal[]
+  /** Stock In: the price on this delivery and the catalog price it started from (rows not yet counted). */
+  sell?: SellPrice
+  catalog_sell?: SellPrice
 }
 
 type StockMode = 'stock-in' | 'stock-closing'
@@ -1201,6 +1204,8 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
         confidence: 'high' as const,
         notes: c_item.notes ?? null,
         special: c_item.special === true,
+        ...(c_item.sell ? { sell: c_item.sell } : {}),
+        ...(c_item.catalog_sell ? { catalog_sell: c_item.catalog_sell } : {}),
       },
       index: -1000 - pos,  // Unique index for each missing item
       source: 'missing' as const
@@ -1622,6 +1627,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
         if (patch.quantity_conflict_flag !== undefined) item.quantity_conflict_flag = patch.quantity_conflict_flag
         if (patch.special !== undefined) item.special = patch.special
         if (patch.notes !== undefined) item.notes = patch.notes
+        if (patch.sell !== undefined) item.sell = patch.sell
         return next
       })
       return
@@ -1779,6 +1785,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
         quantity_conflict_flag: false,
         ...(manualEntrySpecial ? { special: true } : {}),
         ...(manualEntryNote.trim() ? { notes: manualEntryNote.trim() } : {}),
+        ...(manualEntrySell ? { sell: manualEntrySell } : {}),
       })
       setDataEntryNewItemName('')
       setDataEntrySelectedCatalogCode(null)
@@ -1955,9 +1962,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       inner_quantity: inlineCreateForm.inner_quantity,
       inner_unit: inlineCreateForm.inner_unit,
       // Editing a profile keeps the catalog price as it is; a new item starts without one.
-      price: editingCatalogItem?.price ?? null,
-      price_unit: editingCatalogItem?.price_unit ?? 'ea',
-      price_deals: editingCatalogItem?.price_deals ?? [],
+      ...(editingCatalogItem ? {} : { price: null, price_unit: 'ea' as const, price_deals: [] }),
       official_name: officialName,
       stocklist_name: stocklistName,
       navigation_guide: editingCatalogItem?.navigation_guide ?? '',
@@ -2169,6 +2174,12 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     const sell = item.sell ?? live
     const catalogSell = item.catalog_sell ?? live
     return { ...item, ...(sell ? { sell } : {}), ...(catalogSell ? { catalog_sell: catalogSell } : {}) }
+  }
+
+  /** A catalog row that was counted from the missing list, with its price stamped like withPriceStamped. */
+  function stampMissingPrice(item: CatalogItem): CatalogItem {
+    const stamped = withPriceStamped({ catalog_code: item.code, quantity: typeof item.quantity === 'number' ? item.quantity : null, sell: item.sell, catalog_sell: item.catalog_sell })
+    return { ...item, ...(stamped.sell ? { sell: stamped.sell } : {}), ...(stamped.catalog_sell ? { catalog_sell: stamped.catalog_sell } : {}) }
   }
 
   /** Name cell of the phone list; missing and unknown items keep their warning colours. */
@@ -2387,7 +2398,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
         if (!item.catalog_code) return true
         return visibleCatalogCodes.has(item.catalog_code.trim().toUpperCase())
       }).map(withPriceStamped)
-      const filteredMissingCatalogItems = missingCatalogItems.filter((item) => visibleCatalogCodes.has(item.code.trim().toUpperCase()))
+      const filteredMissingCatalogItems = missingCatalogItems.filter((item) => visibleCatalogCodes.has(item.code.trim().toUpperCase())).map(stampMissingPrice)
 
       const response = await fetch('/api/export-csv', {
         method: 'POST',
@@ -2441,7 +2452,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       data: { ...parsedData, ...overrides, items: parsedData.items.map(withPriceStamped) },
       validated: 'yes',
       unknown_items: unknownItems.map(withPriceStamped),
-      missing_catalog_items: missingCatalogItems,
+      missing_catalog_items: missingCatalogItems.map(stampMissingPrice),
       uid_generate: latestGenerateUid ?? undefined,
       persist_only: true,
     }
@@ -2632,7 +2643,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     } else if (window.navigator.onLine) {
       toast.success([
         'Stock in saved',
-        'photo downloaded',
+        parsedData.items.some((item) => typeof item.quantity === 'number' && item.quantity > 0) ? 'photo downloaded' : null,
         pricesUpdated > 0 ? `${pricesUpdated} catalog ${pricesUpdated === 1 ? 'price' : 'prices'} updated` : null,
       ].filter(Boolean).join(' · '))
     }

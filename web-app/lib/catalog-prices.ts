@@ -5,6 +5,7 @@ export type PricedLine = {
   catalog_code?: string | null
   sell?: SellPrice | null
   catalog_sell?: SellPrice | null
+  quantity?: number | null
 }
 
 export type CatalogPriceChange = {
@@ -25,6 +26,8 @@ export function collectPriceChanges(lines: PricedLine[]): CatalogPriceChange[] {
   for (const line of lines) {
     const code = line.catalog_code?.trim()
     if (!code || line.catalog_sell === undefined) continue
+    // A row that was not counted is not on this delivery.
+    if (typeof line.quantity !== 'number' || line.quantity <= 0) continue
     if (!line.sell || isEmptySellPrice(line.sell)) continue
 
     const from = isEmptySellPrice(line.catalog_sell) ? null : line.catalog_sell ?? null
@@ -47,22 +50,38 @@ type CatalogWriter = {
  * an older price, and two phones changing the same item do not overwrite each other silently.
  * Returns the changes that were applied. A failure here never fails the save.
  */
-export async function applyCatalogPriceChanges(supabase: CatalogWriter, changes: CatalogPriceChange[]): Promise<CatalogPriceChange[]> {
+export async function applyCatalogPriceChanges(
+  supabase: CatalogWriter,
+  changes: CatalogPriceChange[],
+  /** The prices an earlier save of this same record put in the catalog, by item code. */
+  previouslySaved: Map<string, SellPrice> = new Map(),
+): Promise<CatalogPriceChange[]> {
   const applied: CatalogPriceChange[] = []
   for (const change of changes) {
     try {
-      let query = supabase.from('catalog_items')
-        .update({ price: change.to.price === null ? null : roundPrice(change.to.price), price_unit: change.to.unit, price_deals: change.to.deals })
-        .eq('code', change.code)
-      if (change.from === null || change.from.price === null) query = query.is('price', null)
-      else query = query.eq('price', roundPrice(change.from.price))
-      if (change.from) query = query.eq('price_unit', change.from.unit)
-      const { data, error } = await query.select('code')
-      if (error) {
-        console.error(`Catalog price update failed for ${change.code}:`, error.message)
-        continue
+      // The catalog may hold the price the line started from, or the price this record set the
+      // last time it was saved (a corrected re-save).
+      const expected: Array<SellPrice | null> = [change.from]
+      const before = previouslySaved.get(change.code)
+      if (before && !sameSellPrice(before, change.from)) expected.push(before)
+
+      for (const from of expected) {
+        let query = supabase.from('catalog_items')
+          .update({ price: change.to.price === null ? null : roundPrice(change.to.price), price_unit: change.to.unit, price_deals: change.to.deals })
+          .eq('code', change.code)
+        if (from === null || from.price === null) query = query.is('price', null)
+        else query = query.eq('price', roundPrice(from.price))
+        if (from) query = query.eq('price_unit', from.unit)
+        const { data, error } = await query.select('code')
+        if (error) {
+          console.error(`Catalog price update failed for ${change.code}:`, error.message)
+          break
+        }
+        if (Array.isArray(data) && data.length > 0) {
+          applied.push(change)
+          break
+        }
       }
-      if (Array.isArray(data) && data.length > 0) applied.push(change)
     } catch (error) {
       console.error(`Catalog price update failed for ${change.code}:`, error instanceof Error ? error.message : error)
     }

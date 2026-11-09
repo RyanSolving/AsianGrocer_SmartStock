@@ -100,6 +100,9 @@ export const catalogEntrySchema = z.object({
   price: z.number().nullable().optional(),
   price_unit: priceUnitSchema.optional(),
   price_deals: priceDealsSchema.optional(),
+  /** Stock In: a counted catalog row's price on the delivery, and the catalog price it started from. */
+  sell: sellPriceSchema.nullable().optional(),
+  catalog_sell: sellPriceSchema.nullable().optional(),
   official_name: z.string(),
   stocklist_name: z.string(),
   navigation_guide: z.string(),
@@ -202,9 +205,12 @@ function catalogEntryToStagedItem(entry: CatalogEntry): StockItem {
     confidence: 'high',
     catalog_match_status: 'unknown',
     notes: null,
-    ...(entry.price != null || (entry.price_deals?.length ?? 0) > 0
-      ? { sell: { price: entry.price ?? null, unit: entry.price_unit ?? 'ea', deals: entry.price_deals ?? [] } }
-      : {}),
+    ...(entry.sell
+      ? { sell: entry.sell }
+      : entry.price != null || (entry.price_deals?.length ?? 0) > 0
+        ? { sell: { price: entry.price ?? null, unit: entry.price_unit ?? 'ea', deals: entry.price_deals ?? [] } }
+        : {}),
+    ...(entry.catalog_sell ? { catalog_sell: entry.catalog_sell } : {}),
   }
 }
 

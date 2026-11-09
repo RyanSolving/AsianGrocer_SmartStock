@@ -6,6 +6,7 @@ import {
   getRawStockTableName,
   insertRawStockRecord,
 } from '../../../lib/bigquery/warehouse'
+import { normalizeSellPrice, type SellPrice } from '../../../lib/stock-price'
 import { applyCatalogPriceChanges, collectPriceChanges, type PricedLine } from '../../../lib/catalog-prices'
 import { buildManualEntryRecordName } from '../../../lib/record-names'
 import { getAuthContext } from '../../../lib/supabase/route-auth'
@@ -128,6 +129,26 @@ export async function POST(request: Request) {
 
     let savedUidGenerate = uidGenerate
 
+    // On a re-save, the prices this record put in the catalog the last time it was saved.
+    const previouslySaved = new Map<string, SellPrice>()
+    if (savedUidGenerate && stagedRecord.mode === 'stock-in') {
+      try {
+        const { data: previous } = await auth.supabase
+          .from('event_generate')
+          .select('final_output')
+          .eq('uid_generate', savedUidGenerate)
+          .maybeSingle()
+        const oldItems = (previous as { final_output?: { items?: unknown[] } } | null)?.final_output?.items
+        for (const raw of Array.isArray(oldItems) ? oldItems : []) {
+          const old = raw as { catalog_code?: string | null; sell?: unknown }
+          const code = old?.catalog_code?.trim()
+          if (code && old.sell) previouslySaved.set(code, normalizeSellPrice(old.sell as Record<string, unknown>))
+        }
+      } catch {
+        // Without it a corrected re-save may leave the catalog price as it was; the save itself goes on.
+      }
+    }
+
     if (savedUidGenerate) {
       const { data: updatedRows, error: updateGenerateError } = await auth.supabase
         .from('event_generate')
@@ -190,7 +211,7 @@ export async function POST(request: Request) {
 
     // A price changed on this delivery becomes the catalog price (BUSINESS_RULES.md §1d).
     const appliedPriceChanges = stagedRecord.mode === 'stock-in'
-      ? await applyCatalogPriceChanges(auth.supabase, collectPriceChanges(stagedRecord.item_data as PricedLine[]))
+      ? await applyCatalogPriceChanges(auth.supabase, collectPriceChanges(stagedRecord.item_data as PricedLine[]), previouslySaved)
       : []
 
     return NextResponse.json(

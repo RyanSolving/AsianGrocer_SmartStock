@@ -72,7 +72,9 @@ in `web-app/app/page.tsx`.
 - **Saving updates the catalog.** Saving sets the catalog price of each changed item (price, unit
   and deals) and says how many. A price is only replaced while the catalog still holds the price
   and unit the row started from, so re-saving an old Stock In, or two phones changing the same
-  item, never puts an older price back. A cleared price never clears the catalog. A failed catalog
+  item, never puts an older price back. Re-saving a corrected record also works: the catalog may
+  hold the price this same record put there the last time. Only counted rows change the catalog,
+  and editing an item's other details in the Catalog never resends its price. A cleared price never clears the catalog. A failed catalog
   update never fails the save.
 - **Save and photo are one button.** Save stores the Stock In and then downloads its photo. If
   the photo cannot be made, the record is still saved and the sheet stays open: Save again to
