@@ -21,6 +21,7 @@ import {
   ChevronDown,
 } from 'lucide-react'
 import { ToastViewport } from './components/ui/Toast'
+import { Popover } from './components/ui/Popover'
 import { Sheet } from './components/ui/Sheet'
 import { fieldClass, inputClass, NumberInput } from './components/ui/Input'
 import { focusNextQuantityInput, isRowListed, rankSuggestions } from '../lib/entry-chain'
@@ -678,6 +679,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
   }, [activeCatalog])
   /** The Stock In row whose price sheet is open (its list index), if any. */
   const [priceSheetIndex, setPriceSheetIndex] = useState<number | null>(null)
+  const [priceAnchor, setPriceAnchor] = useState<{ top: number; bottom: number; left: number; right: number } | null>(null)
   const visibleCatalogCodes = useMemo(
     () => new Set(visibleCatalog.map((item) => item.code.trim().toUpperCase())),
     [visibleCatalog]
@@ -2212,7 +2214,11 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
         // Keep focus where it is on press: the count box losing focus first shifts the page, and the
         // tap would then land on whatever moved under the finger.
         onMouseDown={(event) => event.preventDefault()}
-        onClick={() => setPriceSheetIndex(row.index)}
+        onClick={(event) => {
+          const box = event.currentTarget.getBoundingClientRect()
+          setPriceAnchor({ top: box.top, bottom: box.bottom, left: box.left, right: box.right })
+          setPriceSheetIndex(row.index)
+        }}
         className={`stock-price-btn${change ? ' is-changed' : ''}`}
       >
         {main || deals ? (
@@ -3556,17 +3562,15 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                     />
                   </div>
 
-                  {priceSheetRow ? (() => {
+                  {priceSheetRow && priceAnchor ? (() => {
                     const { sell, change } = priceStateOf(priceSheetRow.item)
                     const name = priceSheetRow.item.official_name || priceSheetRow.item.product_raw || 'Item'
                     return (
-                      <Sheet
-                        open
+                      <Popover
+                        anchor={priceAnchor}
                         onClose={() => setPriceSheetIndex(null)}
                         title={name}
-                        description={change ? describePriceChange(change) : 'Selling price. It starts from the catalog price; a change is saved to the catalog.'}
-                        size="sm"
-                        footer={<button type="button" onClick={() => setPriceSheetIndex(null)} className="min-h-12 w-full rounded-control bg-forest px-4 text-[16px] font-semibold text-white">Done</button>}
+                        description={change ? describePriceChange(change) : 'Selling price'}
                       >
                         <SellPriceEditor
                           name={name}
@@ -3574,7 +3578,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                           onChange={(next) => updateItem(priceSheetRow.index, { sell: next })}
                           onEnter={() => setPriceSheetIndex(null)}
                         />
-                      </Sheet>
+                      </Popover>
                     )
                   })() : null}
                 </div>
