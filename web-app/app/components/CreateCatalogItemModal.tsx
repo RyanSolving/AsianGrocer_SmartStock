@@ -31,6 +31,7 @@ export type CreateCatalogItemPayload = {
   price?: number | null
   price_unit?: PriceUnit
   price_deals?: PriceDeal[]
+  price_pack_g?: number | null
   official_name: string
   stocklist_name: string
   navigation_guide: string
@@ -117,6 +118,7 @@ export function CreateCatalogItemModal({
     price: null,
     price_unit: 'ea',
     price_deals: [],
+    price_pack_g: null,
     official_name: '',
     stocklist_name: '',
     navigation_guide: '',
@@ -148,6 +150,7 @@ export function CreateCatalogItemModal({
       price: null,
       price_unit: 'ea',
       price_deals: [],
+      price_pack_g: null,
       official_name: initialOfficialName,
       stocklist_name: initialStocklistName,
       navigation_guide: '',
@@ -212,6 +215,7 @@ export function CreateCatalogItemModal({
       price: parsed.data.price ?? null,
       price_unit: parsed.data.price_unit ?? 'ea',
       price_deals: parsed.data.price_deals ?? [],
+      price_pack_g: parsed.data.price_pack_g ?? null,
       official_name: parsed.data.official_name,
       stocklist_name: parsed.data.stocklist_name,
       navigation_guide: parsed.data.navigation_guide,
@@ -385,8 +389,8 @@ export function CreateCatalogItemModal({
             <div className="mt-1">
               <SellPriceEditor
                 name={form.official_name || 'new item'}
-                value={{ price: form.price, unit: form.price_unit, deals: form.price_deals }}
-                onChange={(next) => setForm((prev) => ({ ...prev, price: next.price, price_unit: next.unit, price_deals: next.deals }))}
+                value={{ price: form.price, unit: form.price_unit, deals: form.price_deals, pack_g: form.price_pack_g ?? null }}
+                onChange={(next) => setForm((prev) => ({ ...prev, price: next.price, price_unit: next.unit, price_deals: next.deals, price_pack_g: next.pack_g }))}
               />
             </div>
             {errors.price ? <p className="mt-1 text-xs text-red-500">{errors.price}</p> : null}

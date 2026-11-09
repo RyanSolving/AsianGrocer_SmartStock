@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import type { ParsedStock, StockItem } from '../../../lib/stock-schema'
 import { parsedStockSchema } from '../../../lib/stock-schema'
-import { isEmptySellPrice, normalizeSellPrice, priceUnitNames } from '../../../lib/stock-price'
+import { isEmptySellPrice, normalizeSellPrice, describeUnit } from '../../../lib/stock-price'
 
 const exportCsvBodySchema = parsedStockSchema.extend({
   unknown_items: z.array(z.record(z.unknown())).default([]),
@@ -30,7 +30,7 @@ function csvPriceColumns(sell: unknown, catalogSell: unknown) {
   const hasPrice = current !== null && !isEmptySellPrice(current)
   return [
     hasPrice ? csvPrice(current.price) : '',
-    hasPrice ? priceUnitNames[current.unit] : '',
+    hasPrice ? describeUnit(current) : '',
     hasPrice ? current.deals.map((deal) => `${deal.qty} for ${csvPrice(deal.total)}`).join('; ') : '',
     reference ? csvPrice(reference.price) : '',
   ]

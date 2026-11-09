@@ -156,6 +156,7 @@ type CatalogItem = {
   price?: number | null
   price_unit?: PriceUnit
   price_deals?: PriceDeal[]
+  price_pack_g?: number | null
   /** Stock In: the price on this delivery and the catalog price it started from (rows not yet counted). */
   sell?: SellPrice
   catalog_sell?: SellPrice
@@ -677,7 +678,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
   const catalogSellByCode = useMemo(() => {
     const prices = new Map<string, SellPrice>()
     for (const item of activeCatalog ?? []) {
-      prices.set(item.code.trim().toUpperCase(), normalizeSellPrice({ price: item.price, unit: item.price_unit, deals: item.price_deals }))
+      prices.set(item.code.trim().toUpperCase(), normalizeSellPrice({ price: item.price, unit: item.price_unit, deals: item.price_deals, pack_g: item.price_pack_g }))
     }
     return prices
   }, [activeCatalog])
@@ -1903,6 +1904,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       price: created.price,
       price_unit: created.price_unit,
       price_deals: created.price_deals,
+      price_pack_g: created.price_pack_g,
       official_name: created.official_name,
       stocklist_name: created.stocklist_name,
       navigation_guide: created.navigation_guide,
@@ -1992,6 +1994,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       price: inlineCreateSell.price,
       price_unit: inlineCreateSell.unit,
       price_deals: inlineCreateSell.deals,
+      price_pack_g: inlineCreateSell.pack_g,
       official_name: officialName,
       stocklist_name: stocklistName,
       navigation_guide: '',
@@ -2196,7 +2199,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       >
         {main || deals ? (
           <>
-            {main ? <span className="stock-price-main"><span>{main.split(' ')[0]}</span><span className="stock-price-unit">{main.split(' ')[1]}</span></span> : null}
+            {main ? <span className="stock-price-main"><span>{main.slice(0, main.indexOf(' '))}</span><span className="stock-price-unit">{main.slice(main.indexOf(' ') + 1)}</span></span> : null}
             {sell.deals[0] ? <span className="stock-price-deal">{`${sell.deals[0].qty} for $${sell.deals[0].total.toFixed(2)}${extraDeals}`}</span> : null}
           </>
         ) : <span className="stock-price-empty">+ Price</span>}

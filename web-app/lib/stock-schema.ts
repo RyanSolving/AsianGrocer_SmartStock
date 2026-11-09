@@ -47,6 +47,7 @@ export const sellPriceSchema = z.object({
   price: z.number().nonnegative().nullable().default(null),
   unit: priceUnitSchema.default('ea'),
   deals: priceDealsSchema.default([]),
+  pack_g: z.number().int().positive().max(99999).nullable().default(null),
 })
 
 export const catalogItemSchema = z.object({
@@ -64,6 +65,8 @@ export const catalogItemSchema = z.object({
   price_unit: priceUnitSchema.optional(),
   /** Combo deals. Left out = keep the saved deals; [] clears them. */
   price_deals: priceDealsSchema.optional(),
+  /** Weight of a pack in grams (unit pack). Left out = keep the saved weight. */
+  price_pack_g: z.number().int().positive().max(99999).nullable().optional(),
   official_name: catalogTextSchema.min(1, 'Official name is required'),
   stocklist_name: catalogTextSchema.min(1, 'Name on stocklist is required'),
   navigation_guide: catalogTextSchema.default(''),
@@ -100,6 +103,7 @@ export const catalogEntrySchema = z.object({
   price: z.number().nullable().optional(),
   price_unit: priceUnitSchema.optional(),
   price_deals: priceDealsSchema.optional(),
+  price_pack_g: z.number().int().positive().max(99999).nullable().optional(),
   /** Stock In: a counted catalog row's price on the delivery, and the catalog price it started from. */
   sell: sellPriceSchema.nullable().optional(),
   catalog_sell: sellPriceSchema.nullable().optional(),
@@ -208,7 +212,7 @@ function catalogEntryToStagedItem(entry: CatalogEntry): StockItem {
     ...(entry.sell
       ? { sell: entry.sell }
       : entry.price != null || (entry.price_deals?.length ?? 0) > 0
-        ? { sell: { price: entry.price ?? null, unit: entry.price_unit ?? 'ea', deals: entry.price_deals ?? [] } }
+        ? { sell: { price: entry.price ?? null, unit: entry.price_unit ?? 'ea', deals: entry.price_deals ?? [], pack_g: entry.price_pack_g ?? null } }
         : {}),
     ...(entry.catalog_sell ? { catalog_sell: entry.catalog_sell } : {}),
   }
@@ -252,9 +256,9 @@ export type CatalogItem = z.infer<typeof catalogItemSchema>
 export type SaveToWarehouseEnvelope = z.infer<typeof saveToWarehouseEnvelopeSchema>
 
 /** The catalog item's selling price as a SellPrice. */
-export function sellPriceOfCatalogItem(item: { price?: number | null; price_unit?: string; price_deals?: unknown }): SellPrice {
-  const sell = sellPriceSchema.safeParse({ price: item.price ?? null, unit: item.price_unit ?? 'ea', deals: item.price_deals ?? [] })
-  return sell.success ? (sell.data as SellPrice) : { price: null, unit: 'ea', deals: [] }
+export function sellPriceOfCatalogItem(item: { price?: number | null; price_unit?: string; price_deals?: unknown; price_pack_g?: number | null }): SellPrice {
+  const sell = sellPriceSchema.safeParse({ price: item.price ?? null, unit: item.price_unit ?? 'ea', deals: item.price_deals ?? [], pack_g: item.price_pack_g ?? null })
+  return sell.success ? (sell.data as SellPrice) : { price: null, unit: 'ea', deals: [], pack_g: null }
 }
 
 export { isEmptySellPrice }

@@ -10,9 +10,9 @@ import { isEmptySellPrice, normalizeSellPrice, sameSellPrice, type SellPrice } f
 
 type RowState = 'idle' | 'saving' | 'saved' | 'error'
 
-type PriceChange = { code: string; price: number | null; price_unit: SellPrice['unit']; price_deals: SellPrice['deals'] }
+type PriceChange = { code: string; price: number | null; price_unit: SellPrice['unit']; price_deals: SellPrice['deals']; price_pack_g: number | null }
 
-const sellOf = (item: CatalogItem) => normalizeSellPrice({ price: item.price, unit: item.price_unit, deals: item.price_deals })
+const sellOf = (item: CatalogItem) => normalizeSellPrice({ price: item.price, unit: item.price_unit, deals: item.price_deals, pack_g: item.price_pack_g })
 
 /**
  * Quick price entry: every catalog item in one list with its selling price: the price, what it
@@ -58,7 +58,7 @@ export function QuickPriceEntry({ items, onPricesSaved }: { items: CatalogItem[]
       const response = await fetch('/api/catalog/prices', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prices: [{ code: item.code, price: sell.price, unit: sell.unit, deals: sell.deals }] }),
+        body: JSON.stringify({ prices: [{ code: item.code, price: sell.price, unit: sell.unit, deals: sell.deals, pack_g: sell.pack_g }] }),
       })
       const body = await response.json().catch(() => null)
       if (!response.ok || (body?.failed?.length ?? 0) > 0) {
@@ -66,7 +66,7 @@ export function QuickPriceEntry({ items, onPricesSaved }: { items: CatalogItem[]
       }
       stored.current[item.code] = sell
       setRowState((current) => ({ ...current, [item.code]: 'saved' }))
-      onPricesSaved([{ code: item.code, price: sell.price, price_unit: sell.unit, price_deals: sell.deals }])
+      onPricesSaved([{ code: item.code, price: sell.price, price_unit: sell.unit, price_deals: sell.deals, price_pack_g: sell.pack_g }])
     } catch (failure) {
       setRowState((current) => ({ ...current, [item.code]: 'error' }))
       setError(`${item.official_name}: ${failure instanceof Error ? failure.message : 'Could not save the price.'}`)

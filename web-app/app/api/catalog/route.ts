@@ -21,6 +21,7 @@ type CatalogRow = {
   price: number | null
   price_unit: PriceUnit
   price_deals: PriceDeal[]
+  price_pack_g?: number | null
   official_name: string
   stocklist_name: string
   navigation_guide: string
@@ -50,13 +51,14 @@ const BASE_COLUMNS = 'code, location, sub_location, category, product, attribute
 const ORIGIN_COLUMNS = `${BASE_COLUMNS}, origin, inner_quantity, inner_unit`
 const PRICE_COLUMNS = `${ORIGIN_COLUMNS}, price`
 const SELL_PRICE_COLUMNS = `${PRICE_COLUMNS}, price_unit, price_deals`
+const PACK_PRICE_COLUMNS = `${SELL_PRICE_COLUMNS}, price_pack_g`
 
 /**
  * Reads the catalog with the newest columns the database has: price, then origin and inner
  * pack, then the original ones. A missing column (migration not run yet) steps down one level.
  */
 async function selectCatalogRows(supabase: any) {
-  for (const columns of [SELL_PRICE_COLUMNS, PRICE_COLUMNS, ORIGIN_COLUMNS, BASE_COLUMNS]) {
+  for (const columns of [PACK_PRICE_COLUMNS, SELL_PRICE_COLUMNS, PRICE_COLUMNS, ORIGIN_COLUMNS, BASE_COLUMNS]) {
     const result: any = await supabase.from('catalog_items').select(columns).order('code', { ascending: true })
     if (!isMissingColumnError(result.error as SupabaseErrorLike)) return result
   }
@@ -97,6 +99,7 @@ function mapRowsToCatalog(rows: CatalogRow[]) {
     price: entry.price ?? null,
     price_unit: entry.price_unit ?? 'ea',
     price_deals: entry.price_deals ?? [],
+    price_pack_g: entry.price_pack_g ?? null,
     official_name: entry.official_name,
     stocklist_name: entry.stocklist_name,
     navigation_guide: entry.navigation_guide,
@@ -129,6 +132,7 @@ async function loadCatalogFromSingleTable(supabase: any) {
     price: toPrice(entry.price),
     price_unit: normalizeSellPrice({ unit: entry.price_unit }).unit,
     price_deals: normalizeDeals(entry.price_deals),
+    price_pack_g: normalizeSellPrice({ unit: entry.price_unit, pack_g: entry.price_pack_g }).pack_g,
     official_name: entry.official_name,
     stocklist_name: entry.stocklist_name,
     navigation_guide: entry.navigation_guide,
@@ -195,6 +199,7 @@ async function loadCatalogFromLegacyTables(supabase: any) {
     price: null,
     price_unit: 'ea',
     price_deals: [],
+    price_pack_g: null,
     official_name: entry.official_name,
     stocklist_name: entry.stocklist_name,
     navigation_guide: entry.navigation_guide,
@@ -380,6 +385,7 @@ export async function POST(request: Request) {
     price: toPrice(entry.price),
     price_unit: normalizeSellPrice({ unit: entry.price_unit }).unit,
     price_deals: normalizeDeals(entry.price_deals),
+    price_pack_g: normalizeSellPrice({ unit: entry.price_unit, pack_g: entry.price_pack_g }).pack_g,
     official_name: entry.official_name,
     stocklist_name: entry.stocklist_name,
     navigation_guide: entry.navigation_guide,

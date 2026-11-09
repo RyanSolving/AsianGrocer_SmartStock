@@ -187,7 +187,7 @@ describe('Data Entry manual save flow', () => {
       final_output: { items: [{ quantity: 4, sell: { price: 22, unit: 'ea', deals: [{ qty: 2, total: 40 }] }, catalog_sell: { price: 20 } }] },
     })
     // The second update is the catalog item taking the new price.
-    expect(updateCalls[1]).toEqual({ price: 22, price_unit: 'ea', price_deals: [{ qty: 2, total: 40 }] })
+    expect(updateCalls[1]).toEqual({ price: 22, price_unit: 'ea', price_pack_g: null, price_deals: [{ qty: 2, total: 40 }] })
     expect(await response.json()).toMatchObject({ success: true, catalog_prices_updated: 1 })
   })
 

@@ -6,6 +6,8 @@ import { Plus, X } from 'lucide-react'
 import { PriceInput } from './PriceInput'
 import {
   MAX_DEALS,
+  PACK_WEIGHTS_G,
+  formatWeight,
   dealEach,
   formatPrice,
   normalizeDeals,
@@ -64,7 +66,10 @@ export function SellPriceEditor({ value, onChange, onCommit, rowIndex, onEnter, 
         <select
           aria-label={`Sold by, ${name}`}
           value={value.unit}
-          onChange={(event) => update({ ...value, unit: event.target.value as PriceUnit }, true)}
+          onChange={(event) => {
+            const unit = event.target.value as PriceUnit
+            update({ ...value, unit, pack_g: unit === 'pack' ? value.pack_g : null }, true)
+          }}
           className="min-h-10 shrink-0 rounded-lg border border-line bg-surface px-2 text-[16px] text-ink"
         >
           {priceUnits.map((unit) => <option key={unit} value={unit}>{priceUnitNames[unit]}</option>)}
@@ -80,6 +85,22 @@ export function SellPriceEditor({ value, onChange, onCommit, rowIndex, onEnter, 
           />
         </div>
       </div>
+
+      {value.unit === 'pack' ? (
+        <label className="flex items-center gap-2 text-[14px] font-medium text-ink">
+          Pack weight
+          <select
+            aria-label={`Pack weight, ${name}`}
+            value={value.pack_g ?? ''}
+            onChange={(event) => update({ ...value, pack_g: event.target.value === '' ? null : Number(event.target.value) }, true)}
+            className="min-h-10 rounded-lg border border-line bg-surface px-2 text-[16px] font-normal text-ink"
+          >
+            <option value="">Choose weight</option>
+            {PACK_WEIGHTS_G.map((grams) => <option key={grams} value={grams}>{formatWeight(grams)}</option>)}
+            {value.pack_g && !(PACK_WEIGHTS_G as readonly number[]).includes(value.pack_g) ? <option value={value.pack_g}>{formatWeight(value.pack_g)}</option> : null}
+          </select>
+        </label>
+      ) : null}
 
       {value.deals.length > 0 ? (
         <ul className="flex flex-wrap gap-1.5" aria-label={`Deals for ${name}`}>

@@ -67,11 +67,12 @@ export async function applyCatalogPriceChanges(
 
       for (const from of expected) {
         let query = supabase.from('catalog_items')
-          .update({ price: change.to.price === null ? null : roundPrice(change.to.price), price_unit: change.to.unit, price_deals: change.to.deals })
+          .update({ price: change.to.price === null ? null : roundPrice(change.to.price), price_unit: change.to.unit, price_deals: change.to.deals, price_pack_g: change.to.pack_g ?? null })
           .eq('code', change.code)
         if (from === null || from.price === null) query = query.is('price', null)
         else query = query.eq('price', roundPrice(from.price))
         if (from) query = query.eq('price_unit', from.unit)
+        if (from && from.unit === 'pack') query = from.pack_g ? query.eq('price_pack_g', from.pack_g) : query.is('price_pack_g', null)
         const { data, error } = await query.select('code')
         if (error) {
           console.error(`Catalog price update failed for ${change.code}:`, error.message)

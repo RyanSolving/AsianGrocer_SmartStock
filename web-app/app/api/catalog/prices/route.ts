@@ -10,6 +10,7 @@ const bodySchema = z.object({
     price: z.number().finite().nonnegative().max(MAX_PRICE).nullable(),
     unit: z.enum(priceUnits).default('ea'),
     deals: z.array(z.object({ qty: z.number(), total: z.number() })).max(20).default([]),
+    pack_g: z.number().int().positive().max(99999).nullable().default(null),
   })).min(1).max(500),
 })
 
@@ -32,11 +33,11 @@ export async function PUT(request: Request) {
 
   const saved: string[] = []
   const failed: Array<{ code: string; error: string }> = []
-  for (const { code, price, unit, deals } of parsed.data.prices) {
-    const sell = normalizeSellPrice({ price, unit, deals })
+  for (const { code, price, unit, deals, pack_g } of parsed.data.prices) {
+    const sell = normalizeSellPrice({ price, unit, deals, pack_g })
     const { data, error } = await auth.supabase
       .from('catalog_items')
-      .update({ price: sell.price === null ? null : roundPrice(sell.price), price_unit: sell.unit, price_deals: sell.deals })
+      .update({ price: sell.price === null ? null : roundPrice(sell.price), price_unit: sell.unit, price_deals: sell.deals, price_pack_g: sell.pack_g })
       .eq('code', code)
       .select('code')
     if (error) failed.push({ code, error: error.message })

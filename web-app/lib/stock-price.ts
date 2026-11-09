@@ -25,9 +25,27 @@ export type SellPrice = {
   price: number | null
   unit: PriceUnit
   deals: PriceDeal[]
+  /** Weight of one pack in grams, only for unit 'pack'; null when not chosen. */
+  pack_g: number | null
 }
 
-export const emptySellPrice: SellPrice = { price: null, unit: 'ea', deals: [] }
+export const emptySellPrice: SellPrice = { price: null, unit: 'ea', deals: [], pack_g: null }
+
+/** Weights offered for a pack, in grams. */
+export const PACK_WEIGHTS_G = [100, 150, 200, 250, 300, 400, 500, 750, 1000, 1500, 2000] as const
+export const MAX_PACK_G = 99999
+
+/** 250 -> "250g", 1000 -> "1kg", 1500 -> "1.5kg". */
+export function formatWeight(grams: number) {
+  return grams >= 1000 ? `${Number((grams / 1000).toFixed(3))}kg` : `${grams}g`
+}
+
+/** A pack weight from loose data: a whole number of grams, or null. */
+export function normalizePackG(raw: unknown): number | null {
+  if (raw === null || raw === undefined || raw === '') return null
+  const value = Number(raw)
+  return Number.isInteger(value) && value > 0 && value <= MAX_PACK_G ? value : null
+}
 
 /** To the cent, halves going up (1.005 -> 1.01); toPrecision drops binary floating-point noise first. */
 export function roundPrice(value: number) {
@@ -81,13 +99,15 @@ export function normalizeDeals(raw: unknown): PriceDeal[] {
 }
 
 /** A sell price from loose data (a catalog row, saved JSON): bad parts fall back to empty. */
-export function normalizeSellPrice(raw: { price?: unknown; unit?: unknown; deals?: unknown } | null | undefined): SellPrice {
+export function normalizeSellPrice(raw: { price?: unknown; unit?: unknown; deals?: unknown; pack_g?: unknown } | null | undefined): SellPrice {
   if (!raw) return emptySellPrice
   const price = raw.price === null || raw.price === undefined || raw.price === '' ? null : Number(raw.price)
+  const unit: PriceUnit = isUnit(raw.unit) ? raw.unit : 'ea'
   return {
     price: price !== null && Number.isFinite(price) && price >= 0 ? roundPrice(price) : null,
-    unit: isUnit(raw.unit) ? raw.unit : 'ea',
+    unit,
     deals: normalizeDeals(raw.deals),
+    pack_g: unit === 'pack' ? normalizePackG(raw.pack_g) : null,
   }
 }
 
@@ -101,6 +121,7 @@ export function sameSellPrice(a: SellPrice | null | undefined, b: SellPrice | nu
   if ((left.price === null) !== (right.price === null)) return false
   if (left.price !== null && right.price !== null && roundPrice(left.price) !== roundPrice(right.price)) return false
   if (left.unit !== right.unit && !(isEmptySellPrice(left) && isEmptySellPrice(right))) return false
+  if ((left.pack_g ?? null) !== (right.pack_g ?? null) && !(isEmptySellPrice(left) && isEmptySellPrice(right))) return false
   if (left.deals.length !== right.deals.length) return false
   return left.deals.every((deal, index) => deal.qty === right.deals[index].qty && roundPrice(deal.total) === roundPrice(right.deals[index].total))
 }
@@ -108,7 +129,9 @@ export function sameSellPrice(a: SellPrice | null | undefined, b: SellPrice | nu
 /** "$4.99 ea", "$9.99 /kg"; empty when there is no normal price. */
 export function formatMainPrice(value: SellPrice | null | undefined) {
   if (!value || value.price === null) return ''
-  return `${formatPrice(value.price)} ${unitSuffix[value.unit]}`
+  // A pack shows its weight: "$3.99 /250g-pack" would split badly, so it reads "/250g pack".
+  const suffix = value.unit === 'pack' && value.pack_g ? `/${formatWeight(value.pack_g)} pack` : unitSuffix[value.unit]
+  return `${formatPrice(value.price)} ${suffix}`
 }
 
 /** "2 for $9.00 · 3 for $12.00"; empty when there are no deals. */
@@ -144,7 +167,7 @@ export function priceChangeOf(current: SellPrice | null | undefined, reference: 
   if (isEmptySellPrice(reference)) return { from: null, to: current, direction: 'new' }
   if (sameSellPrice(current, reference)) return null
   const from = reference as SellPrice
-  const moved = current.unit === from.unit && current.price !== null && from.price !== null && roundPrice(current.price) !== roundPrice(from.price)
+  const moved = current.unit === from.unit && (current.pack_g ?? null) === (from.pack_g ?? null) && current.price !== null && from.price !== null && roundPrice(current.price) !== roundPrice(from.price)
   return { from, to: current, direction: moved ? (current.price! > from.price! ? 'up' : 'down') : 'changed' }
 }
 
@@ -153,4 +176,9 @@ export function describePriceChange(change: PriceChange) {
   if (change.direction === 'new' || !change.from) return 'New price'
   const was = formatSellPrice(change.from)
   return `${change.direction === 'up' ? 'Up from' : change.direction === 'down' ? 'Down from' : 'Changed from'} ${was}`
+}
+
+/** "Each", "KG", "Pack 250g": what the price is sold by, in words. */
+export function describeUnit(value: SellPrice) {
+  return value.unit === 'pack' && value.pack_g ? `Pack ${formatWeight(value.pack_g)}` : priceUnitNames[value.unit]
 }

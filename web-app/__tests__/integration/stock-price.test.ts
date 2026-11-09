@@ -4,6 +4,7 @@ import { applyCatalogPriceChanges, collectPriceChanges } from '../../lib/catalog
 import { catalogItemSchema, itemSchema, sellPriceOfCatalogItem } from '../../lib/stock-schema'
 import {
   describePriceChange,
+  describeUnit,
   formatDeals,
   formatMainPrice,
   formatPrice,
@@ -17,7 +18,7 @@ import {
   type SellPrice,
 } from '../../lib/stock-price'
 
-const sell = (price: number | null, unit: SellPrice['unit'] = 'ea', deals: SellPrice['deals'] = []): SellPrice => ({ price, unit, deals })
+const sell = (price: number | null, unit: SellPrice['unit'] = 'ea', deals: SellPrice['deals'] = []): SellPrice => ({ price, unit, deals, pack_g: null })
 
 describe('formatPrice / priceToInput', () => {
   it('shows dollars and cents, and nothing when there is no price', () => {
@@ -249,7 +250,7 @@ describe('applyCatalogPriceChanges', () => {
 })
 
 describe('price save rules (review fixes)', () => {
-  const s = (price: number) => ({ price, unit: 'ea' as const, deals: [] })
+  const s = (price: number) => ({ price, unit: 'ea' as const, deals: [], pack_g: null })
 
   it('ignores rows that were not counted', () => {
     expect(collectPriceChanges([{ catalog_code: 'A', quantity: null, sell: s(5), catalog_sell: s(4) }])).toEqual([])
@@ -279,5 +280,24 @@ describe('price save rules (review fixes)', () => {
   it('reads a thousands comma', () => {
     expect(parsePriceInput('1,234.50')).toEqual({ ok: true, value: 1234.5 })
     expect(parsePriceInput('12,50')).toEqual({ ok: true, value: 12.5 })
+  })
+})
+
+describe('pack weight', () => {
+  it('shows the weight of a pack and keeps it only for packs', () => {
+    const pack = normalizeSellPrice({ price: 3.99, unit: 'pack', pack_g: 250 })
+    expect(formatMainPrice(pack)).toBe('$3.99 /250g pack')
+    expect(formatMainPrice(normalizeSellPrice({ price: 3.99, unit: 'pack', pack_g: 1500 }))).toBe('$3.99 /1.5kg pack')
+    expect(formatMainPrice(normalizeSellPrice({ price: 3.99, unit: 'pack' }))).toBe('$3.99 /pack')
+    expect(normalizeSellPrice({ price: 3.99, unit: 'kg', pack_g: 250 }).pack_g).toBeNull()
+    expect(describeUnit(pack)).toBe('Pack 250g')
+  })
+
+  it('treats a different pack weight as a change, not an up or down', () => {
+    const a = normalizeSellPrice({ price: 3.99, unit: 'pack', pack_g: 250 })
+    const b = normalizeSellPrice({ price: 5.99, unit: 'pack', pack_g: 500 })
+    expect(sameSellPrice(a, b)).toBe(false)
+    expect(priceChangeOf(b, a, true)?.direction).toBe('changed')
+    expect(priceChangeOf({ ...a, price: 4.5 }, a, true)?.direction).toBe('up')
   })
 })

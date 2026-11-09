@@ -73,6 +73,7 @@ const emptyItem = (defaultCategory: string = 'Apples'): CatalogItem => ({
   price: null,
   price_unit: 'ea',
   price_deals: [],
+  price_pack_g: null,
   official_name: '',
   stocklist_name: '',
   navigation_guide: '',
@@ -336,8 +337,8 @@ function ItemModal({
             <div className="mt-1">
               <SellPriceEditor
                 name={form.official_name || 'item'}
-                value={{ price: form.price ?? null, unit: form.price_unit ?? 'ea', deals: form.price_deals ?? [] }}
-                onChange={(next) => setForm((prev) => ({ ...prev, price: next.price, price_unit: next.unit, price_deals: next.deals }))}
+                value={{ price: form.price ?? null, unit: form.price_unit ?? 'ea', deals: form.price_deals ?? [], pack_g: form.price_pack_g ?? null }}
+                onChange={(next) => setForm((prev) => ({ ...prev, price: next.price, price_unit: next.unit, price_deals: next.deals, price_pack_g: next.pack_g }))}
               />
             </div>
             {errors.price ? <p className="mt-1 text-xs text-red-500">{errors.price}</p> : <p className="mt-1 text-xs text-slate-400">Sold by Each, KG, ... with an optional combo such as 2 for $9. Stock In starts from this price.</p>}
@@ -463,6 +464,7 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
             price: entry?.price == null ? null : Number(entry.price),
             price_unit: normalizeSellPrice({ unit: entry?.price_unit }).unit,
             price_deals: normalizeSellPrice({ deals: entry?.price_deals }).deals,
+            price_pack_g: normalizeSellPrice({ unit: entry?.price_unit, pack_g: entry?.price_pack_g }).pack_g,
             official_name: entry?.official_name ?? '',
             stocklist_name: entry?.stocklist_name ?? '',
             navigation_guide: entry?.navigation_guide ?? '',
@@ -539,9 +541,9 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
         // phone never puts an older price back.
         body: JSON.stringify(
           editingItem && sameSellPrice(
-            normalizeSellPrice({ price: item.price, unit: item.price_unit, deals: item.price_deals }),
-            normalizeSellPrice({ price: editingItem.price, unit: editingItem.price_unit, deals: editingItem.price_deals }),
-          ) ? { ...item, price: undefined, price_unit: undefined, price_deals: undefined } : item,
+            normalizeSellPrice({ price: item.price, unit: item.price_unit, deals: item.price_deals, pack_g: item.price_pack_g }),
+            normalizeSellPrice({ price: editingItem.price, unit: editingItem.price_unit, deals: editingItem.price_deals, pack_g: editingItem.price_pack_g }),
+          ) ? { ...item, price: undefined, price_unit: undefined, price_deals: undefined, price_pack_g: undefined } : item,
         ),
       })
       if (!res.ok) {
@@ -592,7 +594,7 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
       const res = await fetch('/api/catalog/item', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...item, is_visible: nextVisible, price: undefined, price_unit: undefined, price_deals: undefined }),
+        body: JSON.stringify({ ...item, is_visible: nextVisible, price: undefined, price_unit: undefined, price_deals: undefined, price_pack_g: undefined }),
       })
 
       if (!res.ok) {
@@ -633,7 +635,7 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
             items={items}
             onPricesSaved={(changes) => setItems((current) => current.map((item) => {
               const change = changes.find((entry) => entry.code === item.code)
-              return change ? { ...item, price: change.price, price_unit: change.price_unit, price_deals: change.price_deals } : item
+              return change ? { ...item, price: change.price, price_unit: change.price_unit, price_deals: change.price_deals, price_pack_g: change.price_pack_g } : item
             }))}
           />
         </>
@@ -758,7 +760,7 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
                       </td>
                       <td className="tabular px-4 py-3 text-right text-xs text-slate-700">
                         {(() => {
-                          const sell = normalizeSellPrice({ price: item.price, unit: item.price_unit, deals: item.price_deals })
+                          const sell = normalizeSellPrice({ price: item.price, unit: item.price_unit, deals: item.price_deals, pack_g: item.price_pack_g })
                           const main = formatMainPrice(sell)
                           const deals = formatDeals(sell)
                           return main || deals ? <>{main}{deals ? <span className="block text-slate-500">{deals}</span> : null}</> : <span className="text-slate-400">-</span>
