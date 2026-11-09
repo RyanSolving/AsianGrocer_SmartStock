@@ -1,39 +1,38 @@
-import { roundPrice } from './stock-price'
+import { isEmptySellPrice, roundPrice, sameSellPrice, type SellPrice } from './stock-price'
 
 /** What a Stock In line needs for a catalog price update. */
 export type PricedLine = {
   catalog_code?: string | null
-  price?: number | null
-  catalog_price?: number | null
+  sell?: SellPrice | null
+  catalog_sell?: SellPrice | null
 }
 
 export type CatalogPriceChange = {
   code: string
   /** The catalog price the line started from; null when the item had none. */
-  from: number | null
-  to: number
+  from: SellPrice | null
+  to: SellPrice
 }
 
 /**
  * The catalog prices a saved Stock In changes: lines of catalog items whose price differs from
- * the catalog price the line started from. Lines without a starting price (`catalog_price`
- * absent) are not catalog items or were never stamped, so they change nothing. One change per
- * item; if an item appears twice the later line wins.
+ * the catalog price they started from. Lines without a starting price (`catalog_sell` absent)
+ * are not catalog items or were never stamped, and a cleared price never clears the catalog.
+ * One change per item; if an item appears twice the later line wins.
  */
 export function collectPriceChanges(lines: PricedLine[]): CatalogPriceChange[] {
   const byCode = new Map<string, CatalogPriceChange>()
   for (const line of lines) {
     const code = line.catalog_code?.trim()
-    if (!code || line.catalog_price === undefined) continue
-    if (typeof line.price !== 'number' || !Number.isFinite(line.price) || line.price < 0) continue
+    if (!code || line.catalog_sell === undefined) continue
+    if (!line.sell || isEmptySellPrice(line.sell)) continue
 
-    const from = typeof line.catalog_price === 'number' && Number.isFinite(line.catalog_price) ? roundPrice(line.catalog_price) : null
-    const to = roundPrice(line.price)
-    if (from === to) {
+    const from = isEmptySellPrice(line.catalog_sell) ? null : line.catalog_sell ?? null
+    if (sameSellPrice(line.sell, from)) {
       byCode.delete(code)
       continue
     }
-    byCode.set(code, { code, from, to })
+    byCode.set(code, { code, from, to: line.sell })
   }
   return Array.from(byCode.values())
 }
@@ -44,16 +43,20 @@ type CatalogWriter = {
 
 /**
  * Sets each changed item's catalog price. A price is only replaced while the catalog still holds
- * the price the line started from, so an old Stock In re-saved later never puts back an older
- * price, and two phones changing the same item do not overwrite each other silently.
+ * the price (and unit) the line started from, so an old Stock In re-saved later never puts back
+ * an older price, and two phones changing the same item do not overwrite each other silently.
  * Returns the changes that were applied. A failure here never fails the save.
  */
 export async function applyCatalogPriceChanges(supabase: CatalogWriter, changes: CatalogPriceChange[]): Promise<CatalogPriceChange[]> {
   const applied: CatalogPriceChange[] = []
   for (const change of changes) {
     try {
-      let query = supabase.from('catalog_items').update({ price: change.to }).eq('code', change.code)
-      query = change.from === null ? query.is('price', null) : query.eq('price', change.from)
+      let query = supabase.from('catalog_items')
+        .update({ price: change.to.price === null ? null : roundPrice(change.to.price), price_unit: change.to.unit, price_deals: change.to.deals })
+        .eq('code', change.code)
+      if (change.from === null || change.from.price === null) query = query.is('price', null)
+      else query = query.eq('price', roundPrice(change.from.price))
+      if (change.from) query = query.eq('price_unit', change.from.unit)
       const { data, error } = await query.select('code')
       if (error) {
         console.error(`Catalog price update failed for ${change.code}:`, error.message)

@@ -172,7 +172,7 @@ describe('Data Entry manual save flow', () => {
 
   it('saves the price with each line and sets a changed price as the catalog price', async () => {
     const payload = buildPersistOnlyPayload(4, 'uid-data-entry-001') as { data: { items: Array<Record<string, unknown>> } }
-    payload.data.items[0] = { ...payload.data.items[0], price: 22, catalog_price: 20 }
+    payload.data.items[0] = { ...payload.data.items[0], sell: { price: 22, unit: 'ea', deals: [{ qty: 2, total: 40 }] }, catalog_sell: { price: 20, unit: 'ea', deals: [] } }
 
     const response = await POST(
       new Request('http://localhost/api/save-to-bigquery', {
@@ -184,16 +184,16 @@ describe('Data Entry manual save flow', () => {
 
     expect(response.status).toBe(200)
     expect(updateCalls[0]).toMatchObject({
-      final_output: { items: [{ quantity: 4, price: 22, catalog_price: 20 }] },
+      final_output: { items: [{ quantity: 4, sell: { price: 22, unit: 'ea', deals: [{ qty: 2, total: 40 }] }, catalog_sell: { price: 20 } }] },
     })
     // The second update is the catalog item taking the new price.
-    expect(updateCalls[1]).toEqual({ price: 22 })
+    expect(updateCalls[1]).toEqual({ price: 22, price_unit: 'ea', price_deals: [{ qty: 2, total: 40 }] })
     expect(await response.json()).toMatchObject({ success: true, catalog_prices_updated: 1 })
   })
 
   it('leaves the catalog alone when a line keeps the catalog price', async () => {
     const payload = buildPersistOnlyPayload(4, 'uid-data-entry-001') as { data: { items: Array<Record<string, unknown>> } }
-    payload.data.items[0] = { ...payload.data.items[0], price: 20, catalog_price: 20 }
+    payload.data.items[0] = { ...payload.data.items[0], sell: { price: 20, unit: 'ea', deals: [] }, catalog_sell: { price: 20, unit: 'ea', deals: [] } }
 
     const response = await POST(
       new Request('http://localhost/api/save-to-bigquery', {

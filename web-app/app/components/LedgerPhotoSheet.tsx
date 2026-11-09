@@ -17,6 +17,8 @@ export type PhotoRow = {
   note?: string
   /** Stock In: price of one unit as text ("$24.50"; empty when none). Undefined = no price column. */
   price?: string
+  /** Stock In: combo deals as text ("2 for $9.00"), shown under the price. */
+  priceDeals?: string
   /** Stock In: why the price is highlighted, e.g. "Up from $20.00". */
   priceNote?: string
   /** Stock In: the price differs from the catalog price. */
@@ -139,7 +141,10 @@ function ListArea({ title, groups, showPrices }: { title: string; groups: PhotoG
                 </div>
                 {showPrices ? (
                   <span className="photo-list-figures">
-                    <span className="photo-list-price">{row.price || '–'}</span>
+                    <span className="photo-list-price">
+                      {row.price || (row.priceDeals ? '' : '–')}
+                      {row.priceDeals ? <span className="photo-list-deals">{row.priceDeals}</span> : null}
+                    </span>
                     <span className="photo-list-qty photo-list-qty-col">{row.quantity}</span>
                   </span>
                 ) : (

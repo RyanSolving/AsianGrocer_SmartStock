@@ -27,7 +27,8 @@ import {
   catalogSubLocationOutsideOptions,
   type CatalogItem,
 } from '../../lib/stock-schema'
-import { formatPrice } from '../../lib/stock-price'
+import { formatDeals, formatMainPrice, normalizeSellPrice } from '../../lib/stock-price'
+import { SellPriceEditor } from '../components/SellPriceEditor'
 import { QuickPriceEntry } from './QuickPriceEntry'
 
 function getApiErrorMessage(payload: any, fallback: string) {
@@ -70,6 +71,8 @@ const emptyItem = (defaultCategory: string = 'Apples'): CatalogItem => ({
   inner_quantity: null,
   inner_unit: 'box',
   price: null,
+  price_unit: 'ea',
+  price_deals: [],
   official_name: '',
   stocklist_name: '',
   navigation_guide: '',
@@ -327,26 +330,17 @@ function ItemModal({
             </div>
           </div>
 
-          {/* Price */}
+          {/* Selling price */}
           <div>
-            <label className="block text-[14px] font-medium text-ink" htmlFor="catalog-item-price">Price</label>
-            <div className="relative mt-1">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[16px] text-slate-400" aria-hidden="true">$</span>
-              <input
-                id="catalog-item-price"
-                type="number"
-                min="0"
-                step="0.01"
-                inputMode="decimal"
-                className={`w-full rounded-lg border ${errors.price ? 'border-red-400' : 'border-slate-300'} min-h-11 pl-7 pr-3 text-[16px]`}
-                value={form.price ?? ''}
-                onChange={(e) => updateField('price', e.target.value === '' ? null : Number(e.target.value))}
-                placeholder="e.g. 24.50"
+            <p className="block text-[14px] font-medium text-ink">Selling price</p>
+            <div className="mt-1">
+              <SellPriceEditor
+                name={form.official_name || 'item'}
+                value={{ price: form.price ?? null, unit: form.price_unit ?? 'ea', deals: form.price_deals ?? [] }}
+                onChange={(next) => setForm((prev) => ({ ...prev, price: next.price, price_unit: next.unit, price_deals: next.deals }))}
               />
             </div>
-            {errors.price
-              ? <p className="mt-1 text-xs text-red-500">{errors.price}</p>
-              : <p className="mt-1 text-xs text-slate-400">What one unit counted at Stock In (one box, bag, ...) costs. Stock In starts from this price.</p>}
+            {errors.price ? <p className="mt-1 text-xs text-red-500">{errors.price}</p> : <p className="mt-1 text-xs text-slate-400">Sold by Each, KG, ... with an optional combo such as 2 for $9. Stock In starts from this price.</p>}
           </div>
 
           {/* Official Name & Stocklist Name */}
@@ -467,6 +461,8 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
             inner_quantity: entry?.inner_quantity == null ? null : Number(entry.inner_quantity),
             inner_unit: entry?.inner_unit ?? 'box',
             price: entry?.price == null ? null : Number(entry.price),
+            price_unit: normalizeSellPrice({ unit: entry?.price_unit }).unit,
+            price_deals: normalizeSellPrice({ deals: entry?.price_deals }).deals,
             official_name: entry?.official_name ?? '',
             stocklist_name: entry?.stocklist_name ?? '',
             navigation_guide: entry?.navigation_guide ?? '',
@@ -630,7 +626,7 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
             items={items}
             onPricesSaved={(changes) => setItems((current) => current.map((item) => {
               const change = changes.find((entry) => entry.code === item.code)
-              return change ? { ...item, price: change.price } : item
+              return change ? { ...item, price: change.price, price_unit: change.price_unit, price_deals: change.price_deals } : item
             }))}
           />
         </>
@@ -753,7 +749,14 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
                       <td className="px-4 py-3 text-xs text-slate-500">
                         {item.inner_quantity == null ? '-' : `${item.inner_quantity} ${item.inner_unit}`}
                       </td>
-                      <td className="tabular px-4 py-3 text-right text-xs text-slate-700">{formatPrice(item.price) || <span className="text-slate-400">-</span>}</td>
+                      <td className="tabular px-4 py-3 text-right text-xs text-slate-700">
+                        {(() => {
+                          const sell = normalizeSellPrice({ price: item.price, unit: item.price_unit, deals: item.price_deals })
+                          const main = formatMainPrice(sell)
+                          const deals = formatDeals(sell)
+                          return main || deals ? <>{main}{deals ? <span className="block text-slate-500">{deals}</span> : null}</> : <span className="text-slate-400">-</span>
+                        })()}
+                      </td>
                       <td className="px-4 py-3 text-xs text-slate-500">
                         {item.location} / {item.sub_location}
                       </td>

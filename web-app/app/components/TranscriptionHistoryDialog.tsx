@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { RefreshCw, FileImage } from 'lucide-react'
 import { Sheet } from './ui/Sheet'
 import { HistoryCard, HistoryDay, buildGroups, formatTime, groupByDay, type HistoryGroup, type HistoryRow } from './HistoryParts'
-import { describePriceChange, formatPrice, priceChangeOf } from '../../lib/stock-price'
+import { describePriceChange, formatDeals, formatMainPrice, isEmptySellPrice, normalizeSellPrice, priceChangeOf } from '../../lib/stock-price'
 
 type HistoryEntry = {
   uid_generate: string
@@ -39,16 +39,18 @@ type RawItem = {
   quantity?: number | null
   special?: boolean
   notes?: string | null
-  price?: number | null
-  catalog_price?: number | null
+  sell?: { price?: unknown; unit?: unknown; deals?: unknown } | null
+  catalog_sell?: { price?: unknown; unit?: unknown; deals?: unknown } | null
 }
 
 /** A saved row's price column: the price, and what it changed from when it differs from the catalog's. */
-function priceFields(row: RawItem): Pick<HistoryRow, 'price' | 'priceNote' | 'priceChanged'> {
-  if (row.price === undefined) return {}
-  const change = row.catalog_price !== undefined ? priceChangeOf(row.price, row.catalog_price, true) : null
+function priceFields(row: RawItem): Pick<HistoryRow, 'price' | 'priceDeals' | 'priceNote' | 'priceChanged'> {
+  if (!row.sell) return {}
+  const sell = normalizeSellPrice(row.sell)
+  const change = row.catalog_sell ? priceChangeOf(sell, normalizeSellPrice(row.catalog_sell), true) : null
   return {
-    price: formatPrice(row.price),
+    price: formatMainPrice(sell) || (isEmptySellPrice(sell) ? '' : ' '),
+    priceDeals: formatDeals(sell) || undefined,
     priceNote: change ? describePriceChange(change) : undefined,
     priceChanged: change !== null,
   }

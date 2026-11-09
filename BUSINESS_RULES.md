@@ -48,41 +48,41 @@ Code: `web-app/app/api/daily-report/route.ts`, `combineStockInRecords` in `web-a
 Code: `special` in `itemSchema` (`web-app/lib/stock-schema.ts`); `renderDataEntryLedgerName`
 in `web-app/app/page.tsx`.
 
-### 1d. Prices (Catalog and Stock In)
+### 1d. Selling prices (Catalog and Stock In)
 
-- **Catalog price.** Each catalog item can have a **Price**: what one unit counted at Stock In
-  (one box, bag, ...) costs, in dollars and cents. Set it in Catalog → Edit item / New item. Empty
-  means no price yet. Editing other fields of an item never clears its price.
-- **Stock In price column.** Every Stock In row has a **Price** box, starting at the item's
-  catalog price. Staff can type another price for this delivery. The photo and the History
-  preview show the same column. Stock Close has no prices.
-- **Quick prices.** Catalog → **Quick prices** lists every item with a price box. Type a price and
-  press Enter: it is saved and the cursor moves to the next item. **Missing price** shows only
-  items without one; **All items** lets you correct any. Code: `QuickPriceEntry.tsx`,
-  `api/catalog/prices`.
-- **Price change.** A row whose price differs from the catalog price it started from is a
-  *price change*. It is highlighted (soft yellow) in the list, in the photo and in History, with
-  a note under the name: **Up from $20.00**, **Down from $20.00**, or **New price** (the item
-  had none). Items typed in by name (not in the catalog) have nothing to compare with, so they
+- **What a price is.** The *selling* price of an item, in three parts: the normal price ("1 for
+  $4.99"), what it is **sold by** (Each, KG, Pack, Bunch or Punnet), and any **combo deals**
+  such as "2 for $9.00" or "3 for $12.00" (up to 5, one per quantity, 2 or more items).
+  Shown as `$4.99 ea`, `$9.99 /kg`, and `2 for $9.00` under it. Empty means no price yet.
+- **Where to set it.** Catalog → Edit item / New item (Selling price), or **Quick prices**: every
+  item in one list, type the price, pick what it is sold by, tap **Add deal** for a combo; Enter
+  saves and moves to the next item. **Missing price** shows only unpriced items. Editing other
+  fields of an item never clears its price.
+- **Stock In.** Every row has a **Price** cell starting at the catalog price. Tap it to change the
+  price, unit or deals for this delivery. The photo, History preview and CSV show the same.
+  Stock Close has no prices.
+- **Price change.** A row whose price differs from the catalog price it started from is highlighted
+  (soft yellow) with a note: **Up from $4.99 ea**, **Down from ...**, **Changed from ...** (the unit
+  or a deal changed), or **New price**. Items typed in by name have nothing to compare with, so they
   are never highlighted.
-- **Kept note.** The saved record keeps, on each counted item, `price` and `catalog_price` (the
-  catalog price the row started from). A reopened Stock In still shows what changed, even after
-  the catalog price has moved on.
-- **Saving updates the catalog.** Saving a Stock In sets the catalog price of each changed
-  item to the new price, and the Saved message says how many. A price is only replaced while the
-  catalog still holds the price the row started from: re-saving an old Stock In, or two phones
-  changing the same item, never puts an older price back. A failed catalog update never fails
-  the save.
+- **Kept note.** The saved record keeps `sell` (price, unit, deals) and `catalog_sell` (the catalog
+  price it started from) on each counted item, so a reopened Stock In still shows what changed.
+- **Saving updates the catalog.** Saving sets the catalog price of each changed item (price, unit
+  and deals) and says how many. A price is only replaced while the catalog still holds the price
+  and unit the row started from, so re-saving an old Stock In, or two phones changing the same
+  item, never puts an older price back. A cleared price never clears the catalog. A failed catalog
+  update never fails the save.
 - **Save and photo are one button.** Save stores the Stock In and then downloads its photo. If
   the photo cannot be made, the record is still saved and the sheet stays open: Save again to
   retry the photo.
-- **CSV.** Export CSV ends with **Price** (what the row shows, in dollars and cents) and **Catalog
-  Price** (the catalog price it started from; empty for items typed in by name).
+- **CSV.** Export CSV ends with **Price**, **Sold By**, **Deals** (`2 for 9.00; 3 for 12.00`) and
+  **Catalog Price**.
 - Prices are information only: they don't change units sold, flags or refill.
 
-Code: `web-app/lib/stock-price.ts` (parsing, change rule), `web-app/lib/catalog-prices.ts`
-(catalog update on save), `PriceInput.tsx`, `StockLedger.tsx`, `LedgerPhotoSheet.tsx`.
-Migration: `web-app/supabase/migrations/20261109_catalog_price.sql`.
+Code: `web-app/lib/stock-price.ts` (format, change rule), `lib/catalog-prices.ts` (catalog update on
+save), `SellPriceEditor.tsx`, `catalog/QuickPriceEntry.tsx`, `api/catalog/prices`.
+Migrations: `web-app/supabase/migrations/20261109_catalog_price.sql` and
+`20261110_catalog_sell_price_unit_deals.sql`.
 
 **Sources row.** The Daily Report and Dashboard show which records were used: the closing, the
 previous closing and the stock in, each with its date, name and saved time (`created_at` for a

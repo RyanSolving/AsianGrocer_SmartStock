@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { roundPrice } from './stock-price'
+import { isEmptySellPrice, normalizeDeals, priceUnits, roundPrice, type SellPrice } from './stock-price'
 
 export const stockModeSchema = z.enum(['stock-in', 'stock-closing'])
 
@@ -38,6 +38,17 @@ const catalogPriceSchema = z.preprocess((value) => {
   .nullable()
   .optional())
 
+/** A combo deal: qty for $total (2 for $9). Bad entries are dropped, the rest sorted by quantity. */
+const priceDealsSchema = z.array(z.object({ qty: z.coerce.number(), total: z.coerce.number() })).max(20).transform(normalizeDeals)
+const priceUnitSchema = z.enum(priceUnits)
+
+/** A selling price as saved on Stock In lines. */
+export const sellPriceSchema = z.object({
+  price: z.number().nonnegative().nullable().default(null),
+  unit: priceUnitSchema.default('ea'),
+  deals: priceDealsSchema.default([]),
+})
+
 export const catalogItemSchema = z.object({
   code: catalogTextSchema.min(1, 'Item code is required'),
   location: z.enum(catalogLocationOptions).default('Inside Coolroom'),
@@ -49,6 +60,10 @@ export const catalogItemSchema = z.object({
   inner_quantity: catalogInnerQuantitySchema.default(null),
   inner_unit: catalogInnerUnitSchema.default('box'),
   price: catalogPriceSchema,
+  /** Sold by. Left out = keep the saved unit. */
+  price_unit: priceUnitSchema.optional(),
+  /** Combo deals. Left out = keep the saved deals; [] clears them. */
+  price_deals: priceDealsSchema.optional(),
   official_name: catalogTextSchema.min(1, 'Official name is required'),
   stocklist_name: catalogTextSchema.min(1, 'Name on stocklist is required'),
   navigation_guide: catalogTextSchema.default(''),
@@ -83,6 +98,8 @@ export const catalogEntrySchema = z.object({
   inner_unit: catalogInnerUnitSchema.default('box'),
   /** Normal price of one counted unit; null/absent when not set. */
   price: z.number().nullable().optional(),
+  price_unit: priceUnitSchema.optional(),
+  price_deals: priceDealsSchema.optional(),
   official_name: z.string(),
   stocklist_name: z.string(),
   navigation_guide: z.string(),
@@ -121,10 +138,10 @@ export const itemSchema = z.object({
   notes: z.string().nullable().default(null),
   /** Stock In: the item arrived on a special discount (BUSINESS_RULES.md §1b). */
   special: z.boolean().optional(),
-  /** Stock In: price of one counted unit on this delivery. */
-  price: z.number().nonnegative().nullable().optional(),
+  /** Stock In: the selling price on this delivery. */
+  sell: sellPriceSchema.nullable().optional(),
   /** Stock In: the catalog price this row started from; a price different from it is a price change. */
-  catalog_price: z.number().nonnegative().nullable().optional(),
+  catalog_sell: sellPriceSchema.nullable().optional(),
 })
 
 export const parsedStockSchema = z.object({
@@ -185,7 +202,9 @@ function catalogEntryToStagedItem(entry: CatalogEntry): StockItem {
     confidence: 'high',
     catalog_match_status: 'unknown',
     notes: null,
-    ...(entry.price != null ? { price: entry.price } : {}),
+    ...(entry.price != null || (entry.price_deals?.length ?? 0) > 0
+      ? { sell: { price: entry.price ?? null, unit: entry.price_unit ?? 'ea', deals: entry.price_deals ?? [] } }
+      : {}),
   }
 }
 
@@ -225,3 +244,11 @@ export type WarehouseStagingRecord = z.infer<typeof warehouseStagingRecordSchema
 export type StockMode = z.infer<typeof stockModeSchema>
 export type CatalogItem = z.infer<typeof catalogItemSchema>
 export type SaveToWarehouseEnvelope = z.infer<typeof saveToWarehouseEnvelopeSchema>
+
+/** The catalog item's selling price as a SellPrice. */
+export function sellPriceOfCatalogItem(item: { price?: number | null; price_unit?: string; price_deals?: unknown }): SellPrice {
+  const sell = sellPriceSchema.safeParse({ price: item.price ?? null, unit: item.price_unit ?? 'ea', deals: item.price_deals ?? [] })
+  return sell.success ? (sell.data as SellPrice) : { price: null, unit: 'ea', deals: [] }
+}
+
+export { isEmptySellPrice }

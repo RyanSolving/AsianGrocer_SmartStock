@@ -48,7 +48,7 @@ By capturing a photo of a handwritten closing stock sheet, this application leve
    Then execute `web-app/supabase/migrations/20260408_normalize_events.sql`.
    Then execute `web-app/supabase/migrations/20260408_catalog_db.sql`.
    If your catalog tables were already created, also execute `web-app/supabase/migrations/20260408_catalog_add_code.sql` to add the `code` column.
-   For item prices (Catalog and Stock In), also execute `web-app/supabase/migrations/20261109_catalog_price.sql` to add the `price` column.
+   For item prices (Catalog and Stock In), also execute `web-app/supabase/migrations/20261109_catalog_price.sql` to add the `price` column, then `20261110_catalog_sell_price_unit_deals.sql` for what it is sold by and combo deals.
    This creates:
    - `user_roles` (multiple roles per user)
    - `event_generate`

@@ -3,33 +3,39 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { Check, Loader2, Search } from 'lucide-react'
 
-import { PriceInput } from '../components/PriceInput'
+import { SellPriceEditor } from '../components/SellPriceEditor'
 import { fieldClass } from '../components/ui/Input'
 import type { CatalogItem } from '../../lib/stock-schema'
+import { isEmptySellPrice, normalizeSellPrice, sameSellPrice, type SellPrice } from '../../lib/stock-price'
 
 type RowState = 'idle' | 'saving' | 'saved' | 'error'
 
+type PriceChange = { code: string; price: number | null; price_unit: SellPrice['unit']; price_deals: SellPrice['deals'] }
+
+const sellOf = (item: CatalogItem) => normalizeSellPrice({ price: item.price, unit: item.price_unit, deals: item.price_deals })
+
 /**
- * Quick price entry: every catalog item in one list with a price box. Type a price and press
- * Enter to save it and jump to the next box; a price is saved when you leave its box.
- * "Missing" shows only items with no price yet, so the list shrinks as you go.
+ * Quick price entry: every catalog item in one list with its selling price: the price, what it
+ * is sold by (Each, KG, ...) and combo deals (2 for $9). Type a price and press Enter to save
+ * it and jump to the next box; a price is saved when you leave its box. "Missing" shows only
+ * items with no price yet, so the list shrinks as you go.
  */
-export function QuickPriceEntry({ items, onPricesSaved }: { items: CatalogItem[]; onPricesSaved: (changes: Array<{ code: string; price: number | null }>) => void }) {
+export function QuickPriceEntry({ items, onPricesSaved }: { items: CatalogItem[]; onPricesSaved: (changes: PriceChange[]) => void }) {
   const [query, setQuery] = useState('')
   const [onlyMissing, setOnlyMissing] = useState(true)
   // Prices being typed or just saved, by code; the catalog's own price applies until typed over.
-  const [drafts, setDrafts] = useState<Record<string, number | null>>({})
+  const [drafts, setDrafts] = useState<Record<string, SellPrice>>({})
   const [rowState, setRowState] = useState<Record<string, RowState>>({})
   const [error, setError] = useState<string | null>(null)
   // The prices already stored, so only real changes are sent.
-  const stored = useRef<Record<string, number | null>>({})
+  const stored = useRef<Record<string, SellPrice>>({})
   // Items that were missing when "Missing" was switched on stay listed while you type them.
   const [keepListed, setKeepListed] = useState<Set<string>>(() => new Set())
   const listRef = useRef<HTMLDivElement | null>(null)
 
-  const priceOf = useCallback((item: CatalogItem) => (item.code in drafts ? drafts[item.code] : item.price ?? null), [drafts])
+  const sellFor = useCallback((item: CatalogItem) => drafts[item.code] ?? sellOf(item), [drafts])
   const total = items.length
-  const priced = useMemo(() => items.filter((item) => priceOf(item) !== null).length, [items, priceOf])
+  const priced = useMemo(() => items.filter((item) => !isEmptySellPrice(sellFor(item))).length, [items, sellFor])
 
   const visible = useMemo(() => {
     const term = query.trim().toLowerCase()
@@ -38,29 +44,29 @@ export function QuickPriceEntry({ items, onPricesSaved }: { items: CatalogItem[]
       .filter((item) => {
         if (term && !`${item.official_name} ${item.stocklist_name} ${item.code} ${item.category}`.toLowerCase().includes(term)) return false
         if (!onlyMissing) return true
-        return (item.price ?? null) === null || keepListed.has(item.code)
+        return isEmptySellPrice(sellOf(item)) || keepListed.has(item.code)
       })
       .sort((a, b) => a.category.localeCompare(b.category) || a.official_name.localeCompare(b.official_name))
   }, [items, query, onlyMissing, keepListed])
 
-  const save = useCallback(async (item: CatalogItem, price: number | null) => {
-    const before = item.code in stored.current ? stored.current[item.code] : item.price ?? null
-    if (before === price) return
+  const save = useCallback(async (item: CatalogItem, sell: SellPrice) => {
+    const before = stored.current[item.code] ?? sellOf(item)
+    if (sameSellPrice(before, sell) && before.unit === sell.unit) return
     setRowState((current) => ({ ...current, [item.code]: 'saving' }))
     setError(null)
     try {
       const response = await fetch('/api/catalog/prices', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prices: [{ code: item.code, price }] }),
+        body: JSON.stringify({ prices: [{ code: item.code, price: sell.price, unit: sell.unit, deals: sell.deals }] }),
       })
       const body = await response.json().catch(() => null)
       if (!response.ok || (body?.failed?.length ?? 0) > 0) {
         throw new Error(body?.failed?.[0]?.error ?? body?.error ?? 'Could not save the price.')
       }
-      stored.current[item.code] = price
+      stored.current[item.code] = sell
       setRowState((current) => ({ ...current, [item.code]: 'saved' }))
-      onPricesSaved([{ code: item.code, price }])
+      onPricesSaved([{ code: item.code, price: sell.price, price_unit: sell.unit, price_deals: sell.deals }])
     } catch (failure) {
       setRowState((current) => ({ ...current, [item.code]: 'error' }))
       setError(`${item.official_name}: ${failure instanceof Error ? failure.message : 'Could not save the price.'}`)
@@ -117,28 +123,28 @@ export function QuickPriceEntry({ items, onPricesSaved }: { items: CatalogItem[]
           return (
             <div key={item.code}>
               {showHeading ? <p className="bg-forest-100 px-4 py-2 text-[13px] font-bold uppercase tracking-wide text-forest">{item.category}</p> : null}
-              <div className="flex items-center gap-3 border-b border-line px-4 py-2">
-                <div className="min-w-0 flex-1">
-                  <p className="text-[15px] leading-5 text-ink">{item.official_name}</p>
-                  <p className="text-[12px] text-muted">{item.inner_quantity == null ? item.code : `${item.code} · ${item.inner_quantity} ${item.inner_unit}`}</p>
+              <div className="space-y-2 border-b border-line px-4 py-3">
+                <div className="flex items-start gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[15px] leading-5 text-ink">{item.official_name}</p>
+                    <p className="text-[12px] text-muted">{item.inner_quantity == null ? item.code : `${item.code} · ${item.inner_quantity} ${item.inner_unit}`}</p>
+                  </div>
+                  <span className="w-5 shrink-0 pt-0.5 text-center" aria-hidden="true">
+                    {state === 'saving' ? <Loader2 className="h-4 w-4 animate-spin text-muted" /> : state === 'saved' ? <Check className="h-4 w-4 text-success" /> : state === 'error' ? <span className="text-danger">!</span> : null}
+                  </span>
                 </div>
-                <span className="w-5 shrink-0 text-center" aria-hidden="true">
-                  {state === 'saving' ? <Loader2 className="h-4 w-4 animate-spin text-muted" /> : state === 'saved' ? <Check className="h-4 w-4 text-success" /> : state === 'error' ? <span className="text-danger">!</span> : null}
-                </span>
-                <div className="w-28 shrink-0">
-                  <PriceInput
-                    value={priceOf(item)}
-                    rowIndex={index}
-                    aria-label={`Price for ${item.official_name}`}
-                    onChange={(next) => {
-                      setDrafts((current) => ({ ...current, [item.code]: next }))
-                      setKeepListed((current) => (current.has(item.code) ? current : new Set(current).add(item.code)))
-                      setRowState((current) => (current[item.code] === 'idle' || !current[item.code] ? current : { ...current, [item.code]: 'idle' }))
-                    }}
-                    onCommit={(next) => void save(item, next)}
-                    onEnter={() => focusNext(index)}
-                  />
-                </div>
+                <SellPriceEditor
+                  name={item.official_name}
+                  value={sellFor(item)}
+                  rowIndex={index}
+                  onChange={(next) => {
+                    setDrafts((current) => ({ ...current, [item.code]: next }))
+                    setKeepListed((current) => (current.has(item.code) ? current : new Set(current).add(item.code)))
+                    setRowState((current) => (!current[item.code] || current[item.code] === 'idle' ? current : { ...current, [item.code]: 'idle' }))
+                  }}
+                  onCommit={(next) => void save(item, next)}
+                  onEnter={() => focusNext(index)}
+                />
               </div>
             </div>
           )

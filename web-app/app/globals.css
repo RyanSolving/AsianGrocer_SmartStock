@@ -660,7 +660,7 @@ textarea {
 }
 
 .stock-ledger .stock-ledger-price-col {
-  width: 5.75rem;
+  width: 6.5rem;
 }
 
 .stock-ledger .report-ledger td.stock-ledger-price-cell {
@@ -685,7 +685,7 @@ textarea {
   }
 
   .stock-ledger col.stock-ledger-price-col {
-    width: 5.5rem;
+    width: 6rem;
   }
 
   .stock-ledger col.stock-ledger-remove-col {
@@ -868,6 +868,66 @@ textarea {
   background: var(--card);
 }
 
+/* Stock In price cell: the price as text, tap to open the price sheet. */
+.stock-price-btn {
+  display: flex;
+  min-height: 40px;
+  width: 100%;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  min-width: 0;
+  overflow: hidden;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  text-align: right;
+  line-height: 1.2;
+}
+
+.stock-price-btn.is-changed {
+  border-color: theme(colors.warning.marker);
+  background: #fff;
+}
+
+.stock-price-main {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: baseline;
+  column-gap: 0.3em;
+  max-width: 100%;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The "/kg", "/punnet" part reads as a unit, not as part of the figure. */
+.stock-price-unit {
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.stock-price-deal {
+  color: theme(colors.warning.DEFAULT);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.stock-price-btn:not(.is-changed) .stock-price-deal {
+  color: var(--muted);
+}
+
+.stock-price-empty {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 500;
+}
+
 /* A price different from the catalog's: highlighted in the row and in the photo. */
 .stock-ledger tr.stock-row-price-changed > th,
 .stock-ledger tr.stock-row-price-changed > td {
@@ -1005,6 +1065,19 @@ textarea {
   font-size: 14px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
+}
+
+.photo-list-deals {
+  display: block;
+  max-width: 190px;
+  margin-top: 1px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+.photo-list-row.is-price-changed .photo-list-deals {
+  color: theme(colors.warning.DEFAULT);
 }
 
 .photo-list-qty-col {

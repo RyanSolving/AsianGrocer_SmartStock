@@ -1,4 +1,4 @@
--- Catalog price: what one counted unit (one box, bag, ...) of an item normally costs.
+-- Catalog price: the normal selling price of an item (see 20261110 for its unit and deals).
 -- Stock In starts each row from this price; a price changed on a delivery is saved with the
 -- delivery (with the price it replaced) and becomes the catalog price. Empty = not set yet.
 

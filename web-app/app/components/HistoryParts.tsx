@@ -10,6 +10,8 @@ export type HistoryRow = {
   note?: string
   /** Stock In: price of one unit as text ("$24.50"; empty when none). Undefined = no price column. */
   price?: string
+  /** Stock In: combo deals as text ("2 for $9.00"). */
+  priceDeals?: string
   /** Stock In: why the price is highlighted, e.g. "Up from $20.00". */
   priceNote?: string
   priceChanged?: boolean
@@ -129,7 +131,10 @@ export function HistoryCard({
                           {row.note ? <span className="block text-[13px] italic text-muted">{row.note}</span> : null}
                         </span>
                         {row.price !== undefined ? (
-                          <span className={`shrink-0 tabular ${row.priceChanged ? 'font-semibold text-warning' : 'text-muted'}`}>{row.price || '–'}</span>
+                          <span className={`shrink-0 text-right tabular ${row.priceChanged ? 'font-semibold text-warning' : 'text-muted'}`}>
+                            {row.price?.trim() || (row.priceDeals ? '' : '–')}
+                            {row.priceDeals ? <span className="block text-[12px] font-normal">{row.priceDeals}</span> : null}
+                          </span>
                         ) : null}
                         <span className="w-8 shrink-0 text-right font-semibold tabular text-ink">{row.quantity}</span>
                       </li>

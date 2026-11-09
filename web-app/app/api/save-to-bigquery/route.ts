@@ -6,7 +6,7 @@ import {
   getRawStockTableName,
   insertRawStockRecord,
 } from '../../../lib/bigquery/warehouse'
-import { applyCatalogPriceChanges, collectPriceChanges } from '../../../lib/catalog-prices'
+import { applyCatalogPriceChanges, collectPriceChanges, type PricedLine } from '../../../lib/catalog-prices'
 import { buildManualEntryRecordName } from '../../../lib/record-names'
 import { getAuthContext } from '../../../lib/supabase/route-auth'
 import { logPushToBigQueryEvent } from '../../../lib/supabase/events'
@@ -190,7 +190,7 @@ export async function POST(request: Request) {
 
     // A price changed on this delivery becomes the catalog price (BUSINESS_RULES.md §1d).
     const appliedPriceChanges = stagedRecord.mode === 'stock-in'
-      ? await applyCatalogPriceChanges(auth.supabase, collectPriceChanges(stagedRecord.item_data))
+      ? await applyCatalogPriceChanges(auth.supabase, collectPriceChanges(stagedRecord.item_data as PricedLine[]))
       : []
 
     return NextResponse.json(

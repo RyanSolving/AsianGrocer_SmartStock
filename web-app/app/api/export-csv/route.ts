@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { ParsedStock, StockItem } from '../../../lib/stock-schema'
 import { parsedStockSchema } from '../../../lib/stock-schema'
+import { isEmptySellPrice, normalizeSellPrice, priceUnitNames } from '../../../lib/stock-price'
 
 const exportCsvBodySchema = parsedStockSchema.extend({
   unknown_items: z.array(z.record(z.unknown())).default([]),
@@ -20,6 +21,19 @@ function escapeCsv(value: string) {
 /** A price as dollars and cents for the CSV ("24.50"); empty when there is none. */
 function csvPrice(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(2) : ''
+}
+
+/** The four price columns of a row: Price, Sold By, Deals ("2 for 9.00; 3 for 12.00"), Catalog Price. */
+function csvPriceColumns(sell: unknown, catalogSell: unknown) {
+  const current = sell && typeof sell === 'object' ? normalizeSellPrice(sell as Record<string, unknown>) : null
+  const reference = catalogSell && typeof catalogSell === 'object' ? normalizeSellPrice(catalogSell as Record<string, unknown>) : null
+  const hasPrice = current !== null && !isEmptySellPrice(current)
+  return [
+    hasPrice ? csvPrice(current.price) : '',
+    hasPrice ? priceUnitNames[current.unit] : '',
+    hasPrice ? current.deals.map((deal) => `${deal.qty} for ${csvPrice(deal.total)}`).join('; ') : '',
+    reference ? csvPrice(reference.price) : '',
+  ]
 }
 
 function toCsv(
@@ -49,6 +63,8 @@ function toCsv(
     'Validated',
     'Special',
     'Price',
+    'Sold By',
+    'Deals',
     'Catalog Price',
   ].join(',')
 
@@ -73,8 +89,7 @@ function toCsv(
       'known',
       validated,
       item.special ? 'yes' : 'no',
-      csvPrice(item.price),
-      csvPrice(item.catalog_price),
+      ...csvPriceColumns(item.sell, item.catalog_sell),
     ]
       .map((value) => escapeCsv(String(value)))
       .join(',')
@@ -101,8 +116,7 @@ function toCsv(
       'unknown',
       validated,
       item.special === true ? 'yes' : 'no',
-      csvPrice(item.price),
-      '',
+      ...csvPriceColumns(item.sell, null),
     ]
       .map((value) => escapeCsv(String(value)))
       .join(',')
@@ -129,6 +143,8 @@ function toCsv(
       'missing_catalog',
       validated,
       item.special === true ? 'yes' : 'no',
+      '',
+      '',
       '',
       '',
     ]

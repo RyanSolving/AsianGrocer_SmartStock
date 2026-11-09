@@ -5,6 +5,8 @@ import { Save } from 'lucide-react'
 
 import { Button } from './ui/Button'
 import { Sheet } from './ui/Sheet'
+import { SellPriceEditor } from './SellPriceEditor'
+import type { PriceDeal, PriceUnit } from '../../lib/stock-price'
 
 import {
   catalogItemSchema,
@@ -25,8 +27,10 @@ export type CreateCatalogItemPayload = {
   origin: string
   inner_quantity: number | null
   inner_unit: 'box' | 'bag' | 'punnet' | 'piece' | 'tray' | 'bunch' | 'pack' | 'kg' | 'g'
-  /** Price of one counted unit; null when not set. */
+  /** Normal selling price; null when not set. */
   price: number | null
+  price_unit: PriceUnit
+  price_deals: PriceDeal[]
   official_name: string
   stocklist_name: string
   navigation_guide: string
@@ -111,6 +115,8 @@ export function CreateCatalogItemModal({
     inner_quantity: null,
     inner_unit: 'box',
     price: null,
+    price_unit: 'ea',
+    price_deals: [],
     official_name: '',
     stocklist_name: '',
     navigation_guide: '',
@@ -140,6 +146,8 @@ export function CreateCatalogItemModal({
       inner_quantity: null,
       inner_unit: 'box',
       price: null,
+      price_unit: 'ea',
+      price_deals: [],
       official_name: initialOfficialName,
       stocklist_name: initialStocklistName,
       navigation_guide: '',
@@ -202,6 +210,8 @@ export function CreateCatalogItemModal({
       inner_quantity: parsed.data.inner_quantity,
       inner_unit: parsed.data.inner_unit,
       price: parsed.data.price ?? null,
+      price_unit: parsed.data.price_unit ?? 'ea',
+      price_deals: parsed.data.price_deals ?? [],
       official_name: parsed.data.official_name,
       stocklist_name: parsed.data.stocklist_name,
       navigation_guide: parsed.data.navigation_guide,
@@ -371,24 +381,15 @@ export function CreateCatalogItemModal({
           </div>
 
           <div>
-            <label className="block text-[14px] font-medium text-ink" htmlFor="create-item-price">Price</label>
-            <div className="relative mt-1">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[16px] text-slate-400" aria-hidden="true">$</span>
-              <input
-                id="create-item-price"
-                type="number"
-                min="0"
-                step="0.01"
-                inputMode="decimal"
-                className={`w-full rounded-lg border min-h-11 pl-7 pr-3 text-[16px] ${errors.price ? 'border-red-400' : 'border-slate-300'}`}
-                value={form.price ?? ''}
-                onChange={(event) => updateField('price', event.target.value === '' ? null : Number(event.target.value))}
-                placeholder="e.g. 24.50"
+            <p className="block text-[14px] font-medium text-ink">Selling price <span className="font-normal text-slate-400">(optional)</span></p>
+            <div className="mt-1">
+              <SellPriceEditor
+                name={form.official_name || 'new item'}
+                value={{ price: form.price, unit: form.price_unit, deals: form.price_deals }}
+                onChange={(next) => setForm((prev) => ({ ...prev, price: next.price, price_unit: next.unit, price_deals: next.deals }))}
               />
             </div>
-            {errors.price
-              ? <p className="mt-1 text-xs text-red-500">{errors.price}</p>
-              : <p className="mt-1 text-xs text-slate-400">Optional. What one unit counted at Stock In costs.</p>}
+            {errors.price ? <p className="mt-1 text-xs text-red-500">{errors.price}</p> : null}
           </div>
 
           <div>

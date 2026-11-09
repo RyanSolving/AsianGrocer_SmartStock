@@ -41,14 +41,14 @@ import { CreateCatalogItemModal, type CreateCatalogItemPayload } from './compone
 import { EmbeddedStockCheckPanel } from './components/EmbeddedStockCheckPanel'
 import { StockLedger, toLedgerAreas } from './components/StockLedger'
 import { LedgerPhotoSheet, type PhotoGroup, type PhotoRow } from './components/LedgerPhotoSheet'
-import { PriceInput } from './components/PriceInput'
+import { SellPriceEditor } from './components/SellPriceEditor'
 import { ConfirmDialog, useConfirm } from './components/ConfirmDialog'
 import { SectionLandingState } from './components/SectionLandingState'
 import type { SelectedStockCheckHistoryRecord } from './components/EmbeddedStockCheckPanel'
 import { StockCheckHistoryDialog } from './components/StockCheckHistoryDialog'
 import { TranscriptionHistoryDialog } from './components/TranscriptionHistoryDialog'
 import { filterVisibleCatalogItems } from '../lib/catalog-visibility'
-import { describePriceChange, formatPrice, priceChangeOf } from '../lib/stock-price'
+import { describePriceChange, emptySellPrice, formatDeals, formatMainPrice, formatSellPrice, normalizeSellPrice, priceChangeOf, type PriceDeal, type PriceUnit, type SellPrice } from '../lib/stock-price'
 import {
   clearOfflineDraft,
   enqueueOfflineRequest,
@@ -101,10 +101,10 @@ type StockItem = {
   notes: string | null
   /** Arrived on a special discount (BUSINESS_RULES.md §1b). */
   special?: boolean
-  /** Price of one counted unit on this delivery. Left out = the catalog price (BUSINESS_RULES.md §1d). */
-  price?: number | null
+  /** Selling price on this delivery. Left out = the catalog price (BUSINESS_RULES.md §1d). */
+  sell?: SellPrice
   /** The catalog price this row started from, set when the delivery is saved. */
-  catalog_price?: number | null
+  catalog_sell?: SellPrice
 }
 
 type UnknownItem = {
@@ -127,7 +127,7 @@ type UnknownItem = {
   confidence: 'high' | 'medium' | 'low'
   catalog_match_status: 'unknown'
   special?: boolean
-  price?: number | null
+  sell?: SellPrice
 }
 
 type CatalogItem = {
@@ -151,8 +151,10 @@ type CatalogItem = {
   quantity_conflict_flag?: boolean
   special?: boolean
   notes?: string | null
-  /** Normal price of one counted unit. */
+  /** Normal selling price, what it is sold by, and combo deals. */
   price?: number | null
+  price_unit?: PriceUnit
+  price_deals?: PriceDeal[]
 }
 
 type StockMode = 'stock-in' | 'stock-closing'
@@ -402,12 +404,11 @@ function isIsoDate(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value)
 }
 
-/** A saved row's price field, kept as saved (a number, or null for "no price"); nothing when absent. */
-function readSavedPrice(row: Record<string, unknown>, key: 'price' | 'catalog_price'): { price?: number | null; catalog_price?: number | null } {
+/** A saved row's selling price (`sell`, or the catalog price it started from), as saved; nothing when absent. */
+function readSavedSell(row: Record<string, unknown>, key: 'sell' | 'catalog_sell'): { sell?: SellPrice; catalog_sell?: SellPrice } {
   const value = row[key]
-  if (value === null) return { [key]: null }
-  if (typeof value === 'number' && Number.isFinite(value)) return { [key]: value }
-  return {}
+  if (!value || typeof value !== 'object') return {}
+  return { [key]: normalizeSellPrice(value as { price?: unknown; unit?: unknown; deals?: unknown }) }
 }
 
 function mapHistoryEntryToEditablePayload(entry: HistoryEntry, fallbackDate: string): {
@@ -472,8 +473,8 @@ function mapHistoryEntryToEditablePayload(entry: HistoryEntry, fallbackDate: str
         : undefined,
       notes: typeof row.notes === 'string' ? row.notes : null,
       ...(row.special === true ? { special: true } : {}),
-      ...readSavedPrice(row, 'price'),
-      ...readSavedPrice(row, 'catalog_price'),
+      ...readSavedSell(row, 'sell'),
+      ...readSavedSell(row, 'catalog_sell'),
     }
 
     items.push(normalizedRow)
@@ -498,7 +499,7 @@ function mapHistoryEntryToEditablePayload(entry: HistoryEntry, fallbackDate: str
         confidence: normalizedRow.confidence,
         catalog_match_status: 'unknown',
         ...(normalizedRow.special ? { special: true } : {}),
-        ...(normalizedRow.price !== undefined ? { price: normalizedRow.price } : {}),
+        ...(normalizedRow.sell ? { sell: normalizedRow.sell } : {}),
       })
     }
   })
@@ -665,14 +666,16 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
   }, [])
 
   const visibleCatalog = useMemo(() => filterVisibleCatalogItems(activeCatalog), [activeCatalog])
-  /** Catalog price by item code (hidden items too), for the Stock In price column. */
-  const catalogPriceByCode = useMemo(() => {
-    const prices = new Map<string, number | null>()
+  /** Catalog selling price by item code (hidden items too), for the Stock In price column. */
+  const catalogSellByCode = useMemo(() => {
+    const prices = new Map<string, SellPrice>()
     for (const item of activeCatalog ?? []) {
-      prices.set(item.code.trim().toUpperCase(), typeof item.price === 'number' ? item.price : null)
+      prices.set(item.code.trim().toUpperCase(), normalizeSellPrice({ price: item.price, unit: item.price_unit, deals: item.price_deals }))
     }
     return prices
   }, [activeCatalog])
+  /** The Stock In row whose price sheet is open (its list index), if any. */
+  const [priceSheetIndex, setPriceSheetIndex] = useState<number | null>(null)
   const visibleCatalogCodes = useMemo(
     () => new Set(visibleCatalog.map((item) => item.code.trim().toUpperCase())),
     [visibleCatalog]
@@ -1262,7 +1265,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     const toRow = (row: IndexedItem): PhotoRow => {
       const code = row.item.catalog_code?.trim().toUpperCase() ?? ''
       const catalogItem = code ? visibleCatalog.find((c) => c.code.trim().toUpperCase() === code) : null
-      const { price, change } = priceStateOf(row.item)
+      const { sell, change } = priceStateOf(row.item)
       return {
         key: `${row.source}-${row.index}`,
         name: catalogItem?.official_name ?? row.item.official_name ?? row.item.product_raw ?? '',
@@ -1270,7 +1273,8 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
         tone: row.source === 'missing' ? 'warning' : row.source === 'unknown' ? 'alert' : undefined,
         special: row.item.special === true,
         note: row.item.notes?.trim() || undefined,
-        price: formatPrice(price),
+        price: formatMainPrice(sell),
+        priceDeals: formatDeals(sell),
         priceNote: change ? describePriceChange(change) : undefined,
         priceChanged: change !== null,
       }
@@ -1290,7 +1294,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     }
     // priceStateOf reads the catalog prices, so the photo follows them.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paperSections, visibleCatalog, catalogPriceByCode])
+  }, [paperSections, visibleCatalog, catalogSellByCode])
 
   const outsideDisplayColumns = useMemo(() => {
     const combinedOutside = [
@@ -1625,7 +1629,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
         // Update applicable fields from the patch
         if (patch.official_name !== undefined) item.official_name = patch.official_name
         if (patch.product_raw !== undefined) item.product_raw = patch.product_raw
-        if (patch.price !== undefined) item.price = patch.price
+        if (patch.sell !== undefined) item.sell = patch.sell
         if (patch.quantity !== undefined) item.quantity = patch.quantity
         if (patch.quantity_raw !== undefined) item.quantity_raw = patch.quantity_raw
         if (patch.quantity_conflict_flag !== undefined) item.quantity_conflict_flag = patch.quantity_conflict_flag
@@ -1851,6 +1855,8 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       inner_quantity: created.inner_quantity,
       inner_unit: created.inner_unit,
       price: created.price,
+      price_unit: created.price_unit,
+      price_deals: created.price_deals,
       official_name: created.official_name,
       stocklist_name: created.stocklist_name,
       navigation_guide: created.navigation_guide,
@@ -1940,6 +1946,8 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       inner_unit: inlineCreateForm.inner_unit,
       // Editing a profile keeps the catalog price as it is; a new item starts without one.
       price: editingCatalogItem?.price ?? null,
+      price_unit: editingCatalogItem?.price_unit ?? 'ea',
+      price_deals: editingCatalogItem?.price_deals ?? [],
       official_name: officialName,
       stocklist_name: stocklistName,
       navigation_guide: editingCatalogItem?.navigation_guide ?? '',
@@ -2134,24 +2142,23 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
    * type another; the change is measured against the catalog price the row started from (kept
    * on the row once saved, so a reopened Stock In still shows what changed).
    */
-  function priceStateOf(item: { catalog_code: string | null; price?: number | null; catalog_price?: number | null }) {
+  function priceStateOf(item: { catalog_code: string | null; sell?: SellPrice; catalog_sell?: SellPrice }) {
     const code = item.catalog_code?.trim().toUpperCase() ?? ''
-    const inCatalog = code !== '' && (catalogPriceByCode.has(code) || item.catalog_price !== undefined)
-    const liveCatalogPrice = code !== '' ? catalogPriceByCode.get(code) ?? null : null
-    const price = item.price !== undefined ? item.price : liveCatalogPrice
-    const reference = item.catalog_price !== undefined ? item.catalog_price : liveCatalogPrice
-    return { price, change: priceChangeOf(price, reference, inCatalog) }
+    const inCatalog = code !== '' && (catalogSellByCode.has(code) || item.catalog_sell !== undefined)
+    const live = code !== '' ? catalogSellByCode.get(code) ?? emptySellPrice : emptySellPrice
+    const sell = item.sell ?? live
+    const reference = item.catalog_sell ?? live
+    return { sell, change: priceChangeOf(sell, reference, inCatalog) }
   }
 
   /** Writes the price and the catalog price it started from on each counted row, for saving. */
-  function withPriceStamped<T extends { catalog_code: string | null; quantity: number | null; price?: number | null; catalog_price?: number | null }>(item: T): T {
+  function withPriceStamped<T extends { catalog_code: string | null; quantity: number | null; sell?: SellPrice; catalog_sell?: SellPrice }>(item: T): T {
     if (item.quantity === null) return item
     const code = item.catalog_code?.trim().toUpperCase() ?? ''
-    const inCatalog = code !== '' && catalogPriceByCode.has(code)
-    const liveCatalogPrice = inCatalog ? catalogPriceByCode.get(code) ?? null : null
-    const price = item.price !== undefined ? item.price : liveCatalogPrice
-    const catalogPrice = item.catalog_price !== undefined ? item.catalog_price : (inCatalog ? liveCatalogPrice : undefined)
-    return { ...item, price, ...(catalogPrice !== undefined ? { catalog_price: catalogPrice } : {}) }
+    const live = code !== '' ? catalogSellByCode.get(code) : undefined
+    const sell = item.sell ?? live
+    const catalogSell = item.catalog_sell ?? live
+    return { ...item, ...(sell ? { sell } : {}), ...(catalogSell ? { catalog_sell: catalogSell } : {}) }
   }
 
   /** Name cell of the phone list; missing and unknown items keep their warning colours. */
@@ -2184,20 +2191,35 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     )
   }
 
-  /** Price box of the phone list; a changed price is highlighted. */
+  /** Price cell of the phone list: the price as text; tap to change it. A changed price is highlighted. */
   function renderDataEntryPriceCell(row: IndexedItem) {
-    const { price, change } = priceStateOf(row.item)
+    const { sell, change } = priceStateOf(row.item)
     const name = row.item.official_name || row.item.product_raw || 'item'
+    const main = formatMainPrice(sell)
+    const deals = formatDeals(sell)
+    const extraDeals = sell.deals.length > 1 ? ` +${sell.deals.length - 1}` : ''
     return (
-      <PriceInput
-        value={price}
-        changed={change !== null}
-        rowIndex={row.index}
-        aria-label={`Price for ${name}`}
-        onChange={(next) => updateItem(row.index, { price: next })}
-      />
+      <button
+        type="button"
+        data-price-row-index={row.index}
+        aria-label={`Price for ${name}: ${formatSellPrice(sell) || 'none'}. Tap to change.`}
+        // Keep focus where it is on press: the count box losing focus first shifts the page, and the
+        // tap would then land on whatever moved under the finger.
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => setPriceSheetIndex(row.index)}
+        className={`stock-price-btn${change ? ' is-changed' : ''}`}
+      >
+        {main || deals ? (
+          <>
+            {main ? <span className="stock-price-main"><span>{main.split(' ')[0]}</span><span className="stock-price-unit">{main.split(' ')[1]}</span></span> : null}
+            {sell.deals[0] ? <span className="stock-price-deal">{`${sell.deals[0].qty} for $${sell.deals[0].total.toFixed(2)}${extraDeals}`}</span> : null}
+          </>
+        ) : <span className="stock-price-empty">+ Price</span>}
+      </button>
     )
   }
+
+  const priceSheetRow = priceSheetIndex === null ? null : indexedItems.find((row) => row.index === priceSheetIndex) ?? null
 
   /** Takes an item off the Stock In list (its count is cleared), with Undo. */
   function removeDataEntryRow(row: IndexedItem) {
@@ -2241,10 +2263,10 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       quantity_conflict_flag: row.item.quantity_conflict_flag,
       special: row.item.special,
       notes: row.item.notes ?? null,
-      price: row.item.price,
-      catalog_price: row.item.catalog_price,
+      sell: row.item.sell,
+      catalog_sell: row.item.catalog_sell,
     }
-    updateItem(row.index, { quantity: null, quantity_raw: null, quantity_conflict_flag: false, special: false, notes: null, price: undefined, catalog_price: undefined })
+    updateItem(row.index, { quantity: null, quantity_raw: null, quantity_conflict_flag: false, special: false, notes: null, sell: undefined, catalog_sell: undefined })
     untouch()
     toast.info(`${name} removed`, {
       duration: 6000,
@@ -3505,6 +3527,28 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                       getItemLabel={(row) => row.item.official_name || row.item.product_raw || 'item'}
                     />
                   </div>
+
+                  {priceSheetRow ? (() => {
+                    const { sell, change } = priceStateOf(priceSheetRow.item)
+                    const name = priceSheetRow.item.official_name || priceSheetRow.item.product_raw || 'Item'
+                    return (
+                      <Sheet
+                        open
+                        onClose={() => setPriceSheetIndex(null)}
+                        title={name}
+                        description={change ? describePriceChange(change) : 'Selling price. It starts from the catalog price; a change is saved to the catalog.'}
+                        size="sm"
+                        footer={<button type="button" onClick={() => setPriceSheetIndex(null)} className="min-h-12 w-full rounded-control bg-forest px-4 text-[16px] font-semibold text-white">Done</button>}
+                      >
+                        <SellPriceEditor
+                          name={name}
+                          value={sell}
+                          onChange={(next) => updateItem(priceSheetRow.index, { sell: next })}
+                          onEnter={() => setPriceSheetIndex(null)}
+                        />
+                      </Sheet>
+                    )
+                  })() : null}
                 </div>
 
 

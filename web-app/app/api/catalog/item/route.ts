@@ -70,6 +70,8 @@ export async function PUT(request: Request) {
       inner_unit: item.inner_unit,
       // Left out when the request has no price, so editing other fields never clears it.
       ...(item.price !== undefined ? { price: item.price } : {}),
+      ...(item.price_unit !== undefined ? { price_unit: item.price_unit } : {}),
+      ...(item.price_deals !== undefined ? { price_deals: item.price_deals } : {}),
       official_name: item.official_name,
       stocklist_name: item.stocklist_name,
       navigation_guide: item.navigation_guide,
@@ -94,7 +96,7 @@ export async function PUT(request: Request) {
         {
           error: 'Catalog write needs a newer database schema.',
           details: result.error.message,
-          hint: 'Run migrations 20260610_catalog_origin_inner_pack.sql and 20261109_catalog_price.sql to add origin, inner pack and price to public.catalog_items.',
+          hint: 'Run migrations 20260610_catalog_origin_inner_pack.sql and 20261109_catalog_price.sql and 20261110_catalog_sell_price_unit_deals.sql to add origin, inner pack and price to public.catalog_items.',
         },
         { status: 409 }
       )

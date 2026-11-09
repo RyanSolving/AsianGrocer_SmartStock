@@ -1,11 +1,31 @@
 /**
- * Prices on Stock In (BUSINESS_RULES.md §1d).
+ * Selling prices (BUSINESS_RULES.md §1d).
  *
- * A price is dollars for one counted unit (one box, bag, ...), to the cent. The catalog holds
- * the normal price; a Stock In row starts from it. A row whose price differs from the catalog
- * price is a price change: it is highlighted, saved with the price it replaced, and becomes the
- * catalog price when the Stock In is saved.
+ * A price is *sold by* a unit (Each, KG, Pack, ...) with a normal price ("1 for $4.99") and
+ * optional combo deals ("2 for $9.00"). The catalog holds the current price; a Stock In row
+ * starts from it. A row whose price differs from the catalog price it started from is a price
+ * change: highlighted, saved with the price it replaced, and made the catalog price on Save.
  */
+
+export const priceUnits = ['ea', 'kg', 'pack', 'bunch', 'punnet'] as const
+export type PriceUnit = typeof priceUnits[number]
+
+export const priceUnitNames: Record<PriceUnit, string> = { ea: 'Each', kg: 'KG', pack: 'Pack', bunch: 'Bunch', punnet: 'Punnet' }
+const unitSuffix: Record<PriceUnit, string> = { ea: 'ea', kg: '/kg', pack: '/pack', bunch: '/bunch', punnet: '/punnet' }
+
+export const MAX_DEALS = 5
+
+/** "qty for $total", e.g. 2 for $9.00. */
+export type PriceDeal = { qty: number; total: number }
+
+export type SellPrice = {
+  /** The normal price of one unit; null when there is none. */
+  price: number | null
+  unit: PriceUnit
+  deals: PriceDeal[]
+}
+
+export const emptySellPrice: SellPrice = { price: null, unit: 'ea', deals: [] }
 
 /** To the cent, halves going up (1.005 -> 1.01); toPrecision drops binary floating-point noise first. */
 export function roundPrice(value: number) {
@@ -38,27 +58,95 @@ export function parsePriceInput(text: string): ParsedPriceInput {
   return { ok: true, value: roundPrice(value) }
 }
 
+function isUnit(value: unknown): value is PriceUnit {
+  return typeof value === 'string' && (priceUnits as readonly string[]).includes(value)
+}
+
+/** Valid deals only (2 or more for a positive total), one per quantity, smallest quantity first. */
+export function normalizeDeals(raw: unknown): PriceDeal[] {
+  if (!Array.isArray(raw)) return []
+  const byQty = new Map<number, PriceDeal>()
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue
+    const qty = Number((entry as { qty?: unknown }).qty)
+    const total = Number((entry as { total?: unknown }).total)
+    if (!Number.isInteger(qty) || qty < 2 || qty > 99 || !Number.isFinite(total) || total <= 0 || total > 100000) continue
+    byQty.set(qty, { qty, total: roundPrice(total) })
+  }
+  return Array.from(byQty.values()).sort((a, b) => a.qty - b.qty).slice(0, MAX_DEALS)
+}
+
+/** A sell price from loose data (a catalog row, saved JSON): bad parts fall back to empty. */
+export function normalizeSellPrice(raw: { price?: unknown; unit?: unknown; deals?: unknown } | null | undefined): SellPrice {
+  if (!raw) return emptySellPrice
+  const price = raw.price === null || raw.price === undefined || raw.price === '' ? null : Number(raw.price)
+  return {
+    price: price !== null && Number.isFinite(price) && price >= 0 ? roundPrice(price) : null,
+    unit: isUnit(raw.unit) ? raw.unit : 'ea',
+    deals: normalizeDeals(raw.deals),
+  }
+}
+
+export function isEmptySellPrice(value: SellPrice | null | undefined) {
+  return !value || (value.price === null && value.deals.length === 0)
+}
+
+export function sameSellPrice(a: SellPrice | null | undefined, b: SellPrice | null | undefined) {
+  const left = a ?? emptySellPrice
+  const right = b ?? emptySellPrice
+  if ((left.price === null) !== (right.price === null)) return false
+  if (left.price !== null && right.price !== null && roundPrice(left.price) !== roundPrice(right.price)) return false
+  if (left.unit !== right.unit && !(isEmptySellPrice(left) && isEmptySellPrice(right))) return false
+  if (left.deals.length !== right.deals.length) return false
+  return left.deals.every((deal, index) => deal.qty === right.deals[index].qty && roundPrice(deal.total) === roundPrice(right.deals[index].total))
+}
+
+/** "$4.99 ea", "$9.99 /kg"; empty when there is no normal price. */
+export function formatMainPrice(value: SellPrice | null | undefined) {
+  if (!value || value.price === null) return ''
+  return `${formatPrice(value.price)} ${unitSuffix[value.unit]}`
+}
+
+/** "2 for $9.00 · 3 for $12.00"; empty when there are no deals. */
+export function formatDeals(value: SellPrice | null | undefined) {
+  if (!value || value.deals.length === 0) return ''
+  return value.deals.map((deal) => `${deal.qty} for ${formatPrice(deal.total)}`).join(' · ')
+}
+
+/** The whole price on one line: "$4.99 ea · 2 for $9.00". */
+export function formatSellPrice(value: SellPrice | null | undefined) {
+  return [formatMainPrice(value), formatDeals(value)].filter(Boolean).join(' · ')
+}
+
+/** What one item costs inside a deal: 2 for $9.00 -> $4.50. */
+export function dealEach(deal: PriceDeal) {
+  return roundPrice(deal.total / deal.qty)
+}
+
 export type PriceChange = {
-  /** The catalog price this one replaces; null when the item had no price yet. */
-  from: number | null
-  to: number
-  direction: 'up' | 'down' | 'new'
+  /** The catalog price this one replaces; null when the item had none. */
+  from: SellPrice | null
+  to: SellPrice
+  direction: 'up' | 'down' | 'new' | 'changed'
 }
 
 /**
  * The change a row's price makes against `reference` (the catalog price it started from).
  * Null when there is no price, the item is not in the catalog (nothing to compare with), or
- * the price is the same.
+ * the price is the same. Up/down only when the normal price moved and the unit did not.
  */
-export function priceChangeOf(price: number | null | undefined, reference: number | null | undefined, inCatalog: boolean): PriceChange | null {
-  if (!inCatalog || price === null || price === undefined || !Number.isFinite(price)) return null
-  const from = reference === undefined || reference === null || !Number.isFinite(reference) ? null : reference
-  if (from !== null && roundPrice(from) === roundPrice(price)) return null
-  return { from, to: roundPrice(price), direction: from === null ? 'new' : price > from ? 'up' : 'down' }
+export function priceChangeOf(current: SellPrice | null | undefined, reference: SellPrice | null | undefined, inCatalog: boolean): PriceChange | null {
+  if (!inCatalog || !current || isEmptySellPrice(current)) return null
+  if (isEmptySellPrice(reference)) return { from: null, to: current, direction: 'new' }
+  if (sameSellPrice(current, reference)) return null
+  const from = reference as SellPrice
+  const moved = current.unit === from.unit && current.price !== null && from.price !== null && roundPrice(current.price) !== roundPrice(from.price)
+  return { from, to: current, direction: moved ? (current.price! > from.price! ? 'up' : 'down') : 'changed' }
 }
 
-/** One line for a change: "Up from $20.00", "Down from $20.00", or "New price" when there was none. */
+/** One line for a change: "Up from $4.99 ea", "Down from ...", "Changed from ...", or "New price". */
 export function describePriceChange(change: PriceChange) {
-  if (change.from === null) return 'New price'
-  return `${change.direction === 'up' ? 'Up' : 'Down'} from ${formatPrice(change.from)}`
+  if (change.direction === 'new' || !change.from) return 'New price'
+  const was = formatSellPrice(change.from)
+  return `${change.direction === 'up' ? 'Up from' : change.direction === 'down' ? 'Down from' : 'Changed from'} ${was}`
 }

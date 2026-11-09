@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { loadDefaultCatalog, normalizeCatalogEntry, parseCSVCatalog } from '../../../lib/fruit-catalog'
 import { getAuthContext } from '../../../lib/supabase/route-auth'
+import { normalizeDeals, normalizeSellPrice, type PriceDeal, type PriceUnit } from '../../../lib/stock-price'
 
 type SupabaseErrorLike = {
   code?: string | null
@@ -18,6 +19,8 @@ type CatalogRow = {
   inner_quantity: number | null
   inner_unit: 'box' | 'bag' | 'punnet' | 'piece' | 'tray' | 'bunch' | 'pack' | 'kg' | 'g'
   price: number | null
+  price_unit: PriceUnit
+  price_deals: PriceDeal[]
   official_name: string
   stocklist_name: string
   navigation_guide: string
@@ -46,13 +49,14 @@ function isMissingColumnError(error: SupabaseErrorLike | null | undefined) {
 const BASE_COLUMNS = 'code, location, sub_location, category, product, attribute, official_name, stocklist_name, navigation_guide, row_position, is_visible'
 const ORIGIN_COLUMNS = `${BASE_COLUMNS}, origin, inner_quantity, inner_unit`
 const PRICE_COLUMNS = `${ORIGIN_COLUMNS}, price`
+const SELL_PRICE_COLUMNS = `${PRICE_COLUMNS}, price_unit, price_deals`
 
 /**
  * Reads the catalog with the newest columns the database has: price, then origin and inner
  * pack, then the original ones. A missing column (migration not run yet) steps down one level.
  */
 async function selectCatalogRows(supabase: any) {
-  for (const columns of [PRICE_COLUMNS, ORIGIN_COLUMNS, BASE_COLUMNS]) {
+  for (const columns of [SELL_PRICE_COLUMNS, PRICE_COLUMNS, ORIGIN_COLUMNS, BASE_COLUMNS]) {
     const result: any = await supabase.from('catalog_items').select(columns).order('code', { ascending: true })
     if (!isMissingColumnError(result.error as SupabaseErrorLike)) return result
   }
@@ -91,6 +95,8 @@ function mapRowsToCatalog(rows: CatalogRow[]) {
     inner_quantity: entry.inner_quantity ?? null,
     inner_unit: entry.inner_unit ?? 'box',
     price: entry.price ?? null,
+    price_unit: entry.price_unit ?? 'ea',
+    price_deals: entry.price_deals ?? [],
     official_name: entry.official_name,
     stocklist_name: entry.stocklist_name,
     navigation_guide: entry.navigation_guide,
@@ -121,6 +127,8 @@ async function loadCatalogFromSingleTable(supabase: any) {
     inner_quantity: entry.inner_quantity == null ? null : Number(entry.inner_quantity),
     inner_unit: entry.inner_unit ?? 'box',
     price: toPrice(entry.price),
+    price_unit: normalizeSellPrice({ unit: entry.price_unit }).unit,
+    price_deals: normalizeDeals(entry.price_deals),
     official_name: entry.official_name,
     stocklist_name: entry.stocklist_name,
     navigation_guide: entry.navigation_guide,
@@ -185,6 +193,8 @@ async function loadCatalogFromLegacyTables(supabase: any) {
     inner_quantity: null,
     inner_unit: 'box',
     price: null,
+    price_unit: 'ea',
+    price_deals: [],
     official_name: entry.official_name,
     stocklist_name: entry.stocklist_name,
     navigation_guide: entry.navigation_guide,
@@ -368,6 +378,8 @@ export async function POST(request: Request) {
     inner_quantity: entry.inner_quantity == null ? null : Number(entry.inner_quantity),
     inner_unit: entry.inner_unit ?? 'box',
     price: toPrice(entry.price),
+    price_unit: normalizeSellPrice({ unit: entry.price_unit }).unit,
+    price_deals: normalizeDeals(entry.price_deals),
     official_name: entry.official_name,
     stocklist_name: entry.stocklist_name,
     navigation_guide: entry.navigation_guide,
