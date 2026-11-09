@@ -603,7 +603,6 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
   const [manualEntryNote, setManualEntryNote] = useState('')
   /** Price typed for the item being added; null = the catalog price. */
   const [manualEntrySell, setManualEntrySell] = useState<SellPrice | null>(null)
-  const [isFormPriceOpen, setIsFormPriceOpen] = useState(false)
   const [dataEntryTouchedIndexes, setDataEntryTouchedIndexes] = useState<Set<number>>(() => new Set())
   const [lastAddedEntry, setLastAddedEntry] = useState<LastAddedEntry | null>(null)
   const hadParsedDataRef = useRef(false)
@@ -3294,6 +3293,28 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                             </button>
                           </div>
 
+                          {selectedDataEntryCatalogItem ? (() => {
+                            const catalogSell = catalogSellByCode.get(selectedDataEntryCatalogItem.code.trim().toUpperCase()) ?? emptySellPrice
+                            const current = manualEntrySell ?? catalogSell
+                            const change = priceChangeOf(current, catalogSell, true)
+                            return (
+                              <div className={`rounded-control p-3 ${change ? 'bg-warning-soft' : 'bg-slate-50'}`}>
+                                <p className="mb-2 text-[14px] font-medium text-ink">
+                                  Selling price{' '}
+                                  {change
+                                    ? <span className="font-semibold text-warning">· {describePriceChange(change)}</span>
+                                    : <span className="font-normal text-muted">· from the catalog</span>}
+                                </p>
+                                <SellPriceEditor
+                                  name={selectedDataEntryCatalogItem.official_name}
+                                  value={current}
+                                  onChange={(next) => setManualEntrySell(next)}
+                                  onEnter={() => dataEntryQtyInputRef.current?.focus()}
+                                />
+                              </div>
+                            )
+                          })() : null}
+
                           <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-control px-1 text-[15px] text-ink">
                             <input
                               type="checkbox"
@@ -3307,41 +3328,6 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                               Special (discount)
                             </span>
                           </label>
-
-                          {selectedDataEntryCatalogItem ? (() => {
-                            const catalogSell = catalogSellByCode.get(selectedDataEntryCatalogItem.code.trim().toUpperCase()) ?? emptySellPrice
-                            const current = manualEntrySell ?? catalogSell
-                            return (
-                              <div>
-                                <p className="mb-1.5 block text-[14px] font-medium text-ink">Price <span className="font-normal text-muted">(optional)</span></p>
-                                <button
-                                  type="button"
-                                  onClick={() => setIsFormPriceOpen(true)}
-                                  className={`flex min-h-12 w-full items-center justify-between gap-3 rounded-control border px-3 text-left text-[16px] ${manualEntrySell ? 'border-warning-marker bg-warning-soft' : 'border-line bg-white'}`}
-                                >
-                                  <span className="min-w-0 truncate text-ink">{formatSellPrice(current) || <span className="text-muted">No price yet</span>}</span>
-                                  <span className="shrink-0 text-[14px] font-semibold text-forest">Change</span>
-                                </button>
-                                {isFormPriceOpen ? (
-                                  <Sheet
-                                    open
-                                    onClose={() => setIsFormPriceOpen(false)}
-                                    title={selectedDataEntryCatalogItem.official_name}
-                                    description="Selling price for this delivery. A change is saved to the catalog."
-                                    size="sm"
-                                    footer={<button type="button" onClick={() => setIsFormPriceOpen(false)} className="min-h-12 w-full rounded-control bg-forest px-4 text-[16px] font-semibold text-white">Done</button>}
-                                  >
-                                    <SellPriceEditor
-                                      name={selectedDataEntryCatalogItem.official_name}
-                                      value={current}
-                                      onChange={(next) => setManualEntrySell(next)}
-                                      onEnter={() => setIsFormPriceOpen(false)}
-                                    />
-                                  </Sheet>
-                                ) : null}
-                              </div>
-                            )
-                          })() : null}
 
                           <div>
                             <label htmlFor="stock-in-note" className="mb-1.5 block text-[14px] font-medium text-ink">Note <span className="font-normal text-muted">(optional)</span></label>
