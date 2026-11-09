@@ -12,6 +12,10 @@ type PriceInputProps = {
   /** A different price from the catalog's: drawn with the highlight colour. */
   changed?: boolean
   rowIndex?: number
+  /** Called when the box is left, so a list can save the price then. */
+  onCommit?: (value: number | null) => void
+  /** Called on Enter (the list moves to the next price). */
+  onEnter?: () => void
 }
 
 /** The resting text of the box: dollars and cents, so every price lines up ("24.50"). */
@@ -23,7 +27,7 @@ function restingText(value: number | null) {
  * Price box of a Stock In row. It keeps what is being typed ("24." stays "24.") and passes on
  * a price only when the text is a valid amount; on leaving the box it shows the saved price.
  */
-export function PriceInput({ value, onChange, changed = false, rowIndex, 'aria-label': ariaLabel }: PriceInputProps) {
+export function PriceInput({ value, onChange, onCommit, onEnter, changed = false, rowIndex, 'aria-label': ariaLabel }: PriceInputProps) {
   const [text, setText] = useState(restingText(value))
   const [focused, setFocused] = useState(false)
 
@@ -53,6 +57,13 @@ export function PriceInput({ value, onChange, changed = false, rowIndex, 'aria-l
         onBlur={() => {
           setFocused(false)
           setText(restingText(value))
+          onCommit?.(value)
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && onEnter) {
+            event.preventDefault()
+            onEnter()
+          }
         }}
         onChange={(event) => {
           const next = event.target.value

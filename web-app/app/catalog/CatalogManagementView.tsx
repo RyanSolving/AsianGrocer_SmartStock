@@ -28,6 +28,7 @@ import {
   type CatalogItem,
 } from '../../lib/stock-schema'
 import { formatPrice } from '../../lib/stock-price'
+import { QuickPriceEntry } from './QuickPriceEntry'
 
 function getApiErrorMessage(payload: any, fallback: string) {
   const details = typeof payload?.details === 'string'
@@ -434,6 +435,7 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<CatalogItem | null>(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [showQuickPrices, setShowQuickPrices] = useState(false)
   const [visibilitySavingByCode, setVisibilitySavingByCode] = useState<Record<string, boolean>>({})
   const [deleteConfirmCode, setDeleteConfirmCode] = useState<string | null>(null)
 
@@ -621,6 +623,18 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
 
   const content = (
     <div className={embedded ? 'space-y-4' : 'mx-auto w-full max-w-7xl space-y-4'}>
+      {showQuickPrices ? (
+        <>
+          <Button variant="secondary" onClick={() => setShowQuickPrices(false)}>← Back to catalog</Button>
+          <QuickPriceEntry
+            items={items}
+            onPricesSaved={(changes) => setItems((current) => current.map((item) => {
+              const change = changes.find((entry) => entry.code === item.code)
+              return change ? { ...item, price: change.price } : item
+            }))}
+          />
+        </>
+      ) : (<>
         <section className="space-y-4">
           <ScreenHeader
             title="Catalog"
@@ -630,6 +644,9 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
                 <IconButton label="Refresh" onClick={() => void loadCatalog()} disabled={isLoading} className="border border-line bg-surface">
                   <RefreshCw className={`h-5 w-5 ${isLoading ? 'animate-spin' : ''}`} />
                 </IconButton>
+                <Button variant="secondary" onClick={() => setShowQuickPrices(true)}>
+                  Quick prices
+                </Button>
                 <Button icon={<Plus className="h-5 w-5" aria-hidden="true" />} onClick={openAdd}>
                   Add item
                 </Button>
@@ -811,6 +828,7 @@ export function CatalogManagementView({ embedded = false }: { embedded?: boolean
             </div>
           )}
         </section>
+      </>)}
     </div>
   )
 

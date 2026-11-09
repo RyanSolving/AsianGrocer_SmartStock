@@ -839,7 +839,7 @@ textarea {
   pointer-events: none;
 }
 
-.stock-ledger .stock-price-input {
+.stock-price-input {
   width: 100%;
   min-height: 40px;
   padding: 0 6px 0 15px;
@@ -853,16 +853,16 @@ textarea {
   text-align: right;
 }
 
-.stock-ledger .stock-price-input::placeholder {
+.stock-price-input::placeholder {
   color: theme(colors.slate.300);
   font-weight: 400;
 }
 
-.stock-ledger .stock-price-input:placeholder-shown {
+.stock-price-input:placeholder-shown {
   border-style: dashed;
 }
 
-.stock-ledger .stock-price-input:focus {
+.stock-price-input:focus {
   outline: 2px solid theme(colors.forest.DEFAULT);
   outline-offset: -1px;
   background: var(--card);

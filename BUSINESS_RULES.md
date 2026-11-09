@@ -56,6 +56,10 @@ in `web-app/app/page.tsx`.
 - **Stock In price column.** Every Stock In row has a **Price** box, starting at the item's
   catalog price. Staff can type another price for this delivery. The photo and the History
   preview show the same column. Stock Close has no prices.
+- **Quick prices.** Catalog → **Quick prices** lists every item with a price box. Type a price and
+  press Enter: it is saved and the cursor moves to the next item. **Missing price** shows only
+  items without one; **All items** lets you correct any. Code: `QuickPriceEntry.tsx`,
+  `api/catalog/prices`.
 - **Price change.** A row whose price differs from the catalog price it started from is a
   *price change*. It is highlighted (soft yellow) in the list, in the photo and in History, with
   a note under the name: **Up from $20.00**, **Down from $20.00**, or **New price** (the item
