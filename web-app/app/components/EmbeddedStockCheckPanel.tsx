@@ -38,6 +38,9 @@ import { STATUS } from '../../lib/status-messages'
 import { Button } from './ui/Button'
 import { Sheet } from './ui/Sheet'
 import { SectionLandingState } from './SectionLandingState'
+import { SectionPicker } from './SectionPicker'
+import { useSectionChoice } from '../../lib/section-store'
+import { filterBySection, sectionLabel, type Section, type SectionChoice } from '../../lib/sections'
 import { getOfflineDraftAge } from '../../lib/offline/queue'
 import { formatDayLabel, formatTimeLabel, getLocalTodayDate } from '../../lib/date-utils'
 import { WAREHOUSE_SYNC_ENABLED } from '../../lib/warehouse-sync'
@@ -124,6 +127,8 @@ type StockCheckRecordData = {
 export type SelectedStockCheckHistoryRecord = {
   uid_stock_check: string
   stock_date: string
+  /** Fruit or Vegies; records saved before sections existed are fruit. */
+  section?: Section
   validated: boolean
   record_data?: StockCheckRecordData
 }
@@ -131,6 +136,7 @@ export type SelectedStockCheckHistoryRecord = {
 type StockCheckHistoryRecord = {
   uid_stock_check: string
   timestamp: string
+  section?: Section
   stock_date?: string
   validated: boolean
   record_data?: StockCheckRecordData
@@ -435,6 +441,12 @@ export function EmbeddedStockCheckPanel({
   onOpenHistory?: () => void
 }) {
   const today = useMemo(() => getLocalTodayDate(), [])
+  // Fruit and Vegies are counted separately, by different people: the sheet is for one section,
+  // chosen on the start screen. A saved record opened from history brings its own section.
+  const [sectionPref, setSectionPref] = useSectionChoice()
+  const section: Section = selectedHistoryRecord?.section ?? (sectionPref === 'vegies' ? 'vegies' : 'fruit')
+  const draftFeature = section === 'vegies' ? 'stock-check-vegies' as const : 'stock-check' as const
+  const scopedCatalog = useMemo(() => filterBySection(catalogItems, section), [catalogItems, section])
   const [rows, setRows] = useState<StockCheckRow[]>([])
   const [stockEntryMode, setStockEntryMode] = useState<'manual' | 'photo'>('manual')
   const [stockPhotoFile, setStockPhotoFile] = useState<File | null>(null)
@@ -493,12 +505,12 @@ export function EmbeddedStockCheckPanel({
   const [selectedProfileItem, setSelectedProfileItem] = useState<CatalogItem | null>(null)
   const skipNextRecheckResetRef = useRef(false)
   const loadedHistoryUid = selectedHistoryRecord?.uid_stock_check ?? null
-  const visibleCatalogItems = useMemo(() => filterVisibleCatalogItems(catalogItems), [catalogItems])
+  const visibleCatalogItems = useMemo(() => filterVisibleCatalogItems(scopedCatalog), [scopedCatalog])
   const availableCategories = useMemo(() => {
-    if (!catalogItems || catalogItems.length === 0) return []
-    const uniqueCategories = new Set(catalogItems.map((item) => item.category).filter((cat) => cat && cat.trim().length > 0))
+    if (!scopedCatalog || scopedCatalog.length === 0) return []
+    const uniqueCategories = new Set(scopedCatalog.map((item) => item.category).filter((cat) => cat && cat.trim().length > 0))
     return Array.from(uniqueCategories).sort()
-  }, [catalogItems])
+  }, [scopedCatalog])
   const catalogCodes = useMemo(() => {
     return new Set(visibleCatalogItems.map((item) => item.code.trim().toUpperCase()))
   }, [visibleCatalogItems])
@@ -525,9 +537,9 @@ export function EmbeddedStockCheckPanel({
     if (typeof window === 'undefined') return
 
     setIsOnline(window.navigator.onLine)
-    setStockCheckQueueCount(getPendingOfflineCountByFeature('stock-check'))
-    setHasStockCheckLocalDraft(hasOfflineDraft('stock-check'))
-  }, [])
+    setStockCheckQueueCount(getPendingOfflineCountByFeature(draftFeature))
+    setHasStockCheckLocalDraft(hasOfflineDraft(draftFeature))
+  }, [draftFeature])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -559,7 +571,7 @@ export function EmbeddedStockCheckPanel({
       return
     }
 
-    const draft = loadOfflineDraft<StockCheckOfflineDraft>('stock-check')
+    const draft = loadOfflineDraft<StockCheckOfflineDraft>(draftFeature)
     if (!draft || !Array.isArray(draft.rows)) {
       setHasRestoredOfflineDraft(true)
       return
@@ -574,21 +586,21 @@ export function EmbeddedStockCheckPanel({
     setStatus(STATUS.DRAFT_RECOVERED)
     setError(null)
     setHasRestoredOfflineDraft(true)
-  }, [hasRestoredOfflineDraft, loadedHistoryUid, today, phase])
+  }, [hasRestoredOfflineDraft, loadedHistoryUid, today, phase, draftFeature])
 
   useEffect(() => {
     if (!hasRestoredOfflineDraft) return
 
     // A sheet with nothing counted yet (the catalog pre-fill) is not a draft worth resuming.
     if (rows.length === 0 || !rows.some((row) => row.quantity !== null)) {
-      clearOfflineDraft('stock-check')
+      clearOfflineDraft(draftFeature)
       setHasStockCheckLocalDraft(false)
       return
     }
 
     // Debounced so typing stays smooth on slow phones; flushed when the app is hidden or closed.
     return scheduleDraftSave(() => {
-      saveOfflineDraft('stock-check', {
+      saveOfflineDraft(draftFeature, {
         stockEntryMode,
         stockDate,
         rows,
@@ -598,7 +610,7 @@ export function EmbeddedStockCheckPanel({
       })
       setHasStockCheckLocalDraft(true)
     })
-  }, [hasPassedRecheck, hasRestoredOfflineDraft, isValidated, removedRowKeys, rows, stockDate, stockEntryMode])
+  }, [draftFeature, hasPassedRecheck, hasRestoredOfflineDraft, isValidated, removedRowKeys, rows, stockDate, stockEntryMode])
 
   const startManualEntry = useCallback(() => {
     const freshToday = getLocalTodayDate()
@@ -607,7 +619,7 @@ export function EmbeddedStockCheckPanel({
     setRows([])
     setRemovedRowKeys(new Set())
     setStockDate(freshToday)
-    clearOfflineDraft('stock-check')
+    clearOfflineDraft(draftFeature)
     setHasStockCheckLocalDraft(false)
     setManualCheckRedMarked(false)
     setStatus(STATUS.READY_MANUAL)
@@ -616,7 +628,7 @@ export function EmbeddedStockCheckPanel({
     setHasPassedRecheck(false)
     setShowRecheckWarningModal(false)
     setRecheckWarnings([])
-  }, [])
+  }, [draftFeature])
 
   /** Puts a cleared draft back (the Undo after Start new). */
   function restoreStockCheckDraft(draft: StockCheckOfflineDraft) {
@@ -626,7 +638,7 @@ export function EmbeddedStockCheckPanel({
     setRemovedRowKeys(new Set(Array.isArray(draft.removedRowKeys) ? draft.removedRowKeys : []))
     setIsValidated(Boolean(draft.isValidated))
     setHasPassedRecheck(Boolean(draft.hasPassedRecheck))
-    saveOfflineDraft('stock-check', draft)
+    saveOfflineDraft(draftFeature, draft)
     setHasStockCheckLocalDraft(true)
     setPhase('editing')
     setStatus(STATUS.DRAFT_RECOVERED)
@@ -922,7 +934,7 @@ export function EmbeddedStockCheckPanel({
   const closingPhoto = useMemo(() => {
     const toRow = (entry: IndexedRow): PhotoRow => {
       const code = entry.row.code?.trim().toUpperCase() ?? ''
-      const catalogItem = code ? catalogItems?.find((c) => c.code.trim().toUpperCase() === code) : null
+      const catalogItem = code ? scopedCatalog?.find((c) => c.code.trim().toUpperCase() === code) : null
       return {
         key: `${entry.row.id}-${entry.index}`,
         name: catalogItem?.official_name ?? entry.row.official_name ?? '',
@@ -943,7 +955,7 @@ export function EmbeddedStockCheckPanel({
       outside: counted(all(paperSections.outsideRows)),
       unknown: counted(all(paperSections.unknownRows)),
     }
-  }, [catalogItems, paperSections])
+  }, [scopedCatalog, paperSections])
 
   const stockLedgerAreas = useMemo(
     () => toLedgerAreas(stockCardSections, { outside: OUTSIDE_SECTION_ID, unknown: UNKNOWN_SECTION_ID }),
@@ -1277,7 +1289,7 @@ export function EmbeddedStockCheckPanel({
     const controller = new AbortController()
     const timer = window.setTimeout(() => controller.abort(), SAVE_CHECK_TIMEOUT_MS)
     try {
-      const response = await fetch(`/api/daily-report?date=${encodeURIComponent(stockDateRef.current)}`, { cache: 'no-store', signal: controller.signal })
+      const response = await fetch(`/api/daily-report?date=${encodeURIComponent(stockDateRef.current)}&section=${section}`, { cache: 'no-store', signal: controller.signal })
       if (!response.ok) return null
       const payload = await response.json()
       return {
@@ -1394,6 +1406,7 @@ export function EmbeddedStockCheckPanel({
       validated: validated ? 'yes' as const : 'no' as const,
       unknown_items: unknownItems,
       missing_catalog_items: [],
+      section,
     }
   }
 
@@ -1407,7 +1420,7 @@ export function EmbeddedStockCheckPanel({
 
     if (typeof window !== 'undefined' && !window.navigator.onLine) {
       enqueueOfflineRequest({
-        feature: 'stock-check',
+        feature: draftFeature,
         endpoint: '/api/stock-check/save-to-supabase',
         payload: requestEnvelope,
       })
@@ -1429,13 +1442,13 @@ export function EmbeddedStockCheckPanel({
       }
 
       // Clear the local draft so it doesn't get incorrectly restored next time
-      clearOfflineDraft('stock-check')
+      clearOfflineDraft(draftFeature)
       setHasStockCheckLocalDraft(false)
       return 'saved'
     } catch (e) {
       if (isNetworkRequestError(e)) {
         enqueueOfflineRequest({
-          feature: 'stock-check',
+          feature: draftFeature,
           endpoint: '/api/stock-check/save-to-supabase',
           payload: requestEnvelope,
         })
@@ -1544,7 +1557,7 @@ export function EmbeddedStockCheckPanel({
     const outcome = await saveStockCheck()
     if (outcome !== 'saved') return
     // The warehouse copy is paused for now (lib/warehouse-sync): Supabase is the only store.
-    if (WAREHOUSE_SYNC_ENABLED) syncToWarehouse(envelope)
+    if (WAREHOUSE_SYNC_ENABLED && section === 'fruit') syncToWarehouse(envelope)
     else toast.success('Closing saved')
   }
 
@@ -1675,7 +1688,7 @@ export function EmbeddedStockCheckPanel({
   /** Name cell of the list: the reorder mark, then the name, which wraps. */
   function renderLedgerName(item: IndexedRow) {
     const code = item.row.code?.trim().toUpperCase() ?? ''
-    const latestCatalogItem = code ? catalogItems?.find((c) => c.code.trim().toUpperCase() === code) : null
+    const latestCatalogItem = code ? scopedCatalog?.find((c) => c.code.trim().toUpperCase() === code) : null
     const displayName = latestCatalogItem?.official_name ?? item.row.official_name ?? ''
     return (
       <div className="report-name">
@@ -1712,23 +1725,39 @@ export function EmbeddedStockCheckPanel({
   // Count from the saved draft: on the start screen the rows are the empty catalog pre-fill.
   const stockCheckDraftItemCount = (() => {
     if (!hasStockCheckLocalDraft) return 0
-    const draft = loadOfflineDraft<{ rows?: Array<{ quantity: number | null }> }>('stock-check')
+    const draft = loadOfflineDraft<{ rows?: Array<{ quantity: number | null }> }>(draftFeature)
     return (draft?.rows ?? []).filter((row) => row.quantity !== null).length
   })()
 
+  // Changing section on the start screen swaps in that section's items and its own draft.
+  function chooseSection(choice: SectionChoice) {
+    if (choice === 'both' || choice === section) return
+    setSectionPref(choice)
+    setRows([])
+    setRemovedRowKeys(new Set())
+    setHasRestoredOfflineDraft(false)
+    setTouchedRowIndexes(new Set())
+    setLastAddedCheck(null)
+  }
+
   if (phase === 'landing') {
     return (
+      <>
+      <div className="mx-auto w-full max-w-xl pt-2 sm:pt-6">
+        <p className="mb-2 text-[14px] font-medium text-ink">What are you counting?</p>
+        <SectionPicker value={section} onChange={chooseSection} choices={['fruit', 'vegies']} label="Section to count" />
+      </div>
       <SectionLandingState
-        sectionLabel="Stock close"
+        sectionLabel={`Stock close · ${sectionLabel[section]}`}
         subtitle="Count what is left at 4 PM, then save and export."
         hasDraft={hasStockCheckLocalDraft}
-        draftAge={getOfflineDraftAge('stock-check')}
+        draftAge={getOfflineDraftAge(draftFeature)}
         draftItemCount={stockCheckDraftItemCount}
         historyCount={historyRecords?.length || 0}
         onAction={(action) => {
           if (action === 'new') {
             // Start straight away. A draft that existed is kept in memory for one Undo.
-            const previousDraft = hasStockCheckLocalDraft ? loadOfflineDraft<StockCheckOfflineDraft>('stock-check') : null
+            const previousDraft = hasStockCheckLocalDraft ? loadOfflineDraft<StockCheckOfflineDraft>(draftFeature) : null
             const previousCount = stockCheckDraftItemCount
             startManualEntry()
             setPhase('editing')
@@ -1753,6 +1782,7 @@ export function EmbeddedStockCheckPanel({
           }
         }}
       />
+      </>
     )
   }
 
@@ -1761,8 +1791,8 @@ export function EmbeddedStockCheckPanel({
       {choiceSheet}
       <section className="keypad-editor rounded-card border border-line bg-surface p-3 sm:p-6">
         <EditorTopBar
-          title={loadedHistoryUid ? 'Edit stock close' : 'Stock close'}
-          showTitleOnPhone={!!loadedHistoryUid}
+          title={`${loadedHistoryUid ? 'Edit stock close' : 'Stock close'} · ${sectionLabel[section]}`}
+          showTitleOnPhone
           onBack={() => setPhase('landing')}
           dateId="check-stock-date"
           dateValue={stockDate}

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 
+import { parseSection, sectionOfItems } from '../../../../lib/sections'
 import {
   getMissingBigQueryEnvKeys,
   getRawStockTableName,
@@ -13,6 +14,7 @@ type StockCheckEvent = {
   date: string
   record_name?: string | null
   mode: string
+  section?: string | null
   item_data: {
     items?: unknown[]
     unknown_items?: unknown[]
@@ -252,6 +254,7 @@ async function fetchBigQueryHistory(): Promise<StockCheckHistoryItem[]> {
       stock_date: formatBigQueryDate(rowValue(row, 'stock_date')),
       record_name: null,
       mode: String(rowValue(row, 'mode') ?? 'closing_check'),
+      section: 'fruit' as const,
       validated,
       item_count: itemData.length,
       unknown_count: unknownCount,
@@ -270,6 +273,7 @@ function mapSupabaseHistory(data: StockCheckEvent[] | null) {
       stock_date: entry.date,
       record_name: entry.record_name ?? null,
       mode: entry.mode,
+      section: parseSection(entry.section) ?? sectionOfItems(normalized.items),
       validated: normalized.validated,
       item_count: normalized.items.length,
       unknown_count: normalized.unknown_items.length,
@@ -287,7 +291,7 @@ export async function GET() {
   try {
     const { data, error } = await auth.supabase
       .from('event_stock_check')
-      .select('uid_stock_check, created_at, date, record_name, mode, item_data')
+      .select('uid_stock_check, created_at, date, record_name, mode, section, item_data')
       .order('created_at', { ascending: false })
       .limit(200)
 

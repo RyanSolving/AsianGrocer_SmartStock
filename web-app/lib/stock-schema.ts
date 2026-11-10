@@ -1,12 +1,14 @@
 import { z } from 'zod'
 
+import { sections } from './sections'
 import { MAX_PRICE, isEmptySellPrice, normalizeDeals, priceUnits, roundPrice, type SellPrice } from './stock-price'
 
 export const stockModeSchema = z.enum(['stock-in', 'stock-closing'])
 
-export const catalogLocationOptions = ['Inside Coolroom', 'Outside Coolroom'] as const
+export const catalogLocationOptions = ['Inside Coolroom', 'Outside Coolroom', 'Vegies'] as const
 export const catalogSubLocationInsideOptions = ['Apples', 'Citrus', 'Asian', 'Melon', 'All Year', 'Seasonal', 'Stonefruit'] as const
 export const catalogSubLocationOutsideOptions = ['Outside Coolroom'] as const
+export const catalogSubLocationVegiesOptions = ['Vegies'] as const
 // Note: catalogCategoryOptions is now fetched from the database via category-store.ts
 // The schema validation for category is deferred to API routes where we have access to the database
 export const catalogRowPositionOptions = ['left', 'right', 'single'] as const
@@ -75,7 +77,9 @@ export const catalogItemSchema = z.object({
 }).superRefine((value, context) => {
   const validSubLocations: string[] = value.location === 'Outside Coolroom'
     ? [...catalogSubLocationOutsideOptions]
-    : [...catalogSubLocationInsideOptions]
+    : value.location === 'Vegies'
+      ? [...catalogSubLocationVegiesOptions]
+      : [...catalogSubLocationInsideOptions]
 
   if (!validSubLocations.includes(value.sub_location)) {
     context.addIssue({
@@ -83,7 +87,9 @@ export const catalogItemSchema = z.object({
       path: ['sub_location'],
       message: value.location === 'Outside Coolroom'
         ? 'Outside Coolroom must use the Outside Coolroom sub-location.'
-        : 'Select a valid sub-location for the chosen location.',
+        : value.location === 'Vegies'
+          ? 'Vegies must use the Vegies sub-location.'
+          : 'Select a valid sub-location for the chosen location.',
     })
   }
 })
@@ -185,6 +191,8 @@ export const saveToWarehouseEnvelopeSchema = z.object({
   unknown_items: unknownItemSchema.array().default([]),
   missing_catalog_items: missingCatalogItemsSchema,
   uid_generate: z.string().trim().optional(),
+  /** Which section the record is for. Left out = worked out from the items (older clients: fruit). */
+  section: z.enum(sections).optional(),
 })
 
 function catalogEntryToStagedItem(entry: CatalogEntry): StockItem {

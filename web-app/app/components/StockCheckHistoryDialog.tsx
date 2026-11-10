@@ -11,6 +11,7 @@ type StockCheckHistoryEntry = {
   stock_date: string
   record_name?: string | null
   mode: string
+  section?: 'fruit' | 'vegies'
   validated: boolean
   item_count: number
   unknown_count: number
@@ -124,7 +125,7 @@ export function StockCheckHistoryDialog({
                 return (
                   <HistoryCard
                     key={entry.uid_stock_check}
-                    title={`${entry.mode === 'arrival_entry' ? 'Arrival' : 'Closing'} · ${time}`}
+                    title={`${entry.mode === 'arrival_entry' ? 'Arrival' : 'Closing'} · ${entry.section === 'vegies' ? 'Vegies' : 'Fruit'} · ${time}`}
                     subtitle={`Stock date ${entry.stock_date}`}
                     badge={{ label: entry.validated ? 'Checked' : 'Not checked', tone: entry.validated ? 'success' : 'warning' }}
                     summary={summaryText}

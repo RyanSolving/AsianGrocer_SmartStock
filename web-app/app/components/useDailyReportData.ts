@@ -8,6 +8,7 @@ import { friendlyError, toast } from '../../lib/toast-store'
 import type { IndexedPaperRow, PaperRow } from '../../lib/stock-paper-layout'
 import { addDays, daysBetween, describeStockInRecords } from '../../lib/report-records'
 import { formatDayLabel, getLocalTodayDate } from '../../lib/date-utils'
+import { sectionLabel, sectionsOf, type Section, type SectionChoice } from '../../lib/sections'
 
 /**
  * Loads one day's report data (closing, previous closing, stock-in) and derives the
@@ -57,6 +58,8 @@ export type FlagChoice = StockFlag | null | 'auto'
 
 export type DailyReportResponse = {
   date: string
+  /** The section these figures are for. */
+  section?: Section
   closingFound: boolean
   closingByCode: Record<string, number>
   redMarkedByCode: Record<string, boolean>
@@ -113,57 +116,154 @@ function toReportRow(item: ReportCatalogItem, closing: number, current: number, 
 }
 
 /**
- * Shared per-date cache (Dashboard and Daily Report read the same dates), so switching tabs
- * or dates shows the last result at once and refreshes it quietly.
+ * Shared per-date-and-section cache (Dashboard and Daily Report read the same dates), so switching
+ * tabs or dates shows the last result at once and refreshes it quietly.
  */
 const reportCache = new Map<string, DailyReportResponse>()
+const cacheKey = (date: string, section: Section) => `${date}|${section}`
 
-/** `refreshKey`: bump it to refetch. The previous data stays on screen while reloading (no flash). */
-/** `date` is `YYYY-MM-DD`, or `latest:YYYY-MM-DD` for the newest date with a report up to that day. */
-export function useDailyReportData(date: string, catalogItems: ReportCatalogItem[], refreshKey = 0) {
-  const [data, setData] = useState<DailyReportResponse | null>(() => reportCache.get(date) ?? null)
+type SectionReports = Partial<Record<Section, DailyReportResponse>>
+
+function readCached(date: string, choice: SectionChoice): SectionReports {
+  const found: SectionReports = {}
+  for (const section of sectionsOf(choice)) {
+    const cached = reportCache.get(cacheKey(date, section))
+    if (cached) found[section] = cached
+  }
+  return found
+}
+
+function reportUrl(date: string, section: Section) {
+  // `latest:YYYY-MM-DD` asks the server for the newest date with a report up to that day.
+  // `today` lets the server add stock in that arrived after the closing (current stock).
+  const query = date.startsWith('latest:')
+    ? `date=latest&today=${encodeURIComponent(date.slice('latest:'.length))}`
+    : `date=${encodeURIComponent(date)}&today=${encodeURIComponent(getLocalTodayDate())}`
+  return `/api/daily-report?${query}&section=${section}`
+}
+
+async function fetchReport(date: string, section: Section): Promise<DailyReportResponse> {
+  const response = await fetch(reportUrl(date, section), { cache: 'no-store' })
+  const payload = await response.json()
+  if (!response.ok) throw new Error(payload?.error ?? 'Failed to load the daily report.')
+  return payload as DailyReportResponse
+}
+
+/**
+ * Both sections as one report: figures are keyed by item code and codes are unique, so the maps
+ * simply join. Each section's own insights are worked out before this (their previous closings
+ * can be on different days).
+ */
+function mergeReports(parts: DailyReportResponse[]): DailyReportResponse {
+  if (parts.length === 1) return parts[0]
+  const closed = parts.filter((part) => part.closingFound)
+  const base = closed[0] ?? parts[0]
+  const join = <T,>(pick: (part: DailyReportResponse) => Record<string, T> | undefined) =>
+    Object.assign({}, ...parts.map((part) => pick(part) ?? {})) as Record<string, T>
+  const prevDates = closed.map((part) => part.prevClosingDate).filter((day): day is string => Boolean(day)).sort()
+  const stockInDates = Array.from(new Set(parts.flatMap((part) => part.stockInDates ?? []))).sort()
+  const arrivedDates = Array.from(new Set(parts.flatMap((part) => part.arrivedSinceDates ?? []))).sort()
+  const latestFlags = closed.map((part) => part.isLatestClosing)
+
+  return {
+    ...base,
+    section: undefined,
+    closingFound: closed.length > 0,
+    closingByCode: join((part) => part.closingByCode),
+    redMarkedByCode: join((part) => part.redMarkedByCode),
+    prevClosingDate: prevDates[0] ?? null,
+    prevClosingByCode: join((part) => part.prevClosingByCode),
+    stockInRecordCount: parts.reduce((total, part) => total + part.stockInRecordCount, 0),
+    stockInExtraCount: parts.reduce((total, part) => total + (part.stockInExtraCount ?? 0), 0),
+    stockInReplacedCount: parts.reduce((total, part) => total + (part.stockInReplacedCount ?? Math.max(0, part.stockInRecordCount - 1)), 0),
+    stockInByCode: join((part) => part.stockInByCode),
+    stockInDates,
+    soldDays: Math.max(...parts.map((part) => part.soldDays ?? 1)),
+    isLatestClosing: latestFlags.length === 0 || latestFlags.some((flag) => flag === null || flag === undefined)
+      ? null
+      : latestFlags.every((flag) => flag === true),
+    arrivedSinceByCode: join((part) => part.arrivedSinceByCode),
+    arrivedSinceDates: arrivedDates,
+    // Sources: the first closing found; the newest Stock In of either section.
+    sources: base.sources
+      ? {
+        ...base.sources,
+        stockIn: parts
+          .map((part) => part.sources?.stockIn ?? null)
+          .filter((source): source is ReportSource => source !== null)
+          .sort((a, b) => String(b.savedAt ?? '').localeCompare(String(a.savedAt ?? '')))[0] ?? null,
+      }
+      : undefined,
+    flagOverrides: join((part) => part.flagOverrides),
+    overridesAvailable: parts.every((part) => part.overridesAvailable !== false),
+  }
+}
+
+/**
+ * `refreshKey`: bump it to refetch. The previous data stays on screen while reloading (no flash).
+ * `date` is `YYYY-MM-DD`, or `latest:YYYY-MM-DD` for the newest date with a report up to that day.
+ * `section` is Fruit, Vegies or Both; Both loads each section and shows them together.
+ */
+export function useDailyReportData(date: string, catalogItems: ReportCatalogItem[], refreshKey = 0, section: SectionChoice = 'both') {
+  const [reports, setReports] = useState<SectionReports>(() => readCached(date, section))
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const latestDateRef = useRef(date)
+  const latestRequestRef = useRef(`${date}|${section}`)
 
   const reload = useCallback(async () => {
-    latestDateRef.current = date
-    const cached = reportCache.get(date)
-    setData(cached ?? null)
+    const requestId = `${date}|${section}`
+    latestRequestRef.current = requestId
+    const wanted = sectionsOf(section)
+    const cached = readCached(date, section)
+    setReports(cached)
     setIsLoading(true)
     setError(null)
 
     try {
-      // `latest:YYYY-MM-DD` asks the server for the newest date with a report up to that day.
-      // `today` lets the server add stock in that arrived after the closing (current stock).
-      const query = date.startsWith('latest:')
-        ? `date=latest&today=${encodeURIComponent(date.slice('latest:'.length))}`
-        : `date=${encodeURIComponent(date)}&today=${encodeURIComponent(getLocalTodayDate())}`
-      const response = await fetch(`/api/daily-report?${query}`, { cache: 'no-store' })
-      const payload = await response.json()
+      let fetched = await Promise.all(wanted.map((name) => fetchReport(date, name)))
 
-      if (!response.ok) {
-        throw new Error(payload?.error ?? 'Failed to load the daily report.')
+      // "Latest" is worked out per section; if they land on different days, show the newest day
+      // that has a closing and load the other section for that same day.
+      if (date.startsWith('latest:') && fetched.length > 1) {
+        const withClosing = fetched.filter((part) => part.closingFound)
+        const target = (withClosing.length > 0 ? withClosing : fetched).map((part) => part.date).sort().at(-1)
+        if (target && fetched.some((part) => part.date !== target)) {
+          fetched = await Promise.all(fetched.map((part, index) =>
+            part.date === target ? part : fetchReport(target, wanted[index])))
+        }
       }
 
-      reportCache.set(date, payload as DailyReportResponse)
-      if (latestDateRef.current === date) setData(payload as DailyReportResponse)
+      const next: SectionReports = {}
+      fetched.forEach((part, index) => {
+        reportCache.set(cacheKey(part.date, wanted[index]), part)
+        // The `latest:` key is kept too, so the next visit shows it at once.
+        reportCache.set(cacheKey(date, wanted[index]), part)
+        next[wanted[index]] = part
+      })
+      if (latestRequestRef.current === requestId) setReports(next)
     } catch (loadError) {
-      if (latestDateRef.current !== date) return
+      if (latestRequestRef.current !== requestId) return
       // Keep the last good result on screen; just say the refresh failed.
       setError(
-        cached
+        wanted.every((name) => cached[name])
           ? 'Could not refresh. Showing the last loaded numbers.'
           : loadError instanceof Error ? loadError.message : 'Failed to load the daily report.',
       )
     } finally {
-      if (latestDateRef.current === date) setIsLoading(false)
+      if (latestRequestRef.current === requestId) setIsLoading(false)
     }
-  }, [date])
+  }, [date, section])
 
   useEffect(() => {
     void reload()
   }, [reload, refreshKey])
+
+  // The sections that have loaded, fruit first.
+  const parts = useMemo(
+    () => sectionsOf(section).map((name) => reports[name]).filter((part): part is DailyReportResponse => Boolean(part)),
+    [reports, section],
+  )
+  const data = useMemo(() => (parts.length > 0 ? mergeReports(parts) : null), [parts])
 
   // Days since the previous closing: units sold is a daily average when it is more than 1
   // (e.g. Thursday's closing, no closing on Friday, Saturday's closing = 2 days).
@@ -171,37 +271,48 @@ export function useDailyReportData(date: string, catalogItems: ReportCatalogItem
 
   const insights = useMemo(() => {
     if (!data) return {}
-    const calculated = computeItemInsights({
-      closingByCode: data.closingByCode,
-      prevClosingByCode: data.prevClosingByCode,
-      stockInByCode: data.stockInByCode,
-      arrivedSinceByCode: data.arrivedSinceByCode ?? {},
-      days: data.prevClosingDate ? daysBetween(data.prevClosingDate, data.date) : 1,
-    })
+    // Each section against its own previous closing.
+    const calculated = Object.assign({}, ...parts.map((part) => computeItemInsights({
+      closingByCode: part.closingByCode,
+      prevClosingByCode: part.prevClosingByCode,
+      stockInByCode: part.stockInByCode,
+      arrivedSinceByCode: part.arrivedSinceByCode ?? {},
+      days: part.prevClosingDate ? daysBetween(part.prevClosingDate, part.date) : 1,
+    })))
     return applyFlagOverrides(calculated, data.flagOverrides ?? {})
-  }, [data])
+  }, [data, parts])
 
   /**
    * Changes one item's badge for this date. The screen updates at once; if the save fails the
    * previous badge comes back and a toast says why.
    */
   const setFlagOverride = useCallback(async (code: string, choice: FlagChoice) => {
-    const current = reportCache.get(date) ?? data
-    if (!current) return false
+    const previous = reports
+    const wanted = sectionsOf(section).filter((name) => previous[name])
+    if (wanted.length === 0) return false
+    const requestId = `${date}|${section}`
 
-    const nextOverrides = { ...(current.flagOverrides ?? {}) }
-    if (choice === 'auto') delete nextOverrides[code]
-    else nextOverrides[code] = { flag: choice, updatedAt: new Date().toISOString() }
+    const withFlag = (report: DailyReportResponse): DailyReportResponse => {
+      const nextOverrides = { ...(report.flagOverrides ?? {}) }
+      if (choice === 'auto') delete nextOverrides[code]
+      else nextOverrides[code] = { flag: choice, updatedAt: new Date().toISOString() }
+      return { ...report, flagOverrides: nextOverrides }
+    }
+    const store = (value: SectionReports) => {
+      for (const name of wanted) {
+        const report = value[name]
+        if (report) reportCache.set(cacheKey(date, name), report)
+      }
+      if (latestRequestRef.current === requestId) setReports(value)
+    }
 
-    const optimistic: DailyReportResponse = { ...current, flagOverrides: nextOverrides }
-    reportCache.set(date, optimistic)
-    if (latestDateRef.current === date) setData(optimistic)
+    store(Object.fromEntries(wanted.map((name) => [name, withFlag(previous[name]!)])) as SectionReports)
 
     try {
       const response = await fetch('/api/daily-report/flags', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, code, flag: choice }),
+        body: JSON.stringify({ date: parts[0]?.date ?? date, code, flag: choice }),
       })
       if (!response.ok) {
         const payload = await response.json().catch(() => null)
@@ -209,13 +320,12 @@ export function useDailyReportData(date: string, catalogItems: ReportCatalogItem
       }
       return true
     } catch (failure) {
-      reportCache.set(date, current)
-      if (latestDateRef.current === date) setData(current)
+      store(previous)
       const friendly = friendlyError(failure instanceof Error ? failure.message : 'Could not save the badge.')
       toast.error(friendly.message, { details: friendly.details })
       return false
     }
-  }, [data, date])
+  }, [reports, section, date, parts])
 
   const summary = useMemo(() => summarizeInsights(insights), [insights])
 
@@ -264,10 +374,31 @@ export function useDailyReportData(date: string, catalogItems: ReportCatalogItem
   const notices = useMemo(() => {
     const list: ReportNotice[] = []
     if (data && !data.closingFound) {
-      list.push({ id: 'no-closing', severity: 'blocking', text: 'No closing saved for this date. Save it in Stock Close first.' })
+      list.push({
+        id: 'no-closing',
+        severity: 'blocking',
+        text: parts.length > 1
+          ? 'No closing saved for this date, for fruit or vegies. Save it in Stock Close first.'
+          : `No ${sectionLabel[parts[0]?.section ?? 'fruit'].toLowerCase()} closing saved for this date. Save it in Stock Close first.`,
+      })
     }
-    if (data?.closingFound && !data.prevClosingDate) {
+    // With both sections shown, one missing a closing is a note: the other still has a report.
+    if (data?.closingFound && parts.length > 1) {
+      for (const part of parts) {
+        if (!part.closingFound) {
+          list.push({ id: `no-closing-${part.section}`, severity: 'note', text: `No ${sectionLabel[part.section ?? 'fruit'].toLowerCase()} closing saved for this date, so its items are left out.` })
+        }
+      }
+    }
+    const closedParts = parts.filter((part) => part.closingFound)
+    if (closedParts.length > 0 && closedParts.every((part) => !part.prevClosingDate)) {
       list.push({ id: 'no-prev', severity: 'blocking', text: "No earlier closing, so units sold can't be worked out." })
+    } else if (parts.length > 1) {
+      for (const part of closedParts) {
+        if (!part.prevClosingDate) {
+          list.push({ id: `no-prev-${part.section}`, severity: 'note', text: `No earlier ${sectionLabel[part.section ?? 'fruit'].toLowerCase()} closing, so its units sold can't be worked out.` })
+        }
+      }
     }
     if (data?.closingFound && data.stockInRecordCount === 0) {
       list.push({
@@ -309,7 +440,7 @@ export function useDailyReportData(date: string, catalogItems: ReportCatalogItem
       })
     }
     return list
-  }, [data, summary, entries, soldDays])
+  }, [data, parts, summary, entries, soldDays])
 
   const hasReport = Boolean(data?.closingFound) && indexedRows.length > 0
 

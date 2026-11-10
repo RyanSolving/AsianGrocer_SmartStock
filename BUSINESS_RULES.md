@@ -178,14 +178,29 @@ Rules are checked in this order; the first match wins:
 Code: `getStockFlag` in `web-app/lib/report-insights.ts`; colours in
 `web-app/app/components/StockFlagBadge.tsx`.
 
-### 3-. Fruit and Vegies reports
+### 3-. Fruit and Vegies
 
-- The Daily Report has two reports, picked with the **Fruit** / **Vegies** buttons above the
-  search (each shows its item count). Vegies are catalog items with location `Vegies`; every
-  other item, including unclassified ones, is Fruit.
-- Search, badge chips and counts follow the report picked. The exported photo is the picked
-  report only and is named `daily-fruit-<date>.png` or `daily-vegies-<date>.png`.
-- Code: `VEGIES_LOCATION` / `vegieRows` in `web-app/lib/stock-paper-layout.ts`; `DailyReportPanel.tsx`.
+Fruit and Vegies are two sections of one store, counted and received separately.
+
+- **Which section an item is in:** catalog items with location `Vegies` are vegies; every other
+  item (and anything unclassified) is fruit. Code: `web-app/lib/sections.ts`.
+- **Records are per section.** Each Stock Close and Stock In record belongs to one section
+  (`section` column, default `fruit`, so old records are fruit). There is one close per date
+  **per section**: saving a vegies close never replaces the fruit close, and each section
+  uses its own previous closing and its own Stock In. Migration `20261112_section_fruit_vegies.sql`
+  must be applied before the app version that saves a section is deployed.
+- **Choosing a section:** a Fruit / Vegies / Both choice, remembered on the device, is shared by
+  Stock Close, Stock In, Daily Report, Dashboard and Home. Stock Close asks "What are you counting?"
+  (Fruit or Vegies) on its start screen, before any entry, because two people count separately.
+  Each section has its own draft on the phone. A saved record opened from history opens in its own section.
+- **Both** (reports and dashboard): the two sections are loaded and shown together. Each item's sold
+  figure uses its own section's previous closing, so a missed vegies day does not change fruit.
+  If one section has no closing for the date, the other still reports and a note says which is missing.
+- **Same rules for now:** sold, current, stock-out/low/over-stock badges all work the same for
+  both sections. Vegies use the catalog units (kg, bunch, box) until changed.
+- **Warehouse (BigQuery):** vegies are not sent; their records live in Supabase only.
+- The exported photo is the section(s) on screen: `daily-fruit-<date>.png`, `daily-vegies-<date>.png`
+  or `daily-both-<date>.png`.
 
 ### 3a. Filtering the Daily Report by badge
 

@@ -8,6 +8,7 @@ import {
 } from '../../../../lib/bigquery/warehouse'
 import { buildManualEntryRecordName } from '../../../../lib/record-names'
 import { getAuthContext } from '../../../../lib/supabase/route-auth'
+import { sectionOfItems } from '../../../../lib/sections'
 import { createSupabaseServerClient } from '../../../../lib/supabase/server'
 import {
   buildWarehouseStagingRecord,
@@ -77,6 +78,23 @@ export async function POST(request: Request) {
     )
   }
 
+  const mirrorForSection = toSupabaseMirrorItemData(buildWarehouseStagingRecord({
+    parsedData: parsed.data.data,
+    validated: parsed.data.validated,
+    unknownItems: parsed.data.unknown_items,
+    missingCatalogItems: parsed.data.missing_catalog_items,
+    forcedValidated: 'yes',
+  }))
+  const section = parsed.data.section ?? sectionOfItems(mirrorForSection.items)
+
+  // Vegies are not sent to the warehouse (BigQuery); their closing lives in Supabase only.
+  if (section === 'vegies') {
+    return NextResponse.json(
+      { success: true, skipped: true, section, message: 'Vegies are not sent to the warehouse.' },
+      { status: 200 },
+    )
+  }
+
   const missingBigQueryEnv = getMissingBigQueryEnvKeys()
   if (missingBigQueryEnv.length > 0) {
     return NextResponse.json(
@@ -117,9 +135,10 @@ export async function POST(request: Request) {
           date: stockRecord.stock_date,
           record_name: recordName,
           mode: 'closing_check',
+          section,
           item_data: mirrorItemData,
         },
-        { onConflict: 'date,mode' },
+        { onConflict: 'date,mode,section' },
       )
       .select('uid_stock_check, created_at, record_name')
       .single()

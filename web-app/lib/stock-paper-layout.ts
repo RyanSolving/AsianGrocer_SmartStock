@@ -1,4 +1,7 @@
 import { normalizeInsideSectionLabel } from './stock-paper-utils'
+import { VEGIES_LOCATION } from './sections'
+
+export { VEGIES_LOCATION }
 
 /**
  * Pure layout logic for the "stock paper" sheet, shared by the Check Stock panel and
@@ -35,7 +38,6 @@ export type PaperSection<T extends PaperRow = PaperRow> = {
 }
 
 export const OUTSIDE_SECTION_ID = 'outside-coolroom'
-export const VEGIES_LOCATION = 'Vegies'
 export const UNKNOWN_SECTION_ID = 'unclassified-staff-inspection'
 
 export function toSectionId(value: string) {

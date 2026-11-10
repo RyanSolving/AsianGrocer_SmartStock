@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { getAuthContext } from '../../../lib/supabase/route-auth'
 import { isMissingTableError } from '../../../lib/supabase/errors'
+import { parseSection } from '../../../lib/sections'
 import { addDays, combineStockInByDate, daysBetween, readClosingItems, stockDateOf } from '../../../lib/report-records'
 
 export const runtime = 'nodejs'
@@ -17,6 +18,13 @@ export async function GET(request: NextRequest) {
   const auth = await getAuthContext()
   if (auth instanceof NextResponse) {
     return auth
+  }
+
+  // One section per request; the app asks for each section it shows ("both" is two requests).
+  const sectionParam = request.nextUrl.searchParams.get('section')
+  const section = sectionParam === null ? 'fruit' : parseSection(sectionParam)
+  if (!section) {
+    return NextResponse.json({ error: 'section must be "fruit" or "vegies".' }, { status: 400 })
   }
 
   const requested = request.nextUrl.searchParams.get('date') ?? ''
@@ -35,6 +43,7 @@ export async function GET(request: NextRequest) {
         .from('event_stock_check')
         .select('date')
         .eq('mode', 'closing_check')
+        .eq('section', section)
         .lte('date', today)
         .order('date', { ascending: false })
         .limit(2)
@@ -53,6 +62,7 @@ export async function GET(request: NextRequest) {
         .from('event_stock_check')
         .select('date, item_data, record_name, created_at')
         .eq('mode', 'closing_check')
+        .eq('section', section)
         .eq('date', date)
         .limit(1)
         .maybeSingle(),
@@ -61,6 +71,7 @@ export async function GET(request: NextRequest) {
         .from('event_stock_check')
         .select('date, item_data, record_name, created_at')
         .eq('mode', 'closing_check')
+        .eq('section', section)
         .lt('date', date)
         .order('date', { ascending: false })
         .limit(1)
@@ -71,6 +82,7 @@ export async function GET(request: NextRequest) {
         .from('event_generate')
         .select('uid_generate, final_output, log_time, record_name, input_file_name')
         .eq('stock_mode', 'arrival_entry')
+        .eq('section', section)
         .gt('final_output->>stock_date', addDays(date, -STOCK_IN_WINDOW_DAYS))
         .lte('final_output->>stock_date', date)
         .order('log_time', { ascending: false }),
@@ -83,6 +95,7 @@ export async function GET(request: NextRequest) {
           .from('event_stock_check')
           .select('date')
           .eq('mode', 'closing_check')
+          .eq('section', section)
           .gt('date', date)
           .lte('date', today)
           .order('date', { ascending: true })
@@ -94,6 +107,7 @@ export async function GET(request: NextRequest) {
           .from('event_generate')
           .select('uid_generate, final_output, log_time, record_name, input_file_name')
           .eq('stock_mode', 'arrival_entry')
+          .eq('section', section)
           .gt('final_output->>stock_date', date)
           .lte('final_output->>stock_date', today)
         : Promise.resolve({ data: [], error: null }),
@@ -120,6 +134,7 @@ export async function GET(request: NextRequest) {
         .from('event_generate')
         .select('uid_generate, final_output, log_time, record_name, input_file_name')
         .eq('stock_mode', 'arrival_entry')
+        .eq('section', section)
         .gt('final_output->>stock_date', prevClosingDate)
         .lte('final_output->>stock_date', addDays(date, -STOCK_IN_WINDOW_DAYS))
       if (older.error) {
@@ -161,6 +176,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         date,
+        section,
         closingFound: Boolean(closingResult.data),
         closingByCode: closing?.quantities ?? {},
         redMarkedByCode: closing?.redMarked ?? {},

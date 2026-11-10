@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+import { parseSection } from '../../../../lib/sections'
 import { addDays, buildSalesTrend } from '../../../../lib/report-records'
 import { getAuthContext } from '../../../../lib/supabase/route-auth'
 
@@ -20,6 +21,12 @@ export async function GET(request: NextRequest) {
   const auth = await getAuthContext()
   if (auth instanceof NextResponse) return auth
 
+  const sectionParam = request.nextUrl.searchParams.get('section')
+  const section = sectionParam === null ? 'fruit' : parseSection(sectionParam)
+  if (!section) {
+    return NextResponse.json({ error: 'section must be "fruit" or "vegies".' }, { status: 400 })
+  }
+
   const end = request.nextUrl.searchParams.get('end') ?? ''
   const days = Number(request.nextUrl.searchParams.get('days') ?? '7')
   if (!isValidDate(end) || !Number.isInteger(days) || days < 1 || days > 31) {
@@ -34,6 +41,7 @@ export async function GET(request: NextRequest) {
       .from('event_stock_check')
       .select('date, item_data')
       .eq('mode', 'closing_check')
+      .eq('section', section)
       .gte('date', lookbackStart)
       .lte('date', end)
       .order('date', { ascending: true }),
@@ -41,6 +49,7 @@ export async function GET(request: NextRequest) {
       .from('event_generate')
       .select('final_output, log_time')
       .eq('stock_mode', 'arrival_entry')
+      .eq('section', section)
       .gte('final_output->>stock_date', start)
       .lte('final_output->>stock_date', end),
   ])

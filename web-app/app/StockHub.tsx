@@ -32,6 +32,7 @@ import { formatDayLabel, formatTimeLabel } from '../lib/date-utils'
 import { sectionFromQuery } from '../lib/hub-navigation'
 import { useKeypadEntry } from '../lib/use-keypad-entry'
 import { latestReportDate } from '../lib/report-records'
+import { sectionLabel, type Section } from '../lib/sections'
 import { friendlyError, toast } from '../lib/toast-store'
 
 import { DailyReportPanel } from './components/DailyReportPanel'
@@ -198,6 +199,8 @@ type StockCheckHistoryEntry = {
   stock_date: string
   record_name?: string | null
   mode: string
+  /** Fruit or Vegies (older records: fruit). */
+  section?: Section
   validated: boolean
   item_count: number
   unknown_count: number
@@ -3019,7 +3022,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                           }}
                           badges={[
                             {
-                              label: modeLabel,
+                              label: `${modeLabel} · ${sectionLabel[entry.section ?? 'fruit']}`,
                               className: 'rounded-full bg-slate-100 px-2 py-0.5 text-[12px] font-medium text-slate-700',
                             },
                             {

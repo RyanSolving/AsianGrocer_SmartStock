@@ -4,9 +4,12 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Download, Loader2, RefreshCw } from 'lucide-react'
 import { toPng } from 'html-to-image'
 import { getLocalTodayDate } from '../../lib/date-utils'
+import { useSectionChoice } from '../../lib/section-store'
+import type { SectionChoice } from '../../lib/sections'
 
 import { DailyReportSummary } from './DailyReportSummary'
 import { ReportInfo } from './ReportNotices'
+import { SectionPicker } from './SectionPicker'
 import { Button, IconButton } from './ui/Button'
 import { inputClass } from './ui/Input'
 import { ActionBar, ScreenHeader } from './ui/Primitives'
@@ -20,11 +23,11 @@ type DashboardPanelProps = {
   defaultDate?: string | null
 }
 
-function DailySummaryTab({ catalogItems, date, refreshKey }: { catalogItems: ReportCatalogItem[]; date: string; refreshKey: number }) {
+function DailySummaryTab({ catalogItems, date, refreshKey, choice }: { catalogItems: ReportCatalogItem[]; date: string; refreshKey: number; choice: SectionChoice }) {
   const summaryRef = useRef<HTMLDivElement | null>(null)
   const [isExporting, setIsExporting] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
-  const { data, isLoading, error, entries, notices, hasReport, sources, stockInNote, arrivedDates, showsCurrent } = useDailyReportData(date, catalogItems, refreshKey)
+  const { data, isLoading, error, entries, notices, hasReport, sources, stockInNote, arrivedDates, showsCurrent } = useDailyReportData(date, catalogItems, refreshKey, choice)
 
   async function exportPhoto() {
     if (!summaryRef.current) return
@@ -37,7 +40,7 @@ function DailySummaryTab({ catalogItems, date, refreshKey }: { catalogItems: Rep
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
       const dataUrl = await toPng(summaryRef.current, { cacheBust: true, pixelRatio: 2, backgroundColor: '#f3f4f6' })
       const link = document.createElement('a')
-      link.download = `daily-summary-${date}.png`
+      link.download = `daily-summary-${choice}-${date}.png`
       link.href = dataUrl
       link.click()
     } catch (failure) {
@@ -98,6 +101,7 @@ export function DashboardPanel({ catalogItems, defaultDate, liveKey = 0 }: Dashb
     if (defaultDate && !hasPickedDate.current) setSelectedDate(defaultDate)
   }, [defaultDate])
   const [summaryRefreshKey, setSummaryRefreshKey] = useState(0)
+  const [choice, setChoice] = useSectionChoice()
 
   return (
     <section className="space-y-3">
@@ -122,7 +126,9 @@ export function DashboardPanel({ catalogItems, defaultDate, liveKey = 0 }: Dashb
         </IconButton>
       </div>
 
-      <DailySummaryTab catalogItems={catalogItems} date={selectedDate} refreshKey={summaryRefreshKey + liveKey} />
+      <SectionPicker value={choice} onChange={setChoice} label="Dashboard section" />
+
+      <DailySummaryTab catalogItems={catalogItems} date={selectedDate} refreshKey={summaryRefreshKey + liveKey} choice={choice} />
     </section>
   )
 }

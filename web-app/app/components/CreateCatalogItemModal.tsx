@@ -15,11 +15,12 @@ import {
   catalogRowPositionOptions,
   catalogSubLocationInsideOptions,
   catalogSubLocationOutsideOptions,
+  catalogSubLocationVegiesOptions,
 } from '../../lib/stock-schema'
 
 export type CreateCatalogItemPayload = {
   code: string
-  location: 'Inside Coolroom' | 'Outside Coolroom'
+  location: 'Inside Coolroom' | 'Outside Coolroom' | 'Vegies'
   sub_location: string
   category: string
   product: string
@@ -57,6 +58,7 @@ function generateItemCode(category: string, product: string, attribute: string) 
 
 function getSubLocationOptions(location: string) {
   if (location === 'Outside Coolroom') return catalogSubLocationOutsideOptions
+  if (location === 'Vegies') return catalogSubLocationVegiesOptions
   return catalogSubLocationInsideOptions
 }
 

@@ -51,12 +51,13 @@ export async function POST(request: Request) {
       userId: authContext.user.id,
       stockDate: stockRecord.stock_date,
       itemData: mirrorItemData,
+      section: parsed.data.section,
     })
 
     const { data, error } = await supabase
       .from('event_stock_check')
-      .upsert(upsertRow, { onConflict: 'date,mode' })
-      .select('uid_stock_check, created_at, record_name')
+      .upsert(upsertRow, { onConflict: 'date,mode,section' })
+      .select('uid_stock_check, created_at, record_name, section')
       .single()
 
     if (error) {
@@ -75,6 +76,7 @@ export async function POST(request: Request) {
         uid_stock_check: data.uid_stock_check,
         created_at: data.created_at,
         record_name: data.record_name ?? recordName,
+        section: data.section,
         message: 'Stock check saved to Supabase.',
       },
       { status: 200 },

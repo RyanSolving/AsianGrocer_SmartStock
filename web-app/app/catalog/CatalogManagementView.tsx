@@ -25,6 +25,7 @@ import {
   catalogRowPositionOptions,
   catalogSubLocationInsideOptions,
   catalogSubLocationOutsideOptions,
+  catalogSubLocationVegiesOptions,
   type CatalogItem,
 } from '../../lib/stock-schema'
 import { formatDeals, formatMainPrice, normalizeSellPrice, sameSellPrice } from '../../lib/stock-price'
@@ -57,6 +58,7 @@ function generateItemCode(category: string, product: string, attribute: string) 
 
 function getSubLocationOptions(location: string) {
   if (location === 'Outside Coolroom') return catalogSubLocationOutsideOptions
+  if (location === 'Vegies') return catalogSubLocationVegiesOptions
   return catalogSubLocationInsideOptions
 }
 

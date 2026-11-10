@@ -1,5 +1,6 @@
 import type { WarehouseStagingRecord } from './stock-schema'
 import { buildStockCheckRecordName } from './record-names'
+import { sectionOfItems, type Section } from './sections'
 
 export type SupabaseStockCheckRecordData = {
   items: Array<{
@@ -31,6 +32,7 @@ export type SupabaseStockCheckUpsertRow = {
   date: string
   record_name: string
   mode: 'closing_check'
+  section: Section
   item_data: SupabaseStockCheckRecordData
 }
 
@@ -73,12 +75,15 @@ export function buildSupabaseStockCheckUpsertRow(input: {
   userId: string
   stockDate: string
   itemData: SupabaseStockCheckRecordData
+  /** The section counted. Left out = worked out from the items. */
+  section?: Section
 }): SupabaseStockCheckUpsertRow {
   return {
     user_id: input.userId,
     date: input.stockDate,
     record_name: buildStockCheckRecordName(input.stockDate),
     mode: 'closing_check',
+    section: input.section ?? sectionOfItems(input.itemData.items),
     item_data: input.itemData,
   }
 }

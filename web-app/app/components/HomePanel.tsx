@@ -7,6 +7,7 @@ import { getLocalTodayDate } from '../../lib/date-utils'
 import { rankProductsBySales, refillList } from '../../lib/report-aggregations'
 import { formatQuantity } from '../../lib/report-insights'
 import { addDays } from '../../lib/report-records'
+import { useSectionChoice } from '../../lib/section-store'
 import { useDailyReportData, type ReportCatalogItem } from './useDailyReportData'
 
 export type HomeDestination = 'daily-report' | 'data-entry' | 'stock-check' | 'dashboard'
@@ -132,8 +133,9 @@ function HomeContent({ catalogItems, onNavigate, refreshKey = 0, now }: HomePane
   const yesterday = useMemo(() => addDays(today, -1), [today])
 
   // The newest date with a full report (today's only exists after the 4 PM close).
-  const report = useDailyReportData(`latest:${today}`, catalogItems, refreshKey)
-  const todayReport = useDailyReportData(today, catalogItems, refreshKey)
+  const [choice] = useSectionChoice()
+  const report = useDailyReportData(`latest:${today}`, catalogItems, refreshKey, choice)
+  const todayReport = useDailyReportData(today, catalogItems, refreshKey, choice)
   const reportDate = report.data?.date ?? null
   const reportLabel = reportDate === today ? 'Today' : reportDate === yesterday ? 'Yesterday' : 'Latest report'
 
