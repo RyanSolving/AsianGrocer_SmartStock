@@ -17,7 +17,6 @@ import {
   Plus,
   Check,
   Undo2,
-  Tag,
   ChevronDown,
 } from 'lucide-react'
 import { ToastViewport } from './components/ui/Toast'
@@ -620,12 +619,17 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
   const [dataEntryAddHighlightIndex, setDataEntryAddHighlightIndex] = useState<number>(-1)
   const [dataEntrySelectedCatalogCode, setDataEntrySelectedCatalogCode] = useState<string | null>(null)
   const [manualEntryQuantity, setManualEntryQuantity] = useState('')
-  const [manualEntrySpecial, setManualEntrySpecial] = useState(false)
+  /** The note box is tucked away until someone needs it. */
+  const [showEntryNote, setShowEntryNote] = useState(false)
   const [manualEntryNote, setManualEntryNote] = useState('')
   /** Price typed for the item being added; null = the catalog price. */
   const [manualEntrySell, setManualEntrySell] = useState<SellPrice | null>(null)
   const [dataEntryTouchedIndexes, setDataEntryTouchedIndexes] = useState<Set<number>>(() => new Set())
   const [lastAddedEntry, setLastAddedEntry] = useState<LastAddedEntry | null>(null)
+  // Each new item starts with the note tucked away again.
+  useEffect(() => {
+    setShowEntryNote(false)
+  }, [lastAddedEntry?.id])
   const hadParsedDataRef = useRef(false)
   const dataEntryItemInputRef = useRef<HTMLInputElement | null>(null)
   const dataEntryQtyInputRef = useRef<HTMLInputElement | null>(null)
@@ -1829,14 +1833,12 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
           row_position: 'single',
           confidence: 'high',
           catalog_match_status: 'unknown',
-          special: manualEntrySpecial,
           notes: manualEntryNote.trim() || null,
         },
       ])
       setDataEntryNewItemName('')
       setDataEntrySelectedCatalogCode(null)
       setManualEntryQuantity('')
-      setManualEntrySpecial(false)
       setManualEntryNote(''); setManualEntrySell(null)
       setApiError(null)
       noteAdded(itemName, quantity, snapshot, 'not in catalog')
@@ -1851,14 +1853,12 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
         quantity,
         quantity_raw: String(quantity),
         quantity_conflict_flag: false,
-        ...(manualEntrySpecial ? { special: true } : {}),
         ...(manualEntryNote.trim() ? { notes: manualEntryNote.trim() } : {}),
         ...(manualEntrySell ? { sell: manualEntrySell } : {}),
       })
       setDataEntryNewItemName('')
       setDataEntrySelectedCatalogCode(null)
       setManualEntryQuantity('')
-      setManualEntrySpecial(false)
       setManualEntryNote(''); setManualEntrySell(null)
       setApiError(null)
       noteAdded(chosen.official_name, quantity, snapshot)
@@ -1873,23 +1873,20 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
         quantity,
         quantity_raw: String(quantity),
         quantity_conflict_flag: false,
-        ...(manualEntrySpecial ? { special: true } : {}),
         ...(manualEntryNote.trim() ? { notes: manualEntryNote.trim() } : {}),
         ...(manualEntrySell ? { sell: manualEntrySell } : {}),
       })
       setDataEntryNewItemName('')
       setDataEntrySelectedCatalogCode(null)
       setManualEntryQuantity('')
-      setManualEntrySpecial(false)
       setManualEntryNote(''); setManualEntrySell(null)
       setApiError(null)
       noteAdded(chosen.official_name, quantity, snapshot)
       return true
     }
 
-    const added = addKnownDataEntryItem(chosen, quantity, manualEntrySpecial, manualEntryNote, manualEntrySell)
+    const added = addKnownDataEntryItem(chosen, quantity, false, manualEntryNote, manualEntrySell)
     if (added) {
-      setManualEntrySpecial(false)
       setManualEntryNote(''); setManualEntrySell(null)
       noteAdded(chosen.official_name, quantity, snapshot)
     }
@@ -1901,7 +1898,6 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     dataEntryAddSuggestions,
     dataEntryNewItemName,
     manualEntryQuantity,
-    manualEntrySpecial,
     manualEntryNote,
     manualEntrySell,
     missingCatalogItems,
@@ -2240,16 +2236,6 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     const special = row.item.special === true
     return (
       <div className="report-name">
-        <button
-          type="button"
-          aria-label={`Special discount: ${displayName}`}
-          aria-pressed={special}
-          title={special ? 'Special discount (tap to clear)' : 'Mark as special discount'}
-          onClick={() => updateItem(row.index, { special: !special })}
-          className={`relative inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors duration-150 before:absolute before:-inset-2.5 before:content-[''] ${special ? 'bg-[#fbe9e5] text-[#a33626]' : 'text-slate-400 hover:text-ink'}`}
-        >
-          <Tag className="h-4 w-4" strokeWidth={special ? 2.25 : 1.75} aria-hidden="true" />
-        </button>
         <span className={tone}>
           {displayName}
           {special ? <> <span className="report-tag report-tag-special ml-1 align-[1px]">Special</span></> : null}
@@ -3455,34 +3441,37 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                             )
                           })() : null}
 
-                          <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-control px-1 text-[15px] text-ink">
-                            <input
-                              type="checkbox"
-                              checked={manualEntrySpecial}
-                              onChange={(event) => setManualEntrySpecial(event.target.checked)}
-                              disabled={!parsedData}
-                              className="h-5 w-5 rounded border-slate-300 text-forest focus:ring-forest"
-                            />
-                            <span className="inline-flex items-center gap-2">
-                              <Tag className="h-4 w-4 text-[#a33626]" aria-hidden="true" />
-                              Special (discount)
-                            </span>
-                          </label>
-
                           <div>
-                            <label htmlFor="stock-in-note" className="mb-1.5 block text-[14px] font-medium text-ink">Note <span className="font-normal text-muted">(optional)</span></label>
-                            <input
-                              id="stock-in-note"
-                              type="text"
-                              maxLength={200}
-                              autoComplete="off"
-                              enterKeyHint="done"
-                              value={manualEntryNote}
-                              onChange={(event) => setManualEntryNote(event.target.value)}
-                              placeholder="e.g. dropped price to 5.99"
-                              disabled={!parsedData}
-                              className="min-h-12 w-full rounded-control border border-line bg-white px-3 text-[16px] text-ink placeholder:text-muted focus:border-forest focus:outline-none focus:ring-1 focus:ring-forest disabled:opacity-60"
-                            />
+                            {showEntryNote || manualEntryNote !== '' ? (
+                              <>
+                                <label htmlFor="stock-in-note" className="mb-1.5 block text-[14px] font-medium text-ink">Note <span className="font-normal text-muted">(optional)</span></label>
+                                <input
+                                  id="stock-in-note"
+                                  type="text"
+                                  maxLength={200}
+                                  autoComplete="off"
+                                  enterKeyHint="done"
+                                  autoFocus={showEntryNote && manualEntryNote === ''}
+                                  value={manualEntryNote}
+                                  onChange={(event) => setManualEntryNote(event.target.value)}
+                                  placeholder="e.g. dropped price to 5.99"
+                                  disabled={!parsedData}
+                                  className="min-h-12 w-full rounded-control border border-line bg-white px-3 text-[16px] text-ink placeholder:text-muted focus:border-forest focus:outline-none focus:ring-1 focus:ring-forest disabled:opacity-60"
+                                />
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setShowEntryNote(true)}
+                                disabled={!parsedData}
+                                aria-expanded={false}
+                                aria-controls="stock-in-note"
+                                className="inline-flex min-h-11 items-center gap-1.5 rounded-control px-1 text-[15px] font-medium text-forest hover:text-forest-800 disabled:opacity-60"
+                              >
+                                Add a note
+                                <ChevronDown className="h-4 w-4" aria-hidden="true" />
+                              </button>
+                            )}
                           </div>
 
                           <button

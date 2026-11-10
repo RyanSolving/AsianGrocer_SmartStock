@@ -35,15 +35,13 @@ Code: `web-app/app/api/daily-report/route.ts`, `combineStockInRecords` in `web-a
 
 ### 1b. Special discount (Stock In)
 
-- Any stock-in item can be marked **Special**: it arrived on a special discount.
-- To mark it, tick **Special (discount)** before Add, or tap the tag icon before the item's name
-  in the list. Tap the icon again to clear it. Re-adding an item without the tick leaves an
-  existing mark alone.
-- A marked item shows a soft green **SPECIAL** tag on screen and in the Stock In photo, and
-  `yes` in the CSV's **Special** column.
-- Saved as `special: true` on the item in the stock-in record (`event_generate.final_output`)
-  and in the warehouse JSON `item_data`. Older records have no field, which means not special.
-- It is information only: it doesn't change units sold, flags or refill.
+- **Marking an item as Special is no longer offered.** The "Special (discount)" tick in the add form
+  and the tag icon before each item's name were removed. A discount is recorded with the item's
+  price (a changed price is a price change, 1d) and, if useful, the note.
+- Older records keep what they had: an item saved with `special: true` still shows its soft green
+  **SPECIAL** tag on screen and in the Stock In photo, and `yes` in the CSV's **Special** column.
+  Older records without the field mean not special. It never changed units sold, flags or refill.
+- **Note:** in the add form the note box is hidden behind "Add a note" and opens only when someone needs it. It closes again after each item is added.
 
 Code: `special` in `itemSchema` (`web-app/lib/stock-schema.ts`); `renderDataEntryLedgerName`
 in `web-app/app/page.tsx`.
@@ -60,7 +58,7 @@ in `web-app/app/page.tsx`.
   fields of an item never clears its price.
 - **Stock In.** Every row has a **Price** cell starting at the catalog price. Tap it to change the
   price, unit or deals for this delivery. The same can be done while adding: pick the item, then
-  the **Selling price** box under Quantity (order: item, quantity, price, special, note, Add item; Add item asks to confirm a changed price) (it shows the current system price, then sold-by first and the price next to it; no change = the delivery keeps the current price, a change = the new price) (price, sold by, deals). The name column shows only the name and the note; the
+  the **Selling price** box under Quantity (order: item, quantity, price, optional note, Add item; Add item asks to confirm a changed price) (it shows the current system price, then sold-by first and the price next to it; no change = the delivery keeps the current price, a change = the new price) (price, sold by, deals). The name column shows only the name and the note; the
   "Up from ..." text is on the price sheet, the photo and History. The photo, History preview and CSV show the same.
   Stock Close has no prices.
 - **Price change.** A row whose price differs from the catalog price it started from is highlighted
