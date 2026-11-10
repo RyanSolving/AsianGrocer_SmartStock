@@ -97,4 +97,17 @@ describe('buildOutsideDisplayColumns', () => {
     expect(columns.middle).toHaveLength(6)
     expect(columns.right).toHaveLength(3)
   })
+
+  it('collects Vegies rows apart from the coolroom sections', () => {
+    const sections = buildPaperSections(indexed([
+      row({ official_name: 'Apple' }),
+      row({ official_name: 'Choy Sum', location: 'Vegies', sub_location: 'Vegies', row_position: 'single' }),
+      row({ official_name: 'Bok Choy', location: 'Vegies', sub_location: 'Vegies', row_position: 'single' }),
+    ]))
+
+    expect(sections.vegieRows.single.map((x) => x.row.official_name)).toEqual(['Bok Choy', 'Choy Sum'])
+    expect(sections.outsideRows.single).toHaveLength(0)
+    expect([...sections.leftColumn, ...sections.rightColumn].flatMap((s) => s.rows.left.concat(s.rows.right, s.rows.single))
+      .map((x) => x.row.official_name)).toEqual(['Apple'])
+  })
 })

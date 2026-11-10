@@ -178,6 +178,15 @@ Rules are checked in this order; the first match wins:
 Code: `getStockFlag` in `web-app/lib/report-insights.ts`; colours in
 `web-app/app/components/StockFlagBadge.tsx`.
 
+### 3-. Fruit and Vegies reports
+
+- The Daily Report has two reports, picked with the **Fruit** / **Vegies** buttons above the
+  search (each shows its item count). Vegies are catalog items with location `Vegies`; every
+  other item, including unclassified ones, is Fruit.
+- Search, badge chips and counts follow the report picked. The exported photo is the picked
+  report only and is named `daily-fruit-<date>.png` or `daily-vegies-<date>.png`.
+- Code: `VEGIES_LOCATION` / `vegieRows` in `web-app/lib/stock-paper-layout.ts`; `DailyReportPanel.tsx`.
+
 ### 3a. Filtering the Daily Report by badge
 
 - Chips under the search: All, Stock-out, Low stock, No sell, Over-stock, No badge, each with

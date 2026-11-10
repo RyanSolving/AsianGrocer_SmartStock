@@ -35,6 +35,7 @@ export type PaperSection<T extends PaperRow = PaperRow> = {
 }
 
 export const OUTSIDE_SECTION_ID = 'outside-coolroom'
+export const VEGIES_LOCATION = 'Vegies'
 export const UNKNOWN_SECTION_ID = 'unclassified-staff-inspection'
 
 export function toSectionId(value: string) {
@@ -123,12 +124,16 @@ export function buildPaperSections<T extends PaperRow>(displayedIndexedRows: Ind
 
   const outsideRows = sortIndexedRowsByName(displayedIndexedRows.filter((x) => x.row.location === 'Outside Coolroom'))
   const unknownRows = sortIndexedRowsByName(displayedIndexedRows.filter((x) => x.row.source === 'unknown'))
+  const vegieRows = sortIndexedRowsByName(
+    displayedIndexedRows.filter((x) => x.row.location === VEGIES_LOCATION && x.row.source !== 'unknown'),
+  )
 
   return {
     leftColumn: insideSections.slice(0, midpoint),
     rightColumn: insideSections.slice(midpoint),
     outsideRows: splitRows(outsideRows),
     unknownRows: splitRows(unknownRows),
+    vegieRows: splitRows(vegieRows),
   }
 }
 

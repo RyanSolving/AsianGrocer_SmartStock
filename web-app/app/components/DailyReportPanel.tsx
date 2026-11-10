@@ -6,7 +6,7 @@ import { Download, Loader2, RefreshCw, Search, X } from 'lucide-react'
 import { toPng } from 'html-to-image'
 
 import { formatDayLabel, getLocalTodayDate } from '../../lib/date-utils'
-import { buildPaperSections, sortIndexedRowsByName, type PaperRowColumns } from '../../lib/stock-paper-layout'
+import { buildPaperSections, sortIndexedRowsByName, VEGIES_LOCATION, type PaperRowColumns } from '../../lib/stock-paper-layout'
 import { formatSheetDate } from '../../lib/stock-paper-utils'
 import { formatQuantity, type ItemInsight, type StockFlag } from '../../lib/report-insights'
 import { useDailyReportData, type ReportRow, type IndexedReportRow, type ReportCatalogItem } from './useDailyReportData'
@@ -31,6 +31,9 @@ type DailyReportPanelProps = {
 function orderedRows(rows: PaperRowColumns<ReportRow>) {
   return sortIndexedRowsByName([...rows.left, ...rows.right, ...rows.single])
 }
+
+type ReportView = 'fruit' | 'vegies'
+const viewLabel: Record<ReportView, string> = { fruit: 'Fruit', vegies: 'Vegies' }
 
 type ReportGroup = { title?: string; items: IndexedReportRow[] }
 
@@ -179,22 +182,33 @@ export function DailyReportPanel({ catalogItems, requestedDate, defaultDate, liv
 
   const openFlagPicker = (row: ReportRow) => setFlagPickerRow(row)
 
+  // Fruit and Vegies are separate reports: the screen and the exported photo show one at a time.
+  const [view, setView] = useState<ReportView>('fruit')
+  const viewCounts = useMemo(() => {
+    const vegies = indexedRows.filter(({ row }) => row.location === VEGIES_LOCATION).length
+    return { fruit: indexedRows.length - vegies, vegies }
+  }, [indexedRows])
+  const viewRows = useMemo(
+    () => indexedRows.filter(({ row }) => (row.location === VEGIES_LOCATION) === (view === 'vegies')),
+    [indexedRows, view],
+  )
+
   // Badge filter: empty means every item. Applies to the screen and the exported photo.
   const [badgeFilter, setBadgeFilter] = useState<BadgeKey[]>([])
   const badgeCounts = useMemo(() => {
     const counts = new Map<BadgeKey, number>()
-    for (const { row } of indexedRows) {
+    for (const { row } of viewRows) {
       const key = insights[row.code]?.stockFlag ?? 'none'
       counts.set(key, (counts.get(key) ?? 0) + 1)
     }
     return counts
-  }, [indexedRows, insights])
+  }, [viewRows, insights])
   const toggleBadge = (key: BadgeKey) => setBadgeFilter((current) =>
     current.includes(key) ? current.filter((value) => value !== key) : [...current, key])
   const badgeRows = useMemo(() => {
-    if (badgeFilter.length === 0) return indexedRows
-    return indexedRows.filter(({ row }) => badgeFilter.includes(insights[row.code]?.stockFlag ?? 'none'))
-  }, [indexedRows, insights, badgeFilter])
+    if (badgeFilter.length === 0) return viewRows
+    return viewRows.filter(({ row }) => badgeFilter.includes(insights[row.code]?.stockFlag ?? 'none'))
+  }, [viewRows, insights, badgeFilter])
 
   const [query, setQuery] = useState('')
   const terms = useMemo(() => query.trim().toLowerCase().split(/\s+/).filter(Boolean), [query])
@@ -227,6 +241,7 @@ export function DailyReportPanel({ catalogItems, requestedDate, defaultDate, liv
       right: paper.rightColumn.map(toGroup),
       outside: orderedRows(paper.outsideRows),
       unknown: orderedRows(paper.unknownRows),
+      vegies: orderedRows(paper.vegieRows),
     }
   }
   // The exported photo follows the badge filter; the search only narrows the screen.
@@ -247,7 +262,7 @@ export function DailyReportPanel({ catalogItems, requestedDate, defaultDate, liv
       })
 
       const link = document.createElement('a')
-      link.download = `daily-detail-${reportDate}.png`
+      link.download = `daily-${view}-${reportDate}.png`
       link.href = dataUrl
       link.click()
     } catch (failure) {
@@ -263,10 +278,13 @@ export function DailyReportPanel({ catalogItems, requestedDate, defaultDate, liv
   function renderSheet(photo: boolean) {
     const sections = photo ? allSections : screenSections
     const midpoint = Math.ceil(sections.outside.length / 2)
+    const vegieMidpoint = Math.ceil(sections.vegies.length / 2)
+    const isVegies = view === 'vegies'
+    const sheetTitle = `${isVegies ? 'Vegies' : 'Fruit'} ${showsCurrent ? 'current stock' : 'closing stock'}`
     return (
       <div ref={photo ? photoRef : undefined} className={photo ? "report-photo bg-surface" : "report-screen bg-surface"}>
         <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 py-4 sm:px-5">
-          <h2 className="text-lg font-semibold tracking-tight text-forest">{showsCurrent ? 'Current stock' : 'Closing stock'}</h2>
+          <h2 className="text-lg font-semibold tracking-tight text-forest">{sheetTitle}</h2>
           <div className="flex items-center gap-3">
             <time dateTime={reportDate} className="text-xs font-medium text-muted">{formatSheetDate(reportDate)}</time>
             {photo && <BrandTile className="opacity-80" />}
@@ -279,27 +297,43 @@ export function DailyReportPanel({ catalogItems, requestedDate, defaultDate, liv
           ) : null}
           {badgeFilter.length > 0 ? (
             <p className="w-full text-[13px] font-medium text-ink">
-              Showing {badgeFilter.map((key) => badgeLabel[key]).join(', ')} · {badgeRows.length} of {indexedRows.length} items
+              Showing {badgeFilter.map((key) => badgeLabel[key]).join(', ')} · {badgeRows.length} of {viewRows.length} items
             </p>
           ) : null}
           {photo ? null : <p className="w-full text-[13px] text-muted">Tap an item to change or remove its badge.</p>}
         </header>
-        {photo && sections.right.length > 0 ? (
-          <PhotoColumns title="Inside coolroom" left={sections.left} right={sections.right} insights={insights} stockLabel={stockLabel} soldLabel={soldLabel} />
+        {isVegies ? (
+          photo && sections.vegies.length > 1 ? (
+            <PhotoColumns
+              title="Vegies"
+              left={[{ items: sections.vegies.slice(0, vegieMidpoint) }]}
+              right={[{ items: sections.vegies.slice(vegieMidpoint) }]}
+              insights={insights}
+              stockLabel={stockLabel} soldLabel={soldLabel}
+            />
+          ) : (
+            <ReportArea title="Vegies" groups={[{ items: sections.vegies }]} insights={insights} stockLabel={stockLabel} soldLabel={soldLabel} onSelectItem={photo ? undefined : openFlagPicker} />
+          )
         ) : (
-          <ReportArea title="Inside coolroom" groups={[...sections.left, ...sections.right]} insights={insights} stockLabel={stockLabel} soldLabel={soldLabel} onSelectItem={photo ? undefined : openFlagPicker} />
-        )}
-        <ReportArea title="Unclassified / staff inspection" groups={[{ items: sections.unknown }]} insights={insights} stockLabel={stockLabel} soldLabel={soldLabel} onSelectItem={photo ? undefined : openFlagPicker} />
-        {photo && sections.outside.length > 0 ? (
-          <PhotoColumns
-            title="Outside coolroom"
-            left={[{ items: sections.outside.slice(0, midpoint) }]}
-            right={[{ items: sections.outside.slice(midpoint) }]}
-            insights={insights}
-            stockLabel={stockLabel} soldLabel={soldLabel}
-          />
-        ) : (
-          <ReportArea title="Outside coolroom" groups={[{ items: sections.outside }]} insights={insights} stockLabel={stockLabel} soldLabel={soldLabel} onSelectItem={photo ? undefined : openFlagPicker} />
+          <>
+            {photo && sections.right.length > 0 ? (
+              <PhotoColumns title="Inside coolroom" left={sections.left} right={sections.right} insights={insights} stockLabel={stockLabel} soldLabel={soldLabel} />
+            ) : (
+              <ReportArea title="Inside coolroom" groups={[...sections.left, ...sections.right]} insights={insights} stockLabel={stockLabel} soldLabel={soldLabel} onSelectItem={photo ? undefined : openFlagPicker} />
+            )}
+            <ReportArea title="Unclassified / staff inspection" groups={[{ items: sections.unknown }]} insights={insights} stockLabel={stockLabel} soldLabel={soldLabel} onSelectItem={photo ? undefined : openFlagPicker} />
+            {photo && sections.outside.length > 0 ? (
+              <PhotoColumns
+                title="Outside coolroom"
+                left={[{ items: sections.outside.slice(0, midpoint) }]}
+                right={[{ items: sections.outside.slice(midpoint) }]}
+                insights={insights}
+                stockLabel={stockLabel} soldLabel={soldLabel}
+              />
+            ) : (
+              <ReportArea title="Outside coolroom" groups={[{ items: sections.outside }]} insights={insights} stockLabel={stockLabel} soldLabel={soldLabel} onSelectItem={photo ? undefined : openFlagPicker} />
+            )}
+          </>
         )}
       </div>
     )
@@ -352,6 +386,22 @@ export function DailyReportPanel({ catalogItems, requestedDate, defaultDate, liv
       {isLoading && !data ? (
         <div className="flex min-h-[200px] items-center justify-center gap-2 rounded-card border border-line bg-surface text-[15px] text-muted">
           <Loader2 className="h-5 w-5 animate-spin" /> Loading report…
+        </div>
+      ) : null}
+
+      {hasReport ? (
+        <div className="flex gap-2" role="group" aria-label="Report">
+          {(['fruit', 'vegies'] as const).map((key) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => { setView(key); setBadgeFilter([]) }}
+              aria-pressed={view === key}
+              className={`${chipClass} flex-1 justify-center sm:flex-none ${view === key ? chipOn : chipOff}`}
+            >
+              {viewLabel[key]} <span className="tabular opacity-70">{viewCounts[key]}</span>
+            </button>
+          ))}
         </div>
       ) : null}
 
@@ -434,7 +484,7 @@ export function DailyReportPanel({ catalogItems, requestedDate, defaultDate, liv
             aria-pressed={badgeFilter.length === 0}
             className={`${chipClass} ${badgeFilter.length === 0 ? chipOn : chipOff}`}
           >
-            All <span className="tabular opacity-70">{indexedRows.length}</span>
+            All <span className="tabular opacity-70">{viewRows.length}</span>
           </button>
           {badgeKeys.map((key) => {
             const on = badgeFilter.includes(key)
@@ -456,6 +506,10 @@ export function DailyReportPanel({ catalogItems, requestedDate, defaultDate, liv
 
       {hasReport && badgeFilter.length > 0 && badgeRows.length === 0 ? (
         <p className="px-1 text-[13px] text-muted">No item has {badgeFilter.length === 1 ? 'this badge' : 'these badges'}.</p>
+      ) : null}
+
+      {hasReport && viewRows.length === 0 ? (
+        <p className="px-1 text-[13px] text-muted">No {viewLabel[view].toLowerCase()} items in the catalog yet.</p>
       ) : null}
 
       {hasReport && terms.length > 0 ? (
