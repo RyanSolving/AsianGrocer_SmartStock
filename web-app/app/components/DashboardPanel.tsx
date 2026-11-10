@@ -5,7 +5,7 @@ import { Download, Loader2, RefreshCw } from 'lucide-react'
 import { toPng } from 'html-to-image'
 import { getLocalTodayDate } from '../../lib/date-utils'
 import { useSectionChoice } from '../../lib/section-store'
-import type { SectionChoice } from '../../lib/sections'
+import { sectionLabel, type SectionChoice } from '../../lib/sections'
 
 import { DailyReportSummary } from './DailyReportSummary'
 import { ReportInfo } from './ReportNotices'
@@ -80,6 +80,7 @@ function DailySummaryTab({ catalogItems, date, refreshKey, choice }: { catalogIt
               prevClosingDate={data?.prevClosingDate ?? null}
               entries={entries}
               showsCurrent={showsCurrent}
+              sectionTitle={choice === 'both' ? undefined : sectionLabel[choice]}
             />
           </div>
           <ActionBar className="md:static md:flex md:justify-end md:border-0 md:bg-transparent md:p-0 md:backdrop-blur-none">

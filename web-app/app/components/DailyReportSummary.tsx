@@ -71,6 +71,8 @@ type DailyReportSummaryProps = {
   entries: ReportEntry[]
   /** Stock figures include stock in that arrived after the closing. */
   showsCurrent?: boolean
+  /** Fruit or Vegies, shown after the title; left out for Both. */
+  sectionTitle?: string
 }
 
 function Panel({ children, className = '' }: { children: ReactNode; className?: string }) {
@@ -200,7 +202,7 @@ function CategoryBars({ slices, onHover, onLeave, soldLabel = 'units sold' }: {
   )
 }
 
-export function DailyReportSummary({ containerRef, photoMode = false, date, prevClosingDate, entries, showsCurrent = false }: DailyReportSummaryProps) {
+export function DailyReportSummary({ containerRef, photoMode = false, date, prevClosingDate, entries, showsCurrent = false, sectionTitle }: DailyReportSummaryProps) {
   const [tooltip, setTooltip] = useState<TooltipState>(null)
 
   const insights = Object.fromEntries(entries.map((entry) => [entry.code, entry.insight]))
@@ -288,7 +290,7 @@ export function DailyReportSummary({ containerRef, photoMode = false, date, prev
             <BrandTile size="md" />
             <div className="min-w-0">
               <p className="text-[13px] font-medium" style={{ color: C.muted }}>Asian Grocer</p>
-              <h2 className="text-[24px] font-semibold leading-tight">Daily summary</h2>
+              <h2 className="text-[24px] font-semibold leading-tight">{sectionTitle ? `Daily summary · ${sectionTitle}` : 'Daily summary'}</h2>
             </div>
           </div>
           <div className="text-right">

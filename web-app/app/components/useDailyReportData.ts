@@ -8,7 +8,7 @@ import { friendlyError, toast } from '../../lib/toast-store'
 import type { IndexedPaperRow, PaperRow } from '../../lib/stock-paper-layout'
 import { addDays, daysBetween, describeStockInRecords } from '../../lib/report-records'
 import { formatDayLabel, getLocalTodayDate } from '../../lib/date-utils'
-import { sectionLabel, sectionsOf, type Section, type SectionChoice } from '../../lib/sections'
+import { sectionLabel, sectionsOf, VEGIES_LOCATION, type Section, type SectionChoice } from '../../lib/sections'
 
 /**
  * Loads one day's report data (closing, previous closing, stock-in) and derives the
@@ -358,7 +358,8 @@ export function useDailyReportData(date: string, catalogItems: ReportCatalogItem
       .map(({ row }) => ({
         code: row.code,
         name: row.official_name,
-        category: row.category,
+        // Vegies are grouped by their big category (Leafy & Salad, Root & Starchy, ...), not each vegie type.
+        category: row.location === VEGIES_LOCATION ? (row.sub_location || row.category) : row.category,
         insight: insights[row.code],
       })),
     [indexedRows, insights],
