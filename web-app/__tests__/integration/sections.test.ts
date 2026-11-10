@@ -6,7 +6,7 @@
 import { describe, expect, it } from '@jest/globals'
 
 import { buildSupabaseStockCheckUpsertRow, type SupabaseStockCheckRecordData } from '../../lib/stock-check-save'
-import { filterBySection, parseSection, parseSectionChoice, sectionOfItems, sectionOfLocation, sectionsOf, splitBySection } from '../../lib/sections'
+import { filterBySection, parseSection, parseSectionChoice, sectionOfItems, sectionOfLocation, sectionsOf, splitBySection, stockInPhotoParts } from '../../lib/sections'
 import { catalogItemSchema, saveToWarehouseEnvelopeSchema } from '../../lib/stock-schema'
 import { toLedgerAreas } from '../../lib/ledger-areas'
 import { sectionQuestion } from '../../lib/section-question'
@@ -150,5 +150,28 @@ describe('the pop-up asked before entry', () => {
 
   it('never highlights Both for Stock Close, whatever the device remembers', () => {
     expect(sectionQuestion('count', 'both').choices.some((choice) => choice.primary)).toBe(false)
+  })
+})
+
+describe('Stock In photos (one per team)', () => {
+  it('makes one photo of everything for a single section', () => {
+    expect(stockInPhotoParts('vegies', { fruit: false, vegies: true })).toEqual([{ section: 'vegies', everything: true, withUnknown: true }])
+    expect(stockInPhotoParts('fruit', { fruit: true, vegies: false })).toEqual([{ section: 'fruit', everything: true, withUnknown: true }])
+  })
+
+  it('Both makes a fruit photo and a vegies photo when both have counts', () => {
+    expect(stockInPhotoParts('both', { fruit: true, vegies: true })).toEqual([
+      { section: 'fruit', everything: false, withUnknown: true },
+      { section: 'vegies', everything: false, withUnknown: false },
+    ])
+  })
+
+  it('Both with only one section counted makes only that photo, and typed-in items go on it', () => {
+    expect(stockInPhotoParts('both', { fruit: true, vegies: false })).toEqual([{ section: 'fruit', everything: false, withUnknown: true }])
+    expect(stockInPhotoParts('both', { fruit: false, vegies: true })).toEqual([{ section: 'vegies', everything: false, withUnknown: true }])
+  })
+
+  it('Both with nothing counted still returns one part', () => {
+    expect(stockInPhotoParts('both', { fruit: false, vegies: false })).toHaveLength(1)
   })
 })

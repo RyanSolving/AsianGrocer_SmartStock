@@ -69,3 +69,19 @@ export function splitBySection<T extends { location: string; quantity?: number |
   const counted = groups.filter((group) => group.items.some((item) => item.quantity !== null && item.quantity !== undefined))
   return counted.length > 0 ? counted : [groups[0]]
 }
+
+/** One exported Stock In photo. `everything`: a single-section sheet shows all its rows; `withUnknown`: items typed by name go on it. */
+export type StockInPhotoPart = { section: Section; everything: boolean; withUnknown: boolean }
+
+/**
+ * The photos a Stock In save makes. Fruit and vegies go to different teams, so Both makes one
+ * photo per section that has counts; one section makes one photo. Items typed in by name go on the
+ * first photo, the same as they go with the first saved record.
+ */
+export function stockInPhotoParts(choice: SectionChoice, counted: { fruit: boolean; vegies: boolean }): StockInPhotoPart[] {
+  if (choice !== 'both') return [{ section: choice, everything: true, withUnknown: true }]
+  const parts: StockInPhotoPart[] = []
+  if (counted.fruit) parts.push({ section: 'fruit', everything: false, withUnknown: true })
+  if (counted.vegies) parts.push({ section: 'vegies', everything: false, withUnknown: !counted.fruit })
+  return parts.length > 0 ? parts : [{ section: 'fruit', everything: false, withUnknown: true }]
+}

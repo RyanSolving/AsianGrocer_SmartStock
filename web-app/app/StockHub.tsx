@@ -34,7 +34,7 @@ import { sectionFromQuery } from '../lib/hub-navigation'
 import { useKeypadEntry } from '../lib/use-keypad-entry'
 import { latestReportDate } from '../lib/report-records'
 import { catalogSubLocationVegiesOptions } from '../lib/stock-schema'
-import { filterBySection, sectionLabel, sectionOfLocation, sectionsOf, splitBySection, type Section, type SectionChoice } from '../lib/sections'
+import { filterBySection, sectionLabel, sectionOfLocation, sectionsOf, splitBySection, stockInPhotoParts, type Section, type SectionChoice, type StockInPhotoPart } from '../lib/sections'
 import { useSectionChoice } from '../lib/section-store'
 import { friendlyError, toast } from '../lib/toast-store'
 
@@ -581,6 +581,8 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
   const [isExporting, setIsExporting] = useState(false)
   const [isExportingStockInPhoto, setIsExportingStockInPhoto] = useState(false)
   const stockInPhotoRef = useRef<HTMLDivElement | null>(null)
+  /** Which part of the delivery the off-screen photo sheet shows while exporting (Both makes one photo per section). */
+  const [stockInPhotoPart, setStockInPhotoPart] = useState<StockInPhotoPart | null>(null)
   /** Latest exportStockInPhoto, so the Save flow (awaiting a save) always uses the current sheet. */
   const exportPhotoRef = useRef<(() => Promise<boolean>) | null>(null)
   /** Catalog prices the last save updated, for the "saved" message. */
@@ -1369,6 +1371,19 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     // priceStateOf reads the catalog prices, so the photo follows them.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paperSections, stockInCatalog, catalogSellByCode])
+
+  /**
+   * The photos a save makes. Fruit and vegies go to different teams, so Both makes one photo per
+   * section that has counts; a single section makes one photo. Items typed in by name go on the
+   * first photo, the same as they go with the first saved record.
+   */
+  const stockInPhotoPartsList = useMemo<StockInPhotoPart[]>(() => {
+    const has = (groups: PhotoGroup[]) => groups.some((group) => group.rows.length > 0)
+    return stockInPhotoParts(stockInChoice, {
+      fruit: has(stockInPhoto.insideLeft) || has(stockInPhoto.insideRight) || stockInPhoto.outside.length > 0,
+      vegies: has(stockInPhoto.vegiesLeft) || has(stockInPhoto.vegiesRight),
+    })
+  }, [stockInChoice, stockInPhoto])
 
   const outsideDisplayColumns = useMemo(() => {
     const combinedOutside = [
@@ -2390,13 +2405,22 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     const date = parsedData?.stock_date || today
 
     try {
-      flushSync(() => setIsExportingStockInPhoto(true))
-      if (!stockInPhotoRef.current) throw new Error('The stock in sheet is no longer available.')
-      const dataUrl = await toPng(stockInPhotoRef.current, { cacheBust: true, pixelRatio: 2, backgroundColor: '#fefefe' })
-      const link = document.createElement('a')
-      link.download = `stock-in-${date}.png`
-      link.href = dataUrl
-      link.click()
+      // Both: one photo per section, each downloaded on its own (they go to different teams).
+      for (let index = 0; index < stockInPhotoPartsList.length; index += 1) {
+        const part = stockInPhotoPartsList[index]
+        flushSync(() => {
+          setStockInPhotoPart(part)
+          setIsExportingStockInPhoto(true)
+        })
+        if (!stockInPhotoRef.current) throw new Error('The stock in sheet is no longer available.')
+        const dataUrl = await toPng(stockInPhotoRef.current, { cacheBust: true, pixelRatio: 2, backgroundColor: '#fefefe' })
+        const link = document.createElement('a')
+        link.download = `stock-in-${part.section}-${date}.png`
+        link.href = dataUrl
+        link.click()
+        // A short gap so the browser treats the downloads as separate.
+        if (index < stockInPhotoPartsList.length - 1) await new Promise((resolve) => window.setTimeout(resolve, 400))
+      }
       return true
     } catch (failure) {
       const friendly = friendlyError(failure instanceof Error ? failure.message : 'Failed to export the stock in photo.')
@@ -2407,6 +2431,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       return false
     } finally {
       setIsExportingStockInPhoto(false)
+      setStockInPhotoPart(null)
     }
   }
   exportPhotoRef.current = exportStockInPhoto
@@ -2739,11 +2764,11 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     } else if (window.navigator.onLine) {
       toast.success([
         'Stock in saved',
-        parsedData.items.some((item) => typeof item.quantity === 'number' && item.quantity > 0) ? 'photo downloaded' : null,
+        parsedData.items.some((item) => typeof item.quantity === 'number' && item.quantity > 0) ? (stockInPhotoPartsList.length > 1 ? `${stockInPhotoPartsList.length} photos downloaded` : 'photo downloaded') : null,
         pricesUpdated > 0 ? `${pricesUpdated} catalog ${pricesUpdated === 1 ? 'price' : 'prices'} updated` : null,
       ].filter(Boolean).join(' · '))
     }
-  }, [parsedData, normalizeAndMarkValidated, latestGenerateUid, latestVegiesUid, stockInChoice, saveToSupabase, syncStockInToWarehouse, clearStockInSheet, ask, historyData])
+  }, [parsedData, normalizeAndMarkValidated, latestGenerateUid, latestVegiesUid, stockInChoice, stockInPhotoPartsList, saveToSupabase, syncStockInToWarehouse, clearStockInSheet, ask, historyData])
 
   async function loadToBigQuery(overrideUidOrSaved?: string | boolean) {
     if (!parsedData) {
@@ -3593,19 +3618,19 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                 </div>
 
                 <div className="space-y-6">
-                  {isExportingStockInPhoto ? (
+                  {isExportingStockInPhoto && stockInPhotoPart ? (
                     <div aria-hidden="true" className="pointer-events-none fixed right-full top-0">
                       <LedgerPhotoSheet
                         ref={stockInPhotoRef}
-                        title="Stock in"
+                        title={`Stock in · ${sectionLabel[stockInPhotoPart.section]}`}
                         date={parsedData?.stock_date || today}
                         quantityLabel="Stock in"
-                        insideLeft={stockInPhoto.insideLeft}
-                        insideRight={stockInPhoto.insideRight}
-                        outside={stockInPhoto.outside}
-                        unknown={stockInPhoto.unknown}
-                        vegiesLeft={stockInPhoto.vegiesLeft}
-                        vegiesRight={stockInPhoto.vegiesRight}
+                        insideLeft={stockInPhotoPart.everything || stockInPhotoPart.section === 'fruit' ? stockInPhoto.insideLeft : []}
+                        insideRight={stockInPhotoPart.everything || stockInPhotoPart.section === 'fruit' ? stockInPhoto.insideRight : []}
+                        outside={stockInPhotoPart.everything || stockInPhotoPart.section === 'fruit' ? stockInPhoto.outside : []}
+                        unknown={stockInPhotoPart.withUnknown ? stockInPhoto.unknown : []}
+                        vegiesLeft={stockInPhotoPart.everything || stockInPhotoPart.section === 'vegies' ? stockInPhoto.vegiesLeft : []}
+                        vegiesRight={stockInPhotoPart.everything || stockInPhotoPart.section === 'vegies' ? stockInPhoto.vegiesRight : []}
                         layout="list"
                       />
                     </div>

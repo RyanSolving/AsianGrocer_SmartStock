@@ -210,7 +210,11 @@ Fruit and Vegies are two sections of one store, counted and received separately.
 - **Same rules for now:** sold, current, stock-out/low/over-stock badges all work the same for
   both sections. Vegies use the catalog units (kg, bunch, box) until changed.
 - **Warehouse (BigQuery):** vegies are not sent; their records live in Supabase only.
-- The exported photo is the section(s) on screen: `daily-fruit-<date>.png`, `daily-vegies-<date>.png`
+- **Stock In photos, one per team:** Save downloads a photo of the delivery. With Both it downloads
+  two, `stock-in-fruit-<date>.png` and `stock-in-vegies-<date>.png`, each titled "Stock in · Fruit" or
+  "Stock in · Vegies", because the fruit team and the vegies team are sent their own. A section with
+  nothing counted gets no photo. With one section chosen it is one photo (`stock-in-<section>-<date>.png`).
+- The exported report photo is the section(s) on screen: `daily-fruit-<date>.png`, `daily-vegies-<date>.png`
   or `daily-both-<date>.png`.
 
 ### 3a. Filtering the Daily Report by badge
