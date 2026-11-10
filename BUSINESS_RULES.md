@@ -214,8 +214,10 @@ Fruit and Vegies are two sections of one store, counted and received separately.
   two, `stock-in-fruit-<date>.png` and `stock-in-vegies-<date>.png`, each titled "Stock in · Fruit" or
   "Stock in · Vegies", because the fruit team and the vegies team are sent their own. A section with
   nothing counted gets no photo. With one section chosen it is one photo (`stock-in-<section>-<date>.png`).
-- The exported report photo is the section(s) on screen: `daily-fruit-<date>.png`, `daily-vegies-<date>.png`
-  or `daily-both-<date>.png`.
+- **Daily Report photos, one per team:** with Both, Export photo downloads two, `daily-fruit-<date>.png` and
+  `daily-vegies-<date>.png`, each titled and counted for its own section ("Fruit current stock", "Vegies
+  closing stock"). A section with no items gets no photo. With Fruit or Vegies chosen it is one photo of
+  that section. The badge filter applies to every photo. The Dashboard's owner photo is still one photo.
 
 ### 3a. Filtering the Daily Report by badge
 

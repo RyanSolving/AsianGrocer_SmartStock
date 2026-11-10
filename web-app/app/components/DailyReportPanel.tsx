@@ -15,7 +15,7 @@ import { FlagPickerSheet } from './FlagPickerSheet'
 import { BrandTile } from './BrandMark'
 import { SectionPicker } from './SectionPicker'
 import { useSectionChoice } from '../../lib/section-store'
-import { sectionLabel } from '../../lib/sections'
+import { reportPhotoSections, sectionLabel, sectionOfLocation, type Section, type SectionChoice } from '../../lib/sections'
 import { ReportInfo } from './ReportNotices'
 import { Button, IconButton } from './ui/Button'
 import { fieldClass, inputClass } from './ui/Input'
@@ -172,6 +172,8 @@ export function DailyReportPanel({ catalogItems, requestedDate, defaultDate, liv
   }, [defaultDate])
   const [choice, setChoice] = useSectionChoice()
   const [isExporting, setIsExporting] = useState(false)
+  /** Which section the off-screen photo sheet shows while exporting (Both makes one photo per section). */
+  const [photoPart, setPhotoPart] = useState<Section | null>(null)
   const [exportError, setExportError] = useState<string | null>(null)
   const photoRef = useRef<HTMLDivElement | null>(null)
 
@@ -246,35 +248,53 @@ export function DailyReportPanel({ catalogItems, requestedDate, defaultDate, liv
     if (isExporting) return
     setExportError(null)
 
-    try {
-      flushSync(() => setIsExporting(true))
-      if (!photoRef.current) throw new Error('Report is no longer available.')
-      const dataUrl = await toPng(photoRef.current, {
-        cacheBust: true,
-        pixelRatio: 2,
-        backgroundColor: '#fefefe',
-      })
+    // Both: one photo per section, each downloaded on its own (they go to different teams).
+    const parts = reportPhotoSections(choice, {
+      fruit: badgeRows.some(({ row }) => sectionOfLocation(row.location) === 'fruit'),
+      vegies: badgeRows.some(({ row }) => sectionOfLocation(row.location) === 'vegies'),
+    })
 
-      const link = document.createElement('a')
-      link.download = `daily-${choice}-${reportDate}.png`
-      link.href = dataUrl
-      link.click()
+    try {
+      for (let index = 0; index < parts.length; index += 1) {
+        const part = parts[index]
+        flushSync(() => {
+          setPhotoPart(choice === 'both' ? part : null)
+          setIsExporting(true)
+        })
+        if (!photoRef.current) throw new Error('Report is no longer available.')
+        const dataUrl = await toPng(photoRef.current, {
+          cacheBust: true,
+          pixelRatio: 2,
+          backgroundColor: '#fefefe',
+        })
+
+        const link = document.createElement('a')
+        link.download = `daily-${part}-${reportDate}.png`
+        link.href = dataUrl
+        link.click()
+        // A short gap so the browser treats the downloads as separate.
+        if (index < parts.length - 1) await new Promise((resolve) => window.setTimeout(resolve, 400))
+      }
     } catch (failure) {
       setExportError(failure instanceof Error ? failure.message : 'Failed to export the report photo.')
     } finally {
       setIsExporting(false)
+      setPhotoPart(null)
     }
   }
 
   const stockLabel = showsCurrent ? 'Current' : 'Closing'
   const soldLabel = soldPeriod ? 'Sold/day' : 'Sold'
 
-  function renderSheet(photo: boolean) {
+  function renderSheet(photo: boolean, part: Section | null = null) {
     const sections = photo ? allSections : screenSections
     const midpoint = Math.ceil(sections.outside.length / 2)
-    const showFruit = choice !== 'vegies'
-    const showVegies = choice !== 'fruit'
-    const sheetTitle = `${choice === 'both' ? '' : `${sectionLabel[choice]} `}${showsCurrent ? 'current stock' : 'closing stock'}`
+    // A photo made from Both is for one team: only that section's areas, counts and title.
+    const scope: SectionChoice = photo && part ? part : choice
+    const showFruit = scope !== 'vegies'
+    const showVegies = scope !== 'fruit'
+    const inScope = (rows: IndexedReportRow[]) => (scope === 'both' ? rows : rows.filter(({ row }) => sectionOfLocation(row.location) === scope))
+    const sheetTitle = `${scope === 'both' ? '' : `${sectionLabel[scope]} `}${showsCurrent ? 'current stock' : 'closing stock'}`
     return (
       <div ref={photo ? photoRef : undefined} className={photo ? "report-photo bg-surface" : "report-screen bg-surface"}>
         <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 py-4 sm:px-5">
@@ -291,7 +311,7 @@ export function DailyReportPanel({ catalogItems, requestedDate, defaultDate, liv
           ) : null}
           {badgeFilter.length > 0 ? (
             <p className="w-full text-[13px] font-medium text-ink">
-              Showing {badgeFilter.map((key) => badgeLabel[key]).join(', ')} · {badgeRows.length} of {viewRows.length} items
+              Showing {badgeFilter.map((key) => badgeLabel[key]).join(', ')} · {inScope(badgeRows).length} of {inScope(viewRows).length} items
             </p>
           ) : null}
           {photo ? null : <p className="w-full text-[13px] text-muted">Tap an item to change or remove its badge.</p>}
@@ -499,7 +519,7 @@ export function DailyReportPanel({ catalogItems, requestedDate, defaultDate, liv
 
       {hasReport && isExporting && (
         <div aria-hidden="true" className="pointer-events-none fixed right-full top-0">
-          {renderSheet(true)}
+          {renderSheet(true, photoPart)}
         </div>
       )}
 

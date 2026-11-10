@@ -85,3 +85,13 @@ export function stockInPhotoParts(choice: SectionChoice, counted: { fruit: boole
   if (counted.vegies) parts.push({ section: 'vegies', everything: false, withUnknown: !counted.fruit })
   return parts.length > 0 ? parts : [{ section: 'fruit', everything: false, withUnknown: true }]
 }
+
+/**
+ * The photos a Daily Report export makes. Fruit and vegies go to different teams, so Both makes one
+ * photo per section that has items; one section makes one photo.
+ */
+export function reportPhotoSections(choice: SectionChoice, counted: { fruit: boolean; vegies: boolean }): Section[] {
+  if (choice !== 'both') return [choice]
+  const found = sections.filter((section) => counted[section])
+  return found.length > 0 ? found : ['fruit']
+}

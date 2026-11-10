@@ -6,7 +6,7 @@
 import { describe, expect, it } from '@jest/globals'
 
 import { buildSupabaseStockCheckUpsertRow, type SupabaseStockCheckRecordData } from '../../lib/stock-check-save'
-import { filterBySection, parseSection, parseSectionChoice, sectionOfItems, sectionOfLocation, sectionsOf, splitBySection, stockInPhotoParts } from '../../lib/sections'
+import { filterBySection, parseSection, parseSectionChoice, sectionOfItems, sectionOfLocation, sectionsOf, splitBySection, stockInPhotoParts, reportPhotoSections } from '../../lib/sections'
 import { catalogItemSchema, saveToWarehouseEnvelopeSchema } from '../../lib/stock-schema'
 import { toLedgerAreas } from '../../lib/ledger-areas'
 import { sectionQuestion } from '../../lib/section-question'
@@ -173,5 +173,18 @@ describe('Stock In photos (one per team)', () => {
 
   it('Both with nothing counted still returns one part', () => {
     expect(stockInPhotoParts('both', { fruit: false, vegies: false })).toHaveLength(1)
+  })
+})
+
+describe('Daily Report photos (one per team)', () => {
+  it('one section makes one photo', () => {
+    expect(reportPhotoSections('vegies', { fruit: true, vegies: true })).toEqual(['vegies'])
+    expect(reportPhotoSections('fruit', { fruit: false, vegies: false })).toEqual(['fruit'])
+  })
+
+  it('Both makes a photo per section that has items, fruit first', () => {
+    expect(reportPhotoSections('both', { fruit: true, vegies: true })).toEqual(['fruit', 'vegies'])
+    expect(reportPhotoSections('both', { fruit: false, vegies: true })).toEqual(['vegies'])
+    expect(reportPhotoSections('both', { fruit: false, vegies: false })).toEqual(['fruit'])
   })
 })
