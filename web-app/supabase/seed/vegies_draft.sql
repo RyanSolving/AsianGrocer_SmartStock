@@ -1,7 +1,7 @@
--- DRAFT vegie catalog (133 items) read from the sample stock check sheet. Safe to re-run:
--- items that already exist (same code) are left alone. Run 20261112_section_fruit_vegies.sql first
--- is not required for this file, but the app needs it for saving. Review names/units before using
--- on live data (see the open questions in the PR/chat).
+-- DRAFT vegie catalog (133 items) read from the sample stock check sheet.
+-- Re-runnable: items that already exist (same code) are left alone.
+-- This file does not need the section migration, but saving vegie counts in the app does
+-- (20261112_section_fruit_vegies.sql). Review names and units before using it on live data.
 
 insert into public.catalog_items
   (code, location, sub_location, category, product, attribute, origin, inner_quantity, inner_unit,
