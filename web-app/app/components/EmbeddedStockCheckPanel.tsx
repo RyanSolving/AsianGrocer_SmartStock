@@ -1806,7 +1806,9 @@ export function EmbeddedStockCheckPanel({
           ) : null}
           {visibleCatalogItems.length === 0 && (
             <p className="mt-2 rounded-control bg-warning-soft px-3 py-2 text-[14px] text-warning">
-              The catalog did not load. You can still type item names and counts; they are kept for review.
+              {(catalogItems?.length ?? 0) > 0
+                ? `There are no ${sectionLabel[section].toLowerCase()} items in the catalog yet. Add them in Catalog (location ${section === 'vegies' ? 'Vegies' : 'Inside or Outside Coolroom'}), or type item names and counts; they are kept for review.`
+                : 'The catalog did not load. You can still type item names and counts; they are kept for review.'}
             </p>
           )}
         </div>
