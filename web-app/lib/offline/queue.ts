@@ -1,4 +1,4 @@
-type OfflineQueueFeature = 'stock-in' | 'stock-check' | 'stock-in-vegies' | 'stock-check-vegies'
+type OfflineQueueFeature = 'stock-in' | 'stock-check' | 'stock-in-vegies' | 'stock-in-both' | 'stock-check-vegies'
 
 type OfflineDraftFeature = OfflineQueueFeature
 

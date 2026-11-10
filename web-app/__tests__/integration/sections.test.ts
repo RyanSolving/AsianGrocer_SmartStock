@@ -6,7 +6,7 @@
 import { describe, expect, it } from '@jest/globals'
 
 import { buildSupabaseStockCheckUpsertRow, type SupabaseStockCheckRecordData } from '../../lib/stock-check-save'
-import { filterBySection, parseSection, parseSectionChoice, sectionOfItems, sectionOfLocation, sectionsOf } from '../../lib/sections'
+import { filterBySection, parseSection, parseSectionChoice, sectionOfItems, sectionOfLocation, sectionsOf, splitBySection } from '../../lib/sections'
 import { saveToWarehouseEnvelopeSchema } from '../../lib/stock-schema'
 
 const item = (location: string) => ({ location })
@@ -76,5 +76,35 @@ describe('Stock Close save row', () => {
     expect(saveToWarehouseEnvelopeSchema.safeParse({ ...base, section: 'vegies' }).success).toBe(true)
     expect(saveToWarehouseEnvelopeSchema.safeParse(base).success).toBe(true)
     expect(saveToWarehouseEnvelopeSchema.safeParse({ ...base, section: 'both' }).success).toBe(false)
+  })
+})
+
+describe('splitBySection (Stock In, one record per section)', () => {
+  const line = (location: string, quantity: number | null) => ({ location, quantity })
+
+  it('keeps one section as a single record whatever the item locations are', () => {
+    const items = [line('Vegies', 2), line('Inside Coolroom', null)]
+    expect(splitBySection(items, 'vegies')).toEqual([{ section: 'vegies', items }])
+    expect(splitBySection(items, 'fruit')).toEqual([{ section: 'fruit', items }])
+  })
+
+  it('splits Both into fruit and vegies records when both have counts', () => {
+    const fruit = line('Inside Coolroom', 3)
+    const veg = line('Vegies', 5)
+    expect(splitBySection([fruit, veg, line('Outside Coolroom', null)], 'both')).toEqual([
+      { section: 'fruit', items: [fruit, line('Outside Coolroom', null)] },
+      { section: 'vegies', items: [veg] },
+    ])
+  })
+
+  it('does not create a record for a section with nothing counted', () => {
+    const fruit = line('Inside Coolroom', 3)
+    const groups = splitBySection([fruit, line('Vegies', null)], 'both')
+    expect(groups.map((group) => group.section)).toEqual(['fruit'])
+    expect(splitBySection([line('Vegies', 1), line('Inside Coolroom', null)], 'both').map((group) => group.section)).toEqual(['vegies'])
+  })
+
+  it('still returns one (empty) record when nothing is counted, so validation behaves as before', () => {
+    expect(splitBySection([line('Vegies', null), line('Inside Coolroom', null)], 'both').map((group) => group.section)).toEqual(['fruit'])
   })
 })

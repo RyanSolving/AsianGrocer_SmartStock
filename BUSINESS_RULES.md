@@ -190,9 +190,14 @@ Fruit and Vegies are two sections of one store, counted and received separately.
   uses its own previous closing and its own Stock In. Migration `20261112_section_fruit_vegies.sql`
   must be applied before the app version that saves a section is deployed.
 - **Choosing a section:** a Fruit / Vegies / Both choice, remembered on the device, is shared by
-  Stock Close, Stock In, Daily Report, Dashboard and Home. Stock Close asks "What are you counting?"
-  (Fruit or Vegies) on its start screen, before any entry, because two people count separately.
-  Each section has its own draft on the phone. A saved record opened from history opens in its own section.
+  Stock Close, Stock In, Daily Report, Dashboard and Home. The entry screens ask on their start
+  screen, before any entry: Stock Close asks "What are you counting?" (Fruit or Vegies, because two
+  people count separately); Stock In asks "What arrived?" (Fruit, Vegies or Both, because one person
+  usually enters the whole delivery). Each section has its own draft on the phone. A saved record
+  opened from history opens in its own section.
+- **Stock In with Both** is one sheet but saves one record per section (fruit and vegies). A section
+  with nothing counted gets no record. The "Stock In already saved for this day" question only looks
+  at records of the same section(s), so a fruit delivery does not ask about a vegies one.
 - **Both** (reports and dashboard): the two sections are loaded and shown together. Each item's sold
   figure uses its own section's previous closing, so a missed vegies day does not change fruit.
   If one section has no closing for the date, the other still reports and a note says which is missing.

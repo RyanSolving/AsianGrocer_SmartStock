@@ -51,3 +51,21 @@ export function sectionOfItems(items: Array<{ location: string }>): Section {
   const vegies = items.filter((item) => sectionOfLocation(item.location) === 'vegies').length
   return vegies > items.length - vegies ? 'vegies' : 'fruit'
 }
+
+/**
+ * Stock In with "Both" is one sheet but two records, one per section. A section nobody counted
+ * anything in gets no record (so counting only fruit never creates an empty vegies record).
+ * With one section chosen, the sheet is one record whatever the items' locations are.
+ */
+export function splitBySection<T extends { location: string; quantity?: number | null }>(
+  items: T[],
+  choice: SectionChoice,
+): Array<{ section: Section; items: T[] }> {
+  if (choice !== 'both') return [{ section: choice, items }]
+  const groups = sections.map((section) => ({
+    section,
+    items: items.filter((item) => sectionOfLocation(item.location) === section),
+  }))
+  const counted = groups.filter((group) => group.items.some((item) => item.quantity !== null && item.quantity !== undefined))
+  return counted.length > 0 ? counted : [groups[0]]
+}

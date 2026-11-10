@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 
+import { parseSection } from '../../../lib/sections'
 import { getAuthContext } from '../../../lib/supabase/route-auth'
 
 // Cap payload size: history rows carry full item JSON, so unbounded reads grow forever.
@@ -23,7 +24,8 @@ export async function GET(request: Request) {
         record_name,
         log_time,
         final_output,
-        stock_mode
+        stock_mode,
+        section
       `
         )
         .order('log_time', { ascending: false })
@@ -65,6 +67,7 @@ export async function GET(request: Request) {
       filename: event.record_name ?? event.input_file_name,
       transcriptionData: event.final_output,
       stockMode: event.stock_mode,
+      section: parseSection(event.section) ?? 'fruit',
       isPushed: pushedUids.has(event.uid_generate),
     }))
 

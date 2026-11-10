@@ -12,6 +12,7 @@ type HistoryEntry = {
   filename: string
   transcriptionData: unknown
   stockMode: string
+  section?: 'fruit' | 'vegies'
   isPushed: boolean
 }
 
@@ -145,7 +146,7 @@ export function TranscriptionHistoryDialog({
                 return (
                   <HistoryCard
                     key={entry.uid_generate}
-                    title={`${entry.stockMode === 'stock-closing' ? 'Closing' : 'Stock in'} · ${time}`}
+                    title={`${entry.stockMode === 'stock-closing' ? 'Closing' : 'Stock in'} · ${entry.section === 'vegies' ? 'Vegies' : 'Fruit'} · ${time}`}
                     subtitle={`Stock date ${(entry.transcriptionData as { stock_date?: string } | null)?.stock_date ?? '-'}`}
                     badge={onRepush ? { label: entry.isPushed ? 'Synced' : 'Not synced', tone: entry.isPushed ? 'success' : 'warning' } : undefined}
                     summary={summaryText}

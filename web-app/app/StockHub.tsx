@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import { ToastViewport } from './components/ui/Toast'
 import { Popover } from './components/ui/Popover'
+import { SectionPicker } from './components/SectionPicker'
 import { Sheet } from './components/ui/Sheet'
 import { fieldClass, inputClass, NumberInput } from './components/ui/Input'
 import { focusNextQuantityInput, isRowListed, rankSuggestions } from '../lib/entry-chain'
@@ -32,7 +33,8 @@ import { formatDayLabel, formatTimeLabel } from '../lib/date-utils'
 import { sectionFromQuery } from '../lib/hub-navigation'
 import { useKeypadEntry } from '../lib/use-keypad-entry'
 import { latestReportDate } from '../lib/report-records'
-import { sectionLabel, type Section } from '../lib/sections'
+import { filterBySection, sectionLabel, sectionOfLocation, sectionsOf, splitBySection, type Section, type SectionChoice } from '../lib/sections'
+import { useSectionChoice } from '../lib/section-store'
 import { friendlyError, toast } from '../lib/toast-store'
 
 import { DailyReportPanel } from './components/DailyReportPanel'
@@ -190,6 +192,8 @@ type HistoryEntry = {
   filename: string
   transcriptionData: unknown
   stockMode: string
+  /** Fruit or Vegies (older records: fruit). */
+  section?: Section
   isPushed: boolean
 }
 
@@ -220,6 +224,8 @@ type StockInOfflineDraft = {
   unknownItems: UnknownItem[]
   missingCatalogItems: CatalogItem[]
   latestGenerateUid: string | null
+  /** Stock In with Both: the saved vegies record (latestGenerateUid is the fruit one). */
+  latestVegiesUid?: string | null
   editingHistoryUid: string | null
   isValidatedByStaff: boolean
   hasSavedToSupabase: boolean
@@ -286,7 +292,7 @@ type InlineCreateItemForm = {
   stocklist_name: string
   product: string
   category: string
-  location: 'Inside Coolroom' | 'Outside Coolroom'
+  location: 'Inside Coolroom' | 'Outside Coolroom' | 'Vegies'
   sub_location: string
   attribute: string
   origin: string
@@ -297,6 +303,7 @@ const OUTSIDE_SECTION_ID = 'outside-coolroom'
 const UNKNOWN_SECTION_ID = 'unclassified-staff-inspection'
 const INSIDE_SUB_LOCATION_OPTIONS = ['Apples', 'Citrus', 'Asian', 'Melon', 'All Year', 'Seasonal', 'Stonefruit'] as const
 const OUTSIDE_SUB_LOCATION_OPTIONS = ['Outside Coolroom'] as const
+const VEGIES_SUB_LOCATION_OPTIONS = ['Vegies'] as const
 const INNER_UNIT_OPTIONS: CatalogInnerUnit[] = ['box', 'bag', 'punnet', 'piece', 'tray', 'bunch', 'pack', 'kg', 'g']
 
 function toSectionId(value: string) {
@@ -582,6 +589,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
   const [session, setSession] = useState<SessionPayload | null>(null)
   const [isAuthLoading, setIsAuthLoading] = useState(true)
   const [latestGenerateUid, setLatestGenerateUid] = useState<string | null>(null)
+  const [latestVegiesUid, setLatestVegiesUid] = useState<string | null>(null)
   const [apiError, setApiError] = useState<string | null>(null)
   const [apiStatus, setApiStatus] = useState<string | null>(null)
   const [isHistoryOpen, setIsHistoryOpen] = useState(false)
@@ -677,6 +685,13 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
   }, [])
 
   const visibleCatalog = useMemo(() => filterVisibleCatalogItems(activeCatalog), [activeCatalog])
+  // Stock In is for Fruit, Vegies or Both, chosen on its start screen. A saved record opened from
+  // history brings its own section.
+  const [sectionPref, setSectionPref] = useSectionChoice()
+  const [stockInSectionOverride, setStockInSectionOverride] = useState<Section | null>(null)
+  const stockInChoice: SectionChoice = stockInSectionOverride ?? sectionPref
+  const stockInDraftFeature = stockInChoice === 'vegies' ? 'stock-in-vegies' as const : stockInChoice === 'both' ? 'stock-in-both' as const : 'stock-in' as const
+  const stockInCatalog = useMemo(() => filterBySection(visibleCatalog, stockInChoice) ?? [], [visibleCatalog, stockInChoice])
   /** Catalog selling price by item code (hidden items too), for the Stock In price column. */
   const catalogSellByCode = useMemo(() => {
     const prices = new Map<string, SellPrice>()
@@ -692,6 +707,10 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     () => new Set(visibleCatalog.map((item) => item.code.trim().toUpperCase())),
     [visibleCatalog]
   )
+  const stockInCatalogCodes = useMemo(
+    () => new Set(stockInCatalog.map((item) => item.code.trim().toUpperCase())),
+    [stockInCatalog]
+  )
   const catalogVisibilityByCode = useMemo(() => {
     const map = new Map<string, boolean>()
 
@@ -702,9 +721,18 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     return map
   }, [activeCatalog])
   const dataEntryCreateCategories = useMemo(() => {
-    const uniqueCategories = new Set(visibleCatalog.map((item) => item.category).filter((item) => item && item.trim().length > 0))
+    const uniqueCategories = new Set(stockInCatalog.map((item) => item.category).filter((item) => item && item.trim().length > 0))
     return Array.from(uniqueCategories).sort()
-  }, [visibleCatalog])
+  }, [stockInCatalog])
+
+  // A new item added from the Stock In sheet starts in the section being received.
+  useEffect(() => {
+    setInlineCreateForm((current) => {
+      if (stockInChoice === 'vegies' && current.location !== 'Vegies') return { ...current, location: 'Vegies', sub_location: VEGIES_SUB_LOCATION_OPTIONS[0] }
+      if (stockInChoice === 'fruit' && current.location === 'Vegies') return { ...current, location: 'Inside Coolroom', sub_location: INSIDE_SUB_LOCATION_OPTIONS[0] }
+      return current
+    })
+  }, [stockInChoice])
 
   useEffect(() => {
     setInlineCreateForm((current) => {
@@ -884,10 +912,10 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     if (typeof window === 'undefined') return
 
     setOfflineQueueCount(getPendingOfflineCount())
-    setStockInQueueCount(getPendingOfflineCountByFeature('stock-in'))
-    setHasStockInLocalDraft(hasOfflineDraft('stock-in'))
+    setStockInQueueCount(getPendingOfflineCountByFeature(stockInDraftFeature))
+    setHasStockInLocalDraft(hasOfflineDraft(stockInDraftFeature))
     setIsOnline(window.navigator.onLine)
-  }, [])
+  }, [stockInDraftFeature])
 
   const runOfflineSync = useCallback(async () => {
     if (typeof window === 'undefined') return
@@ -898,7 +926,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     try {
       const result = await syncOfflineQueue()
       setOfflineQueueCount(result.remaining)
-      setStockInQueueCount(getPendingOfflineCountByFeature('stock-in'))
+      setStockInQueueCount(getPendingOfflineCountByFeature(stockInDraftFeature))
 
       if (result.authError) {
         setApiError('Session expired while syncing offline saves. Please sign in again to finish syncing queued records.')
@@ -913,7 +941,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     } finally {
       setIsOfflineSyncing(false)
     }
-  }, [isOfflineSyncing, loadStockCheckHistory, loadTranscriptionHistory])
+  }, [isOfflineSyncing, loadStockCheckHistory, loadTranscriptionHistory, stockInDraftFeature])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -954,19 +982,19 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
   // Count from the saved draft itself: on the start screen the editor is still empty.
   const stockInDraftItemCount = useMemo(() => {
     if (!hasStockInLocalDraft || stockInPhase !== 'landing') return 0
-    const draft = loadOfflineDraft<StockInOfflineDraft>('stock-in')
+    const draft = loadOfflineDraft<StockInOfflineDraft>(stockInDraftFeature)
     if (!draft?.parsedData) return 0
     const counted = (items: Array<{ quantity?: number | null }> | undefined) =>
       (items ?? []).filter((item) => item.quantity !== null && item.quantity !== undefined).length
     const total = counted(draft.parsedData.items) + counted(draft.missingCatalogItems) + counted(draft.unknownItems)
     return total
 
-  }, [hasStockInLocalDraft, stockInPhase])
+  }, [hasStockInLocalDraft, stockInPhase, stockInDraftFeature])
 
   const restoreStockInDraft = useCallback(() => {
     if (typeof window === 'undefined') return
 
-    const draft = loadOfflineDraft<StockInOfflineDraft>('stock-in')
+    const draft = loadOfflineDraft<StockInOfflineDraft>(stockInDraftFeature)
     if (!draft || !draft.parsedData) return
 
     // Stock in is typed only; a draft saved in the old photo mode opens as a typed sheet.
@@ -975,12 +1003,13 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     setUnknownItems(Array.isArray(draft.unknownItems) ? draft.unknownItems : [])
     setMissingCatalogItems(Array.isArray(draft.missingCatalogItems) ? draft.missingCatalogItems : [])
     setLatestGenerateUid(draft.latestGenerateUid ?? null)
+    setLatestVegiesUid(draft.latestVegiesUid ?? null)
     setEditingHistoryUid(draft.editingHistoryUid ?? null)
     setIsValidatedByStaff(Boolean(draft.isValidatedByStaff))
     setHasSavedToSupabase(Boolean(draft.hasSavedToSupabase))
     setHasLoadedToDb(Boolean(draft.hasLoadedToDb))
     setApiStatus(STATUS.DRAFT_RECOVERED)
-  }, [])
+  }, [stockInDraftFeature])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -989,7 +1018,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       // Only clear when work in this session was cleared. On a fresh load parsedData starts
       // empty, and the saved draft must survive so "Continue draft" can restore it.
       if (hadParsedDataRef.current) {
-        clearOfflineDraft('stock-in')
+        clearOfflineDraft(stockInDraftFeature)
         setHasStockInLocalDraft(false)
       }
       return
@@ -1002,19 +1031,20 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     const hasEntries =
       hasCount(parsedData.items) || hasCount(missingCatalogItems) || hasCount(unknownItems)
     if (!hasEntries || hasSavedToSupabase) {
-      clearOfflineDraft('stock-in')
+      clearOfflineDraft(stockInDraftFeature)
       setHasStockInLocalDraft(false)
       return
     }
 
     // Debounced so typing stays smooth on slow phones; flushed when the app is hidden or closed.
     const save = () => {
-      saveOfflineDraft('stock-in', {
+      saveOfflineDraft(stockInDraftFeature, {
         dataEntryMode,
         parsedData,
         unknownItems,
         missingCatalogItems,
         latestGenerateUid,
+        latestVegiesUid,
         editingHistoryUid,
         isValidatedByStaff,
         hasSavedToSupabase,
@@ -1023,6 +1053,9 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       setHasStockInLocalDraft(true)
     }
     return scheduleDraftSave(save)
+    // stockInDraftFeature is left out on purpose: picking another section on the start screen must
+    // not rerun this and clear that section's saved draft. It is read when the sheet changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     dataEntryMode,
     editingHistoryUid,
@@ -1030,6 +1063,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     hasSavedToSupabase,
     isValidatedByStaff,
     latestGenerateUid,
+    latestVegiesUid,
     missingCatalogItems,
     parsedData,
     unknownItems,
@@ -1176,7 +1210,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
         const code = item.catalog_code.trim().toUpperCase()
         
         // If it's a known catalog item but explicitly hidden, drop it
-        if (activeCatalogCodes.has(code) && !visibleCatalogCodes.has(code)) {
+        if (activeCatalogCodes.has(code) && !stockInCatalogCodes.has(code)) {
           return false
         }
         
@@ -1188,7 +1222,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     // Inject Missing Catalog Items into their designated locations (amber text)
     // Use negative indices starting at -1000 to avoid collision with parsed items
     const missingItems = missingCatalogItems
-      .filter((c_item) => visibleCatalogCodes.has(c_item.code.trim().toUpperCase()))
+      .filter((c_item) => stockInCatalogCodes.has(c_item.code.trim().toUpperCase()))
       .map((c_item, pos) => ({
       item: {
         catalog_code: c_item.code,
@@ -1227,7 +1261,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     return [...allItems, ...missingItems, ...unknownMapped].filter((row) =>
       isRowListed(row.item, dataEntryTouchedIndexes.has(row.index))
     )
-  }, [activeCatalog, dataEntryTouchedIndexes, missingCatalogItems, parsedData, unknownItems, visibleCatalogCodes])
+  }, [activeCatalog, dataEntryTouchedIndexes, missingCatalogItems, parsedData, unknownItems, stockInCatalogCodes])
 
   const paperSections = useMemo(() => {
     const insideRows = indexedItems.filter((row) => row.item.location === 'Inside Coolroom' && row.source !== 'unknown')
@@ -1278,7 +1312,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
   const stockInPhoto = useMemo(() => {
     const toRow = (row: IndexedItem): PhotoRow => {
       const code = row.item.catalog_code?.trim().toUpperCase() ?? ''
-      const catalogItem = code ? visibleCatalog.find((c) => c.code.trim().toUpperCase() === code) : null
+      const catalogItem = code ? stockInCatalog.find((c) => c.code.trim().toUpperCase() === code) : null
       const { sell, change } = priceStateOf(row.item)
       return {
         key: `${row.source}-${row.index}`,
@@ -1308,7 +1342,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     }
     // priceStateOf reads the catalog prices, so the photo follows them.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paperSections, visibleCatalog, catalogSellByCode])
+  }, [paperSections, stockInCatalog, catalogSellByCode])
 
   const outsideDisplayColumns = useMemo(() => {
     const combinedOutside = [
@@ -1382,8 +1416,8 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
   }, [missingCatalogItems, parsedData])
 
   const dataEntryAddSuggestions = useMemo(() => {
-    return rankSuggestions(visibleCatalog, dataEntryNewItemName)
-  }, [dataEntryNewItemName, visibleCatalog])
+    return rankSuggestions(stockInCatalog, dataEntryNewItemName)
+  }, [dataEntryNewItemName, stockInCatalog])
 
   const dataEntryQtyByCode = useMemo(() => {
     const map = new Map<string, number>()
@@ -1414,8 +1448,8 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
   const selectedDataEntryCatalogItem = useMemo(() => {
     if (!dataEntrySelectedCatalogCode) return null
     const normalized = dataEntrySelectedCatalogCode.trim().toUpperCase()
-    return visibleCatalog.find((item) => item.code.trim().toUpperCase() === normalized) ?? null
-  }, [dataEntrySelectedCatalogCode, visibleCatalog])
+    return stockInCatalog.find((item) => item.code.trim().toUpperCase() === normalized) ?? null
+  }, [dataEntrySelectedCatalogCode, stockInCatalog])
 
   // A price typed for one item does not carry over to the next one picked.
   useEffect(() => { setManualEntrySell(null) }, [dataEntrySelectedCatalogCode])
@@ -1426,12 +1460,12 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     const typedKey = dataEntryNewItemName.trim().toLowerCase()
     if (!typedKey) return null
 
-    return visibleCatalog.find((item) => {
+    return stockInCatalog.find((item) => {
       return item.code.trim().toLowerCase() === typedKey
         || item.official_name.trim().toLowerCase() === typedKey
         || item.stocklist_name.trim().toLowerCase() === typedKey
     }) ?? null
-  }, [dataEntryNewItemName, selectedDataEntryCatalogItem, visibleCatalog])
+  }, [dataEntryNewItemName, selectedDataEntryCatalogItem, stockInCatalog])
 
   const syncItemProfilesFromCatalogItem = useCallback((catalogItem: CatalogItem) => {
     setInlineCreateForm({
@@ -1439,8 +1473,8 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       stocklist_name: catalogItem.stocklist_name ?? catalogItem.official_name ?? '',
       product: catalogItem.product ?? '',
       category: catalogItem.category ?? '',
-      location: catalogItem.location === 'Outside Coolroom' ? 'Outside Coolroom' : 'Inside Coolroom',
-      sub_location: catalogItem.sub_location ?? (catalogItem.location === 'Outside Coolroom' ? OUTSIDE_SUB_LOCATION_OPTIONS[0] : INSIDE_SUB_LOCATION_OPTIONS[0]),
+      location: catalogItem.location === 'Outside Coolroom' ? 'Outside Coolroom' : catalogItem.location === 'Vegies' ? 'Vegies' : 'Inside Coolroom',
+      sub_location: catalogItem.sub_location ?? (catalogItem.location === 'Outside Coolroom' ? OUTSIDE_SUB_LOCATION_OPTIONS[0] : catalogItem.location === 'Vegies' ? VEGIES_SUB_LOCATION_OPTIONS[0] : INSIDE_SUB_LOCATION_OPTIONS[0]),
       attribute: catalogItem.attribute ?? '',
       origin: catalogItem.origin ?? '',
       inner_quantity: catalogItem.inner_quantity ?? null,
@@ -1726,7 +1760,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
 
     const chosen = selectedDataEntryCatalogItem
       ?? dataEntryAddSuggestions.find((item) => item.official_name.toLowerCase() === itemName.toLowerCase())
-      ?? visibleCatalog.find((item) => item.official_name.toLowerCase() === itemName.toLowerCase())
+      ?? stockInCatalog.find((item) => item.official_name.toLowerCase() === itemName.toLowerCase())
 
     if (!chosen) {
       setUnknownItems((current) => [
@@ -1829,7 +1863,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     selectedDataEntryCatalogItem,
     syncItemProfilesFromCatalogItem,
     updateItem,
-    visibleCatalog,
+    stockInCatalog,
   ])
 
   const submitManualEntry = useCallback(() => {
@@ -2042,13 +2076,14 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
 
   const startManualEntry = useCallback(() => {
     const freshToday = getLocalTodayDate()
-    const manualDraft = buildManualParsedPayload(visibleCatalog, stockMode, freshToday)
+    const manualDraft = buildManualParsedPayload(stockInCatalog, stockMode, freshToday)
 
     setDataEntryMode('manual')
     setParsedData(manualDraft)
     setUnknownItems([])
     setMissingCatalogItems([])
     setLatestGenerateUid(null)
+    setLatestVegiesUid(null)
     setEditingHistoryUid(null)
     setSelectedHistoryUid(null)
     setHasSavedToSupabase(false)
@@ -2056,22 +2091,22 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     setIsValidatedByStaff(false)
     setApiError(null)
     setApiStatus(STATUS.READY_MANUAL)
-  }, [visibleCatalog])
+  }, [stockInCatalog])
 
 
 
   useEffect(() => {
     if (stockInPhase !== 'editing') return
-    if (!isManualEntryMode || visibleCatalog.length === 0) return
+    if (!isManualEntryMode || stockInCatalog.length === 0) return
 
     setParsedData((current) => {
       if (!current) {
-        return buildManualParsedPayload(visibleCatalog, stockMode, today)
+        return buildManualParsedPayload(stockInCatalog, stockMode, today)
       }
 
       return current
     })
-  }, [visibleCatalog, isManualEntryMode, stockMode, today, stockInPhase])
+  }, [stockInCatalog, isManualEntryMode, stockMode, today, stockInPhase])
 
 
   function toQuantityPatch(val: string): Partial<StockItem> {
@@ -2102,7 +2137,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
 
   function renderDataEntryLabelCell(row: IndexedItem, className: string) {
     const code = row.item.catalog_code?.trim().toUpperCase() ?? ''
-    const latestCatalogItem = code ? visibleCatalog.find(c => c.code.trim().toUpperCase() === code) : null;
+    const latestCatalogItem = code ? stockInCatalog.find(c => c.code.trim().toUpperCase() === code) : null;
     const displayName = latestCatalogItem?.official_name ?? row.item.official_name ?? row.item.product_raw ?? '';
 
     return (
@@ -2153,7 +2188,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
   /** Name cell of the phone list; missing and unknown items keep their warning colours. */
   function renderDataEntryLedgerName(row: IndexedItem) {
     const code = row.item.catalog_code?.trim().toUpperCase() ?? ''
-    const latestCatalogItem = code ? visibleCatalog.find((c) => c.code.trim().toUpperCase() === code) : null
+    const latestCatalogItem = code ? stockInCatalog.find((c) => c.code.trim().toUpperCase() === code) : null
     const displayName = latestCatalogItem?.official_name ?? row.item.official_name ?? row.item.product_raw ?? ''
     const tone = row.source === 'missing' ? 'text-warning' : row.source === 'unknown' ? 'font-semibold text-red-600' : undefined
     const special = row.item.special === true
@@ -2364,9 +2399,9 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       // Rows go out with the price they show (the catalog price unless changed).
       const filteredItems = parsedData.items.filter((item) => {
         if (!item.catalog_code) return true
-        return visibleCatalogCodes.has(item.catalog_code.trim().toUpperCase())
+        return stockInCatalogCodes.has(item.catalog_code.trim().toUpperCase())
       }).map(withPriceStamped)
-      const filteredMissingCatalogItems = missingCatalogItems.filter((item) => visibleCatalogCodes.has(item.code.trim().toUpperCase())).map(stampMissingPrice)
+      const filteredMissingCatalogItems = missingCatalogItems.filter((item) => stockInCatalogCodes.has(item.code.trim().toUpperCase())).map(stampMissingPrice)
 
       const response = await fetch('/api/export-csv', {
         method: 'POST',
@@ -2415,73 +2450,93 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     setIsSavingSupabase(true)
     setApiError(null)
     setApiStatus(null)
-
-    const requestPayload: Record<string, unknown> = {
-      data: { ...parsedData, ...overrides, items: parsedData.items.map(withPriceStamped) },
-      validated: 'yes',
-      unknown_items: unknownItems.map(withPriceStamped),
-      missing_catalog_items: missingCatalogItems.map(stampMissingPrice),
-      uid_generate: latestGenerateUid ?? undefined,
-      persist_only: true,
-    }
     catalogPricesUpdatedRef.current = 0
 
-    if (typeof window !== 'undefined' && !window.navigator.onLine) {
-      enqueueOfflineRequest({
-        feature: 'stock-in',
-        endpoint: '/api/save-to-bigquery',
-        payload: requestPayload,
-      })
+    // One record per section: Both is one sheet but a fruit record and a vegies record. The
+    // first section's record is latestGenerateUid; the second (vegies) is latestVegiesUid.
+    // Items typed in by name that are not in the catalog go with the first record.
+    const groups = splitBySection(parsedData.items, stockInChoice)
+    const primarySection = sectionsOf(stockInChoice)[0]
+    const requests = groups.map((group, index) => ({
+      section: group.section,
+      payload: {
+        data: { ...parsedData, ...overrides, items: group.items.map(withPriceStamped) },
+        validated: 'yes',
+        unknown_items: index === 0 ? unknownItems.map(withPriceStamped) : [],
+        missing_catalog_items: index === 0 ? missingCatalogItems.map(stampMissingPrice) : [],
+        uid_generate: (group.section === primarySection ? latestGenerateUid : latestVegiesUid) ?? undefined,
+        section: group.section,
+        persist_only: true,
+      } as Record<string, unknown>,
+    }))
+
+    const queueOffline = (payloads: Array<Record<string, unknown>>) => {
+      for (const payload of payloads) {
+        enqueueOfflineRequest({
+          feature: stockInDraftFeature,
+          endpoint: '/api/save-to-bigquery',
+          payload,
+        })
+      }
       setApiStatus(STATUS.OFFLINE_QUEUED)
       setHasSavedToSupabase(false)
+    }
+
+    if (typeof window !== 'undefined' && !window.navigator.onLine) {
+      queueOffline(requests.map((request) => request.payload))
       setIsSavingSupabase(false)
       return
     }
 
+    let firstUid: string | null = null
+    const saved: string[] = []
+
     try {
-      const response = await fetch('/api/save-to-bigquery', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestPayload),
-      })
+      for (const request of requests) {
+        const response = await fetch('/api/save-to-bigquery', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(request.payload),
+        })
 
-      const payload = await response.json()
+        const payload = await response.json()
 
-      if (response.status === 401) {
-        throw new Error('Unauthorized. Please sign in at /login before saving to Supabase.')
-      }
+        if (response.status === 401) {
+          throw new Error('Unauthorized. Please sign in at /login before saving to Supabase.')
+        }
 
-      if (!response.ok) {
-        const details = payload?.details
-        const detailsText = typeof details === 'string' ? details : details ? JSON.stringify(details) : ''
-        throw new Error(
-          detailsText
+        if (!response.ok) {
+          const details = payload?.details
+          const detailsText = typeof details === 'string' ? details : details ? JSON.stringify(details) : ''
+          const reason = detailsText
             ? `${payload?.error ?? 'Supabase save failed.'} Details: ${detailsText}`
             : payload?.error ?? 'Supabase save failed.'
-        )
-      }
+          // Which record failed matters when Both saves two.
+          throw new Error(requests.length > 1 ? `${sectionLabel[request.section]}: ${reason}` : reason)
+        }
 
-      // setApiStatus(STATUS.SAVED) // Removed to prevent a double toast with "Stock in saved"
-      if (typeof payload?.catalog_prices_updated === 'number') {
-        catalogPricesUpdatedRef.current = payload.catalog_prices_updated
-      }
-      if (typeof payload?.uid_generate === 'string' && payload.uid_generate.length > 0) {
-        setLatestGenerateUid(payload.uid_generate)
-        if (editingHistoryUid) {
-          setEditingHistoryUid(payload.uid_generate)
+        if (typeof payload?.catalog_prices_updated === 'number') {
+          catalogPricesUpdatedRef.current += payload.catalog_prices_updated
+        }
+        if (typeof payload?.uid_generate === 'string' && payload.uid_generate.length > 0) {
+          saved.push(request.section)
+          if (request.section === primarySection) {
+            firstUid = payload.uid_generate
+            setLatestGenerateUid(payload.uid_generate)
+            if (editingHistoryUid) {
+              setEditingHistoryUid(payload.uid_generate)
+            }
+          } else {
+            setLatestVegiesUid(payload.uid_generate)
+          }
         }
       }
       setHasSavedToSupabase(true)
-      return (payload?.uid_generate as string) || true
+      return firstUid || true
     } catch (error) {
       if (isNetworkRequestError(error)) {
-        enqueueOfflineRequest({
-          feature: 'stock-in',
-          endpoint: '/api/save-to-bigquery',
-          payload: requestPayload,
-        })
-        setApiStatus(STATUS.OFFLINE_QUEUED)
-        setHasSavedToSupabase(false)
+        // Only what did not save yet waits for the connection; saved sections are not sent again.
+        queueOffline(requests.filter((request) => !saved.includes(request.section)).map((request) => request.payload))
         return true // counts as success for the flow
       }
 
@@ -2519,13 +2574,15 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
   }, [])
 
   const clearStockInSheet = useCallback(() => {
-    clearOfflineDraft('stock-in')
+    clearOfflineDraft(stockInDraftFeature)
     setHasStockInLocalDraft(false)
     setManualEntryNote(''); setManualEntrySell(null)
     setParsedData(null)
     setUnknownItems([])
     setMissingCatalogItems([])
     setLatestGenerateUid(null)
+    setLatestVegiesUid(null)
+    setStockInSectionOverride(null)
     setEditingHistoryUid(null)
     setSelectedHistoryUid(null)
     setHasSavedToSupabase(false)
@@ -2534,7 +2591,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     setDataEntryTouchedIndexes(new Set())
     setLastAddedEntry(null)
     setStockInPhase('landing')
-  }, [])
+  }, [stockInDraftFeature])
 
   const handleStockInDone = useCallback(async () => {
     if (!parsedData) {
@@ -2548,7 +2605,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
 
     // Step 2: two checks before a new record is saved (an edit of a saved record skips them).
     const overrides: { stock_date?: string; extra_delivery?: boolean } = {}
-    if (!latestGenerateUid) {
+    if (!latestGenerateUid && !latestVegiesUid) {
       // A continued draft keeps the day it was started; ask before filing it under that day.
       const today = getLocalTodayDate()
       if (parsedData.stock_date && parsedData.stock_date !== today) {
@@ -2569,8 +2626,11 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
 
       // Another Stock In for the same day: a second delivery, or the same one counted again?
       const stockDate = overrides.stock_date ?? parsedData.stock_date
+      // Only Stock In of the same section(s) counts: fruit saved this morning is not a clash for vegies.
+      const savingSections = splitBySection(parsedData.items, stockInChoice).map((group) => group.section)
       const sameDay = historyData.filter((entry) =>
-        (entry.transcriptionData as { stock_date?: unknown } | null)?.stock_date === stockDate)
+        (entry.transcriptionData as { stock_date?: unknown } | null)?.stock_date === stockDate
+        && savingSections.includes(entry.section ?? 'fruit'))
       if (sameDay.length > 0) {
         const answer = await ask({
           title: `Stock In already saved for ${formatDayLabel(stockDate)}`,
@@ -2606,7 +2666,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
 
     // Step 6: warehouse (BigQuery) sync runs in the background with its own progress toast.
     // Paused for now (lib/warehouse-sync): Supabase is the only store.
-    if (WAREHOUSE_SYNC_ENABLED && uid && window.navigator.onLine) {
+    if (WAREHOUSE_SYNC_ENABLED && uid && stockInChoice !== 'vegies' && window.navigator.onLine) {
       syncStockInToWarehouse(uid)
     } else if (window.navigator.onLine) {
       toast.success([
@@ -2615,7 +2675,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
         pricesUpdated > 0 ? `${pricesUpdated} catalog ${pricesUpdated === 1 ? 'price' : 'prices'} updated` : null,
       ].filter(Boolean).join(' · '))
     }
-  }, [parsedData, normalizeAndMarkValidated, latestGenerateUid, saveToSupabase, syncStockInToWarehouse, clearStockInSheet, ask, historyData])
+  }, [parsedData, normalizeAndMarkValidated, latestGenerateUid, latestVegiesUid, stockInChoice, saveToSupabase, syncStockInToWarehouse, clearStockInSheet, ask, historyData])
 
   async function loadToBigQuery(overrideUidOrSaved?: string | boolean) {
     if (!parsedData) {
@@ -2805,6 +2865,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     setEditingHistoryUid(null)
     setSelectedHistoryUid(null)
     setLatestGenerateUid(null)
+    setLatestVegiesUid(null)
     setHasSavedToSupabase(false)
     setHasLoadedToDb(false)
     setIsValidatedByStaff(false)
@@ -2825,7 +2886,10 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       setParsedData(mapped.parsedData)
       setUnknownItems(mapped.unknownItems)
       setMissingCatalogItems([])
+      // A saved record opens in its own section, whatever the device is set to.
+      setStockInSectionOverride(entry.section ?? 'fruit')
       setLatestGenerateUid(entry.uid_generate)
+      setLatestVegiesUid(null)
       setEditingHistoryUid(entry.uid_generate)
       setSelectedHistoryUid(entry.uid_generate)
       setHasSavedToSupabase(true)
@@ -3064,7 +3128,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                         }}
                         badges={[
                           {
-                            label: modeLabel,
+                            label: `${modeLabel} · ${sectionLabel[entry.section ?? 'fruit']}`,
                             className: 'rounded-full bg-slate-100 px-2 py-0.5 text-[12px] font-medium text-slate-700',
                           },
                           {
@@ -3124,11 +3188,23 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
           ) : null}
           <div hidden={activeSection !== 'data-entry'}>
           {stockInPhase === 'landing' ? (
+            <>
+            <div className="mx-auto w-full max-w-xl pt-2 sm:pt-6">
+              <p className="mb-2 text-[14px] font-medium text-ink">What arrived?</p>
+              <SectionPicker
+                value={stockInChoice}
+                onChange={(choice) => {
+                  setStockInSectionOverride(null)
+                  setSectionPref(choice)
+                }}
+                label="Section received"
+              />
+            </div>
             <SectionLandingState
-              sectionLabel="Stock in"
+              sectionLabel={`Stock in · ${sectionLabel[stockInChoice]}`}
               subtitle="Count what arrived this morning."
               hasDraft={hasStockInLocalDraft}
-              draftAge={getOfflineDraftAge('stock-in')}
+              draftAge={getOfflineDraftAge(stockInDraftFeature)}
               draftItemCount={stockInDraftItemCount}
               historyCount={historyData.length}
               onAction={(action) => {
@@ -3146,12 +3222,13 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                 }
               }}
             />
+            </>
           ) : (
             <div className="space-y-4">
               <section className="stock-in-editor keypad-editor rounded-card border border-line bg-surface p-3 sm:p-6">
                 <EditorTopBar
-                  title={editingHistoryUid ? 'Edit stock in' : 'Stock in'}
-                  showTitleOnPhone={!!editingHistoryUid}
+                  title={`${editingHistoryUid ? 'Edit stock in' : 'Stock in'} · ${sectionLabel[stockInChoice]}`}
+                  showTitleOnPhone
                   onBack={() => setStockInPhase('landing')}
                   dateId="paper-stock-date"
                   dateValue={parsedData?.stock_date ?? ''}
@@ -3399,7 +3476,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                                     value={`${inlineCreateForm.location}|${inlineCreateForm.sub_location}`}
                                     onChange={(event) => {
                                       const [location, subLocation] = event.target.value.split('|')
-                                      setInlineCreateForm((current) => ({ ...current, location: location as 'Inside Coolroom' | 'Outside Coolroom', sub_location: subLocation }))
+                                      setInlineCreateForm((current) => ({ ...current, location: location as InlineCreateItemForm['location'], sub_location: subLocation }))
                                     }}
                                     className="mt-1 min-h-11 w-full rounded-control border border-slate-300 px-2 text-[16px] font-normal focus:border-brand-500 focus:outline-none"
                                   >
@@ -3408,6 +3485,9 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                                     ))}
                                     {OUTSIDE_SUB_LOCATION_OPTIONS.map((sub) => (
                                       <option key={`out-${sub}`} value={`Outside Coolroom|${sub}`}>Outside · {sub}</option>
+                                    ))}
+                                    {VEGIES_SUB_LOCATION_OPTIONS.map((sub) => (
+                                      <option key={`veg-${sub}`} value={`Vegies|${sub}`}>Vegies</option>
                                     ))}
                                   </select>
                                 </label>

@@ -9,6 +9,7 @@ import {
 import { normalizeSellPrice, type SellPrice } from '../../../lib/stock-price'
 import { applyCatalogPriceChanges, collectPriceChanges, type PricedLine } from '../../../lib/catalog-prices'
 import { buildManualEntryRecordName } from '../../../lib/record-names'
+import { parseSection, sectionOfItems, type Section } from '../../../lib/sections'
 import { getAuthContext } from '../../../lib/supabase/route-auth'
 import { logPushToBigQueryEvent } from '../../../lib/supabase/events'
 import {
@@ -42,6 +43,7 @@ export async function POST(request: Request) {
   let validated: 'yes' | 'no' = 'no'
   let unknownItems: unknown[] = []
   let missingCatalogItems: unknown[] = []
+  let requestedSection: Section | null = null
 
   if (isRepush) {
     uidGenerate = typeof (payload as any).uid_generate === 'string' ? (payload as any).uid_generate : null
@@ -56,7 +58,7 @@ export async function POST(request: Request) {
 
     const { data: eventData, error: eventError } = await auth.supabase
       .from('event_generate')
-      .select('final_output')
+      .select('final_output, section')
       .eq('uid_generate', uidGenerate)
       .single()
 
@@ -85,6 +87,7 @@ export async function POST(request: Request) {
 
     parsedData = parsed.data
     validated = 'yes'
+    requestedSection = parseSection((eventData as { section?: unknown }).section)
   } else {
     const envelope = saveToWarehouseEnvelopeSchema.safeParse(payload)
     if (!envelope.success) {
@@ -104,6 +107,7 @@ export async function POST(request: Request) {
     uidGenerate = typeof envelope.data.uid_generate === 'string' && envelope.data.uid_generate.length > 0
       ? envelope.data.uid_generate
       : null
+    requestedSection = envelope.data.section ?? null
   }
 
   if (persistOnly) {
@@ -192,6 +196,7 @@ export async function POST(request: Request) {
           final_output: persistedFinalOutput,
           edited: true,
           stock_mode: stagedRecord.mode === 'stock-closing' ? 'closing_check' : 'arrival_entry',
+          section: requestedSection ?? sectionOfItems(stagedRecord.item_data.filter((item) => item.catalog_code).map((item) => ({ location: item.location }))),
         })
         .select('uid_generate')
         .single()
@@ -221,6 +226,14 @@ export async function POST(request: Request) {
         catalog_prices_updated: appliedPriceChanges.length,
         message: 'Saved to Supabase. You can keep editing before loading to BigQuery.',
       },
+      { status: 200 },
+    )
+  }
+
+  // Vegies are not sent to the warehouse (BigQuery); their records live in Supabase only.
+  if (requestedSection === 'vegies') {
+    return NextResponse.json(
+      { success: true, skipped: true, section: 'vegies', message: 'Vegies are not sent to the warehouse.' },
       { status: 200 },
     )
   }
