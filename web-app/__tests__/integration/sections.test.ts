@@ -9,6 +9,7 @@ import { buildSupabaseStockCheckUpsertRow, type SupabaseStockCheckRecordData } f
 import { filterBySection, parseSection, parseSectionChoice, sectionOfItems, sectionOfLocation, sectionsOf, splitBySection } from '../../lib/sections'
 import { catalogItemSchema, saveToWarehouseEnvelopeSchema } from '../../lib/stock-schema'
 import { toLedgerAreas } from '../../lib/ledger-areas'
+import { sectionQuestion } from '../../lib/section-question'
 
 const item = (location: string) => ({ location })
 
@@ -129,5 +130,25 @@ describe('vegie categories on the sheets', () => {
     expect(catalogItemSchema.safeParse({ ...base, location: 'Vegies', sub_location: 'Root & Starchy' }).success).toBe(true)
     expect(catalogItemSchema.safeParse({ ...base, location: 'Vegies', sub_location: 'A New Group' }).success).toBe(true)
     expect(catalogItemSchema.safeParse({ ...base, location: 'Inside Coolroom', sub_location: 'Root & Starchy' }).success).toBe(false)
+  })
+})
+
+describe('the pop-up asked before entry', () => {
+  it('Stock Close offers Fruit or Vegies, with the current one highlighted', () => {
+    const question = sectionQuestion('count', 'vegies')
+    expect(question.title).toBe('What are you counting?')
+    expect(question.choices.map((choice) => choice.value)).toEqual(['fruit', 'vegies'])
+    expect(question.choices.filter((choice) => choice.primary).map((choice) => choice.value)).toEqual(['vegies'])
+  })
+
+  it('Stock In also offers Both', () => {
+    const question = sectionQuestion('receive', 'both')
+    expect(question.title).toBe('What arrived?')
+    expect(question.choices.map((choice) => choice.value)).toEqual(['fruit', 'vegies', 'both'])
+    expect(question.choices.find((choice) => choice.value === 'both')?.primary).toBe(true)
+  })
+
+  it('never highlights Both for Stock Close, whatever the device remembers', () => {
+    expect(sectionQuestion('count', 'both').choices.some((choice) => choice.primary)).toBe(false)
   })
 })

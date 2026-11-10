@@ -39,7 +39,7 @@ import { STATUS } from '../../lib/status-messages'
 import { Button } from './ui/Button'
 import { Sheet } from './ui/Sheet'
 import { SectionLandingState } from './SectionLandingState'
-import { SectionPicker } from './SectionPicker'
+import { sectionQuestion } from '../../lib/section-question'
 import { useSectionChoice } from '../../lib/section-store'
 import { filterBySection, sectionLabel, type Section, type SectionChoice } from '../../lib/sections'
 import { getOfflineDraftAge } from '../../lib/offline/queue'
@@ -448,6 +448,7 @@ export function EmbeddedStockCheckPanel({
   const section: Section = selectedHistoryRecord?.section ?? (sectionPref === 'vegies' ? 'vegies' : 'fruit')
   const draftFeature = section === 'vegies' ? 'stock-check-vegies' as const : 'stock-check' as const
   const scopedCatalog = useMemo(() => filterBySection(catalogItems, section), [catalogItems, section])
+  const [pendingNewSection, setPendingNewSection] = useState<Section | null>(null)
   const [rows, setRows] = useState<StockCheckRow[]>([])
   const [stockEntryMode, setStockEntryMode] = useState<'manual' | 'photo'>('manual')
   const [stockPhotoFile, setStockPhotoFile] = useState<File | null>(null)
@@ -1738,6 +1739,14 @@ export function EmbeddedStockCheckPanel({
     return (draft?.rows ?? []).filter((row) => row.quantity !== null).length
   })()
 
+  // After picking another section for a new sheet: start it once that section is on screen.
+  useEffect(() => {
+    if (pendingNewSection === null || pendingNewSection !== section) return
+    setPendingNewSection(null)
+    beginNewSheet()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingNewSection, section])
+
   // Changing section on the start screen swaps in that section's items and its own draft.
   function chooseSection(choice: SectionChoice) {
     if (choice === 'both' || choice === section) return
@@ -1749,33 +1758,67 @@ export function EmbeddedStockCheckPanel({
     setLastAddedCheck(null)
   }
 
+  /** The pop-up asked before counting starts. Closing it without choosing changes nothing. */
+  async function askSection(): Promise<Section | null> {
+    const answer = await ask(sectionQuestion('count', section))
+    return answer === 'fruit' || answer === 'vegies' ? answer : null
+  }
+
+  /** Starts an empty sheet for the section on screen. A draft that existed is kept in memory for one Undo. */
+  function beginNewSheet() {
+    // Read the draft itself: right after a section switch the "has a draft" flag may still be the other section's.
+    const previousDraft = loadOfflineDraft<StockCheckOfflineDraft>(draftFeature)
+    const previousCount = Array.isArray(previousDraft?.rows) ? previousDraft.rows.filter((row) => row.quantity !== null).length : 0
+    startManualEntry()
+    setPhase('editing')
+    if (previousDraft && Array.isArray(previousDraft.rows) && previousCount > 0) {
+      toast.info(`New sheet started. Draft with ${previousCount} ${previousCount === 1 ? 'item' : 'items'} cleared.`, {
+        duration: 8000,
+        action: { label: 'Undo', onClick: () => restoreStockCheckDraft(previousDraft) },
+      })
+    }
+  }
+
+  async function startNewSheet() {
+    const picked = await askSection()
+    if (!picked) return
+    if (picked === section) {
+      beginNewSheet()
+      return
+    }
+    // Another section: switch first, then start once the screen shows that section's items and draft.
+    chooseSection(picked)
+    setPendingNewSection(picked)
+  }
+
+  async function changeSection() {
+    const picked = await askSection()
+    if (picked) chooseSection(picked)
+  }
+
   if (phase === 'landing') {
     return (
       <>
-      <div className="mx-auto w-full max-w-xl pt-2 sm:pt-6">
-        <p className="mb-2 text-[14px] font-medium text-ink">What are you counting?</p>
-        <SectionPicker value={section} onChange={chooseSection} choices={['fruit', 'vegies']} label="Section to count" />
-      </div>
+      {choiceSheet}
       <SectionLandingState
         sectionLabel={`Stock close · ${sectionLabel[section]}`}
         subtitle="Count what is left at 4 PM, then save and export."
+        extra={(
+          <button
+            type="button"
+            onClick={() => void changeSection()}
+            className="mt-2 inline-flex min-h-9 items-center gap-1.5 rounded-full border border-line bg-surface px-3 text-[13px] font-medium text-ink hover:bg-slate-50"
+          >
+            Counting {sectionLabel[section].toLowerCase()} · <span className="text-forest">Change</span>
+          </button>
+        )}
         hasDraft={hasStockCheckLocalDraft}
         draftAge={getOfflineDraftAge(draftFeature)}
         draftItemCount={stockCheckDraftItemCount}
         historyCount={historyRecords?.length || 0}
         onAction={(action) => {
           if (action === 'new') {
-            // Start straight away. A draft that existed is kept in memory for one Undo.
-            const previousDraft = hasStockCheckLocalDraft ? loadOfflineDraft<StockCheckOfflineDraft>(draftFeature) : null
-            const previousCount = stockCheckDraftItemCount
-            startManualEntry()
-            setPhase('editing')
-            if (previousDraft && Array.isArray(previousDraft.rows) && previousCount > 0) {
-              toast.info(`New sheet started. Draft with ${previousCount} ${previousCount === 1 ? 'item' : 'items'} cleared.`, {
-                duration: 8000,
-                action: { label: 'Undo', onClick: () => restoreStockCheckDraft(previousDraft) },
-              })
-            }
+            void startNewSheet()
           } else if (action === 'discard') {
             onClearHistorySelection?.()
             startManualEntry()

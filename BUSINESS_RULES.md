@@ -191,9 +191,10 @@ Fruit and Vegies are two sections of one store, counted and received separately.
   must be applied before the app version that saves a section is deployed.
 - **Choosing a section:** a Fruit / Vegies / Both choice, remembered on the device, is shared by
   Stock Close, Stock In, Daily Report, Dashboard and Home. The entry screens ask on their start
-  screen, before any entry: Stock Close asks "What are you counting?" (Fruit or Vegies, because two
-  people count separately); Stock In asks "What arrived?" (Fruit, Vegies or Both, because one person
-  usually enters the whole delivery). Each section has its own draft on the phone. A saved record
+  screen, before any entry, in a pop-up when Start new is tapped: Stock Close asks "What are you
+  counting?" (Fruit or Vegies, because two people count separately); Stock In asks "What arrived?"
+  (Fruit, Vegies or Both, because one person usually enters the whole delivery). The start screen
+  shows the section on screen with a Change link that opens the same pop-up (to see the other section's draft). Each section has its own draft on the phone. A saved record
   opened from history opens in its own section.
 - **Stock In with Both** is one sheet but saves one record per section (fruit and vegies). A section
   with nothing counted gets no record. The "Stock In already saved for this day" question only looks

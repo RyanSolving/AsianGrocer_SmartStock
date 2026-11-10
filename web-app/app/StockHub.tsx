@@ -22,7 +22,7 @@ import {
 } from 'lucide-react'
 import { ToastViewport } from './components/ui/Toast'
 import { Popover } from './components/ui/Popover'
-import { SectionPicker } from './components/SectionPicker'
+import { sectionQuestion } from '../lib/section-question'
 import { Sheet } from './components/ui/Sheet'
 import { fieldClass, inputClass, NumberInput } from './components/ui/Input'
 import { focusNextQuantityInput, isRowListed, rankSuggestions } from '../lib/entry-chain'
@@ -592,6 +592,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
   const [isAuthLoading, setIsAuthLoading] = useState(true)
   const [latestGenerateUid, setLatestGenerateUid] = useState<string | null>(null)
   const [latestVegiesUid, setLatestVegiesUid] = useState<string | null>(null)
+  const [pendingStockInStart, setPendingStockInStart] = useState<SectionChoice | null>(null)
   const [apiError, setApiError] = useState<string | null>(null)
   const [apiStatus, setApiStatus] = useState<string | null>(null)
   const [isHistoryOpen, setIsHistoryOpen] = useState(false)
@@ -2623,6 +2624,43 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     setStockInPhase('landing')
   }, [stockInDraftFeature])
 
+  // After picking another section for a new sheet: start it once that section's items are on screen.
+  useEffect(() => {
+    if (pendingStockInStart === null || pendingStockInStart !== stockInChoice) return
+    setPendingStockInStart(null)
+    startManualEntry()
+    setStockInPhase('editing')
+  }, [pendingStockInStart, stockInChoice, startManualEntry])
+
+  /** The pop-up asked before Stock In entry starts. Closing it without choosing changes nothing. */
+  async function askStockInSection(): Promise<SectionChoice | null> {
+    const answer = await ask(sectionQuestion('receive', stockInChoice))
+    return answer === 'fruit' || answer === 'vegies' || answer === 'both' ? answer : null
+  }
+
+  function chooseStockInSection(choice: SectionChoice) {
+    setStockInSectionOverride(null)
+    setSectionPref(choice)
+  }
+
+  async function changeStockInSection() {
+    const picked = await askStockInSection()
+    if (picked) chooseStockInSection(picked)
+  }
+
+  async function startNewStockIn() {
+    const picked = await askStockInSection()
+    if (!picked) return
+    if (picked === stockInChoice && stockInSectionOverride === null) {
+      startManualEntry()
+      setStockInPhase('editing')
+      return
+    }
+    // Another section: switch first, then start once the sheet's items are for that section.
+    chooseStockInSection(picked)
+    setPendingStockInStart(picked)
+  }
+
   const handleStockInDone = useCallback(async () => {
     if (!parsedData) {
       setApiError('No data to save.')
@@ -3219,28 +3257,25 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
           <div hidden={activeSection !== 'data-entry'}>
           {stockInPhase === 'landing' ? (
             <>
-            <div className="mx-auto w-full max-w-xl pt-2 sm:pt-6">
-              <p className="mb-2 text-[14px] font-medium text-ink">What arrived?</p>
-              <SectionPicker
-                value={stockInChoice}
-                onChange={(choice) => {
-                  setStockInSectionOverride(null)
-                  setSectionPref(choice)
-                }}
-                label="Section received"
-              />
-            </div>
             <SectionLandingState
               sectionLabel={`Stock in · ${sectionLabel[stockInChoice]}`}
               subtitle="Count what arrived this morning."
+              extra={(
+                <button
+                  type="button"
+                  onClick={() => void changeStockInSection()}
+                  className="mt-2 inline-flex min-h-9 items-center gap-1.5 rounded-full border border-line bg-surface px-3 text-[13px] font-medium text-ink hover:bg-slate-50"
+                >
+                  Receiving {sectionLabel[stockInChoice].toLowerCase()} · <span className="text-forest">Change</span>
+                </button>
+              )}
               hasDraft={hasStockInLocalDraft}
               draftAge={getOfflineDraftAge(stockInDraftFeature)}
               draftItemCount={stockInDraftItemCount}
               historyCount={historyData.length}
               onAction={(action) => {
                 if (action === 'new') {
-                  startManualEntry()
-                  setStockInPhase('editing')
+                  void startNewStockIn()
                 } else if (action === 'discard') {
                   clearStockInSheet()
                   toast.success('Stock in draft removed')

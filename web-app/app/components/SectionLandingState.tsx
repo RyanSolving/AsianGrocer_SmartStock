@@ -1,4 +1,5 @@
 'use client'
+import type { ReactNode } from 'react'
 import { ChevronRight, FileClock, History, Plus, Trash2 } from 'lucide-react'
 
 import { useConfirm } from './ConfirmDialog'
@@ -14,6 +15,8 @@ type SectionLandingStateProps = {
   onAction: (action: LandingAction) => void
   /** One line under the title, e.g. "Count what arrived this morning." */
   subtitle?: string
+  /** Shown under the subtitle, e.g. the section being counted with a Change button. */
+  extra?: ReactNode
 }
 
 function todayLabel() {
@@ -32,6 +35,7 @@ export function SectionLandingState({
   historyCount,
   onAction,
   subtitle,
+  extra,
 }: SectionLandingStateProps) {
   const [confirm, confirmElement] = useConfirm()
 
@@ -50,6 +54,7 @@ export function SectionLandingState({
         <p className="text-[14px] text-muted">{todayLabel()}</p>
         <h1 className="mt-0.5 text-[28px] font-semibold leading-tight tracking-[-0.015em] text-ink">{sectionLabel}</h1>
         {subtitle ? <p className="mt-1 text-[15px] text-muted">{subtitle}</p> : null}
+        {extra}
       </div>
 
       {hasDraft ? (
