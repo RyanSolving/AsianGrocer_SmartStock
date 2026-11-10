@@ -8,7 +8,7 @@ import { describe, expect, it } from '@jest/globals'
 import { buildSupabaseStockCheckUpsertRow, type SupabaseStockCheckRecordData } from '../../lib/stock-check-save'
 import { filterBySection, parseSection, parseSectionChoice, sectionOfItems, sectionOfLocation, sectionsOf, splitBySection } from '../../lib/sections'
 import { catalogItemSchema, saveToWarehouseEnvelopeSchema } from '../../lib/stock-schema'
-import { toLedgerAreas } from '../../app/components/StockLedger'
+import { toLedgerAreas } from '../../lib/ledger-areas'
 
 const item = (location: string) => ({ location })
 
