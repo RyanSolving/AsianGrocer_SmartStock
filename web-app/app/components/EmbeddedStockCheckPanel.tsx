@@ -674,6 +674,7 @@ export function EmbeddedStockCheckPanel({
       const formData = new FormData()
       formData.append('photo', stockPhotoFile)
       formData.append('mode', 'stock-closing')
+      formData.append('section', section)
       if (visibleCatalogItems.length > 0) {
         formData.append('catalog', JSON.stringify(visibleCatalogItems))
       }
@@ -725,7 +726,7 @@ export function EmbeddedStockCheckPanel({
     } finally {
       setIsParsing(false)
     }
-  }, [stockPhotoFile, today, visibleCatalogItems])
+  }, [stockPhotoFile, today, visibleCatalogItems, section])
 
   // parsePhoto reads the newest rows when the response arrives, not the rows from when it started.
   const rowsRef = useRef(rows)

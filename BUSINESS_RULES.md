@@ -207,6 +207,19 @@ Fruit and Vegies are two sections of one store, counted and received separately.
   headed section per big category, like the coolroom sections. Other categories can be typed in the catalog.
 - **Same rules for now:** sold, current, stock-out/low/over-stock badges all work the same for
   both sections. Vegies use the catalog units (kg, bunch, box) until changed.
+- **Photo entry for vegies (Stock Close, Photo mode):** the app sends the section with the photo, and the
+  reader uses a vegies-specific prompt (`buildVegiesPrompt` in `web-app/lib/fruit-catalog.ts`), because the
+  sheet is laid out differently: up to four name+count cells per row, qualifier-only cells (15KG, LOOSE,
+  PP, RED), and an ORDERS block with no counts. Each vegie catalog item's **navigation guide** records its
+  block, half, row, the printed cells of that row and which cell it is, and this is what lets the reader
+  tell apart cells that print the same text. How counts are read:
+  - a zero written as `0`, `O` or an empty oval is **0**; blank is blank (null);
+  - a red circle is the buyer's mark (`sell_marker=true`); a black/blue ring is just the number;
+  - a crossed-out number is ignored; a sum like `2+6` is added (8);
+  - a tick, or a number with a letter (`1P`), is not a plain count: the number is filled in where there is
+    one, the row gets the note `check: ...` and is counted for review;
+  - the same item read twice gives one row (the better read), flagged `check: read twice (5 and 6)` if the reads differ.
+  The date is read as day/month/year. As for fruit, every count from a photo must be checked before saving.
 - **Warehouse (BigQuery):** vegies are not sent; their records live in Supabase only.
 - **Stock In photos, one per team:** Save downloads a photo of the delivery. With Both it downloads
   two, `stock-in-fruit-<date>.png` and `stock-in-vegies-<date>.png`, each titled "Stock in · Fruit" or

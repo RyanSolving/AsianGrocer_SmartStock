@@ -3,6 +3,7 @@ import path from 'path'
 import Papa from 'papaparse'
 import { catalogInnerUnitOptions } from './stock-schema'
 import type { CatalogEntry, StockMode } from './stock-schema'
+import type { Section } from './sections'
 
 function normalizeLegacyTypo(value: string) {
   return value.replace(/avocada/gi, 'Avocado')
@@ -98,13 +99,14 @@ export function loadDefaultCatalog(): CatalogEntry[] {
   }
 }
 
-export function buildCatalogPrompt(catalog: CatalogEntry[], mode: StockMode) {
+export function buildCatalogPrompt(catalog: CatalogEntry[], mode: StockMode, section: Section = 'fruit') {
   let catalogText = ''
   for (const item of catalog) {
     catalogText += `- [CODE: ${item.code}] "${item.stocklist_name}" (${item.official_name}) → ${item.navigation_guide}\n`
   }
 
   const sheetKind = mode === 'stock-closing' ? 'closing stock sheet' : 'stock-in sheet'
+  if (section === 'vegies') return buildVegiesPrompt(catalogText, mode, sheetKind)
 
   return `You are an expert document-vision extraction agent for a fruit store stocklist form.
 Your task is to extract ALL visibly present stock records from a photographed ${sheetKind} into strict JSON.
@@ -163,6 +165,84 @@ ${catalogText}
       "quantity_conflict_flag": <true | false (true if ambiguous or unreadable)>,
       "confidence": "<high | medium | low>",
       "notes": "<sell_marker=true if red circle found, else null>"
+    }
+  ]
+}`
+}
+
+
+/**
+ * The prompt for the vegies sheet. It is a different form from the fruit one: a grid of up to four
+ * "name + count" cells per row, qualifier-only cells (15KG, LOOSE, PP), counts that are sums, ticks
+ * or have a letter after them, a handwritten date, and an ORDERS block with no counts at all.
+ */
+function buildVegiesPrompt(catalogText: string, mode: StockMode, sheetKind: string) {
+  return `You are an expert document-vision extraction agent for a vegetable store stocklist form.
+Your task is to extract ALL visibly present stock records from a photographed ${sheetKind} into strict JSON.
+The current mode is: ${mode}.
+
+This form contains:
+- printed product names laid out as a grid, with handwritten counts (black or blue ink) written after each name
+- a handwritten date after "DATE:" near the top, written day/month/year (Australian). Example: 9/11/26 is 9 November 2026, so return "2026-11-09"
+- a LEFT half and a RIGHT half of the page. Each printed row has up to two cells per half (a few rows have three), side by side
+- blocks separated by grey bands: the main block of fresh vegetables first, then a block of roots, onions, potatoes, sweet potato and pumpkin (counted in sacks and bags), then an ORDERS block of herbs and leaves that is mostly a printed list with no counts
+- a few completely handwritten extra items (name and count both handwritten) in empty rows near the bottom of the main block
+- empty rows: ignore them
+
+Core Extraction Principle:
+Extract ALL items. Extract every printed product (even if its count is empty) AND every completely handwritten extra product.
+Do not infer missing items. If a printed product has nothing written beside it, still extract the product but set quantity to null.
+
+## Cells and counts
+A cell is one printed name plus the number written right after it, before the next printed name.
+Each number belongs ONLY to the cell it is written in. Never copy a number to the neighbouring cell. When two numbers sit close together, give each to the printed name that comes immediately before it.
+
+## Qualifier cells (IMPORTANT)
+Many second cells print only a short qualifier such as 15KG, 20KG, LOOSE, PP, PREPACK, BIG SIZE, RED or SAVOY. It means the SAME product as the first cell of that row, with that variation:
+- row "WASH POT 5KG | 15KG" is Wash Pot 5kg and Wash Pot 15kg
+- row "BROWN ONION 2KG | LOOSE" is Brown Onion 2kg and Brown Onion Loose
+- row "PLAIN CABBAGE | RED | SAVOY" is three different cabbages
+Each catalog line below lists the printed cells of its row and which cell it is. Use that to choose the right CODE.
+For a qualifier cell, write product_raw as the first cell's text plus the qualifier, for example "WASH POT 15KG" or "BROWN ONION LOOSE".
+
+## Reading the handwriting
+- Counts are whole numbers. In this handwriting a 2 often looks like a "Z", a 4 like "Y", "H" or "Ч", a 1 like "l" or "|", and a 7 has a bar across it.
+- A 0 may be written as "0", "O" or an empty oval. An empty oval or an O written in the count place IS zero: quantity 0, not null.
+- Read BOTH digits of a two-digit number (for example 42, 36, 52, 46). Never drop a digit. If a digit is unclear, still give your best reading and set quantity_conflict_flag=true.
+- Only a RED circle or loop is the buyer's marker. A black or blue ring drawn around a number is just the writer emphasising it: the number inside is still the count.
+- A number that is crossed out is cancelled. Ignore it and use the number written beside or over it. If there is no replacement, set quantity to null and quantity_conflict_flag=true.
+- A tick (✓) written instead of a number: quantity null, quantity_raw "✓", quantity_conflict_flag=true, notes "check: tick, no count".
+- A number followed by a letter, for example "1P": quantity is the number, quantity_raw is exactly what was written ("1P"), quantity_conflict_flag=true, notes "check: written 1P".
+- A sum such as "2+6": quantity is the total (8), quantity_raw "2+6", notes "sum 2+6".
+- Nothing written: quantity null. A written zero: quantity 0. Never turn blank into 0.
+
+## Product extraction formats
+For printed items, keep product_raw close to the printed text on the sheet.
+For completely handwritten extra products, transcribe the handwritten name into product_raw as accurately as possible. If a catalog item clearly is that product (for example Huai San, Kumato, Snacking Capsicum), give its code; otherwise leave catalog_code null.
+Weights printed in a name (5KG, 15KG, 2KG) are part of the product name, not the count.
+
+## Catalog Association
+Below is the MASTER CATALOG for this sheet, mapped by CODE. Each line shows the block, the half of the page, the row and its printed cells, and which cell the item is.
+For every item you extract, match it to a CODE from this catalog based on the printed text and its position. If you are very confident, provide catalog_code. If unsure, leave catalog_code null.
+Each CODE may be used ONCE. Do not output the same code twice.
+
+MASTER CATALOG:
+${catalogText}
+
+## Output — Strict JSON Format (return only this, no extra text)
+{
+  "mode": "stock-in|stock-closing",
+  "stock_date": "YYYY-MM-DD or null if not found",
+  "confidence_overall": "high|medium|low",
+  "items": [
+    {
+      "catalog_code": "<string code from catalog or null>",
+      "product_raw": "<printed text from the form (qualifier cells: first cell text + qualifier)>",
+      "quantity_raw": "<count exactly as written, or null>",
+      "quantity": <whole number or null>,
+      "quantity_conflict_flag": <true | false (true if ambiguous, unreadable, or not a plain number)>,
+      "confidence": "<high | medium | low>",
+      "notes": "<sell_marker=true for a red mark; 'check: ...' as described above; join several with ' | '; else null>"
     }
   ]
 }`

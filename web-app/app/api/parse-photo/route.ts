@@ -4,6 +4,8 @@ import { z } from 'zod'
 
 import { loadDefaultCatalog, buildCatalogPrompt, parseCSVCatalog } from '../../../lib/fruit-catalog'
 import { describeOpenAIError, readPhotoWithOpenAI } from '../../../lib/openai-photo'
+import { dedupeReadItems, parseNullableQuantity } from '../../../lib/photo-quantity'
+import { parseSection, sectionOfItems } from '../../../lib/sections'
 import { logGenerateEvent } from '../../../lib/supabase/events'
 import { getAuthContext } from '../../../lib/supabase/route-auth'
 import { catalogEntrySchema, parsedStockSchema, stockModeSchema } from '../../../lib/stock-schema'
@@ -158,19 +160,6 @@ function diceCoefficient(a: string, b: string) {
 }
 
 
-
-function parseNullableQuantity(value: unknown): number | null {
-  if (value === null || value === undefined) return null
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return Math.round(value)
-  }
-
-  const text = String(value).trim()
-  if (!text) return null
-
-  const match = text.match(/-?\d+/)
-  return match ? Number.parseInt(match[0], 10) : null
-}
 
 function normalizeStockDate(value: unknown, fallback: string) {
   const raw = String(value ?? '').trim()
@@ -329,7 +318,9 @@ export async function POST(request: Request) {
     const fallbackModel = process.env.OPENAI_VISION_FALLBACK_MODEL || 'gpt-5.2'
 
     try {
-      const catalogPrompt = buildCatalogPrompt(catalog, mode)
+      // The sheet kind: sent by the app, else worked out from the catalog it sent.
+      const section = parseSection(formData.get('section')) ?? sectionOfItems(catalog.map((entry) => ({ location: entry.location ?? '' })))
+      const catalogPrompt = buildCatalogPrompt(catalog, mode, section)
       const content = await readPhotoWithOpenAI(client, { model, fallbackModel, prompt: catalogPrompt, imageUrl: dataUrl, timeoutMs: OPENAI_TIMEOUT_MS })
       parsedJson = tryParseJson(content)
     } catch (error) {
@@ -491,8 +482,14 @@ export async function POST(request: Request) {
     })
   }
 
-  const derivedConfidence = knownItems.some(i => i.confidence === 'low') ? 'low' :
-    knownItems.some(i => i.confidence === 'medium') ? 'medium' : 'high'
+  // One row per catalog item: if the photo was read twice for the same item, keep the better read
+  // and flag the item when the two reads disagree.
+  const deduped = dedupeReadItems(knownItems as Array<{ catalog_code: string; quantity: number | null; quantity_conflict_flag: boolean; confidence: 'high' | 'medium' | 'low'; notes: string | null }>)
+  const finalKnownItems = deduped.items as typeof knownItems
+  quantityConflictCount += deduped.disagreements
+
+  const derivedConfidence = finalKnownItems.some(i => i.confidence === 'low') ? 'low' :
+    finalKnownItems.some(i => i.confidence === 'medium') ? 'medium' : 'high'
 
   const finalPayload = {
     photo_id: `${now.getTime()}-${uploadedFile.name}`,
@@ -500,9 +497,9 @@ export async function POST(request: Request) {
     upload_date: isoNow,
     stock_date: normalizeStockDate(extracted.data.stock_date, stockDate),
     photo_url: null,
-    total_items: knownItems.length,
+    total_items: finalKnownItems.length,
     confidence_overall: derivedConfidence,
-    items: knownItems,
+    items: finalKnownItems,
   }
 
   const missingCatalogItems = catalog.filter(c => !matchedCatalogCodes.has(c.code))
