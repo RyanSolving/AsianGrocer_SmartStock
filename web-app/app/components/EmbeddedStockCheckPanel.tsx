@@ -29,6 +29,7 @@ import { StockLedger, toLedgerAreas } from './StockLedger'
 import { LedgerPhotoSheet, type PhotoGroup, type PhotoRow } from './LedgerPhotoSheet'
 import {
   OUTSIDE_SECTION_ID,
+  VEGIES_SECTION_PREFIX,
   UNKNOWN_SECTION_ID,
   buildOutsideDisplayColumns,
   buildPaperSections,
@@ -911,6 +912,12 @@ export function EmbeddedStockCheckPanel({
         title: 'OUTSIDE COOLROOM',
         items: [...outsideDisplayColumns.left, ...outsideDisplayColumns.middle, ...outsideDisplayColumns.right],
       },
+      // Vegies: one section per big category.
+      ...[...paperSections.vegieLeftColumn, ...paperSections.vegieRightColumn].map((section) => ({
+        id: section.id,
+        title: section.title,
+        items: [...section.rows.left, ...section.rows.right, ...section.rows.single],
+      })),
     ]
 
     const unknownItemsForCard = [
@@ -928,7 +935,7 @@ export function EmbeddedStockCheckPanel({
     }
 
     return sections.filter((section) => section.items.length > 0)
-  }, [outsideDisplayColumns.left, outsideDisplayColumns.middle, outsideDisplayColumns.right, paperSections.leftColumn, paperSections.rightColumn, paperSections.unknownRows.left, paperSections.unknownRows.right, paperSections.unknownRows.single])
+  }, [outsideDisplayColumns.left, outsideDisplayColumns.middle, outsideDisplayColumns.right, paperSections.leftColumn, paperSections.rightColumn, paperSections.vegieLeftColumn, paperSections.vegieRightColumn, paperSections.unknownRows.left, paperSections.unknownRows.right, paperSections.unknownRows.single])
 
   /** The export photo lists counted items only; red-marked items stay red. */
   const closingPhoto = useMemo(() => {
@@ -954,11 +961,13 @@ export function EmbeddedStockCheckPanel({
       insideRight: toGroups(paperSections.rightColumn),
       outside: counted(all(paperSections.outsideRows)),
       unknown: counted(all(paperSections.unknownRows)),
+      vegiesLeft: toGroups(paperSections.vegieLeftColumn),
+      vegiesRight: toGroups(paperSections.vegieRightColumn),
     }
   }, [scopedCatalog, paperSections])
 
   const stockLedgerAreas = useMemo(
-    () => toLedgerAreas(stockCardSections, { outside: OUTSIDE_SECTION_ID, unknown: UNKNOWN_SECTION_ID }),
+    () => toLedgerAreas(stockCardSections, { outside: OUTSIDE_SECTION_ID, unknown: UNKNOWN_SECTION_ID, vegiesPrefix: VEGIES_SECTION_PREFIX }),
     [stockCardSections],
   )
 
@@ -2056,6 +2065,8 @@ export function EmbeddedStockCheckPanel({
               insideRight={closingPhoto.insideRight}
               outside={closingPhoto.outside}
               unknown={closingPhoto.unknown}
+              vegiesLeft={closingPhoto.vegiesLeft}
+              vegiesRight={closingPhoto.vegiesRight}
             />
           </div>
         ) : null}

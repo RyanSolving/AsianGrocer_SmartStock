@@ -234,7 +234,8 @@ export function DailyReportPanel({ catalogItems, requestedDate, defaultDate, liv
       right: paper.rightColumn.map(toGroup),
       outside: orderedRows(paper.outsideRows),
       unknown: orderedRows(paper.unknownRows),
-      vegies: orderedRows(paper.vegieRows),
+      vegiesLeft: paper.vegieLeftColumn.map(toGroup),
+      vegiesRight: paper.vegieRightColumn.map(toGroup),
     }
   }
   // The exported photo follows the badge filter; the search only narrows the screen.
@@ -271,7 +272,6 @@ export function DailyReportPanel({ catalogItems, requestedDate, defaultDate, liv
   function renderSheet(photo: boolean) {
     const sections = photo ? allSections : screenSections
     const midpoint = Math.ceil(sections.outside.length / 2)
-    const vegieMidpoint = Math.ceil(sections.vegies.length / 2)
     const showFruit = choice !== 'vegies'
     const showVegies = choice !== 'fruit'
     const sheetTitle = `${choice === 'both' ? '' : `${sectionLabel[choice]} `}${showsCurrent ? 'current stock' : 'closing stock'}`
@@ -318,16 +318,10 @@ export function DailyReportPanel({ catalogItems, requestedDate, defaultDate, liv
           </>
         ) : null}
         {showVegies ? (
-          photo && sections.vegies.length > 1 ? (
-            <PhotoColumns
-              title="Vegies"
-              left={[{ items: sections.vegies.slice(0, vegieMidpoint) }]}
-              right={[{ items: sections.vegies.slice(vegieMidpoint) }]}
-              insights={insights}
-              stockLabel={stockLabel} soldLabel={soldLabel}
-            />
+          photo && sections.vegiesRight.length > 0 ? (
+            <PhotoColumns title="Vegies" left={sections.vegiesLeft} right={sections.vegiesRight} insights={insights} stockLabel={stockLabel} soldLabel={soldLabel} />
           ) : (
-            <ReportArea title="Vegies" groups={[{ items: sections.vegies }]} insights={insights} stockLabel={stockLabel} soldLabel={soldLabel} onSelectItem={photo ? undefined : openFlagPicker} />
+            <ReportArea title="Vegies" groups={[...sections.vegiesLeft, ...sections.vegiesRight]} insights={insights} stockLabel={stockLabel} soldLabel={soldLabel} onSelectItem={photo ? undefined : openFlagPicker} />
           )
         ) : null}
       </div>

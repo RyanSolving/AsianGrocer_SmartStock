@@ -36,6 +36,9 @@ type LedgerPhotoSheetProps = {
   insideRight: PhotoGroup[]
   outside: PhotoRow[]
   unknown: PhotoRow[]
+  /** Vegies by big category, in two columns (right may be empty). */
+  vegiesLeft?: PhotoGroup[]
+  vegiesRight?: PhotoGroup[]
   /** `list`: one long, phone-width column (Stock In). `columns` (default): two columns. */
   layout?: 'columns' | 'list'
 }
@@ -159,8 +162,8 @@ function ListArea({ title, groups, showPrices }: { title: string; groups: PhotoG
   )
 }
 
-function ListSheet({ title, date, insideLeft, insideRight, outside, unknown }: Omit<LedgerPhotoSheetProps, 'layout' | 'quantityLabel'>) {
-  const all = [...insideLeft, ...insideRight].flatMap((group) => group.rows).concat(outside, unknown)
+function ListSheet({ title, date, insideLeft, insideRight, outside, unknown, vegiesLeft = [], vegiesRight = [] }: Omit<LedgerPhotoSheetProps, 'layout' | 'quantityLabel'>) {
+  const all = [...insideLeft, ...insideRight, ...vegiesLeft, ...vegiesRight].flatMap((group) => group.rows).concat(outside, unknown)
   const units = all.reduce((sum, row) => sum + toNumber(row.quantity), 0)
   // Stock In passes a price with every row; Check Stock has none, so its photo stays as it was.
   const showPrices = all.some((row) => row.price !== undefined)
@@ -193,6 +196,7 @@ function ListSheet({ title, date, insideLeft, insideRight, outside, unknown }: O
       <ListArea title="Inside coolroom" groups={[...insideLeft, ...insideRight]} showPrices={showPrices} />
       <ListArea title="Unclassified / staff inspection" groups={[{ rows: unknown }]} showPrices={showPrices} />
       <ListArea title="Outside coolroom" groups={[{ rows: outside }]} showPrices={showPrices} />
+      <ListArea title="Vegies" groups={[...vegiesLeft, ...vegiesRight]} showPrices={showPrices} />
     </>
   )
 }
@@ -203,7 +207,7 @@ function ListSheet({ title, date, insideLeft, insideRight, outside, unknown }: O
  * (`layout="list"`) that reads well on a phone. Used for exports only.
  */
 export const LedgerPhotoSheet = forwardRef<HTMLDivElement, LedgerPhotoSheetProps>(function LedgerPhotoSheet(
-  { title, date, quantityLabel, insideLeft, insideRight, outside, unknown, layout = 'columns' },
+  { title, date, quantityLabel, insideLeft, insideRight, outside, unknown, vegiesLeft = [], vegiesRight = [], layout = 'columns' },
   ref,
 ) {
   const hasInside = [...insideLeft, ...insideRight].some((group) => group.rows.length > 0)
@@ -213,7 +217,7 @@ export const LedgerPhotoSheet = forwardRef<HTMLDivElement, LedgerPhotoSheetProps
   if (isList) {
     return (
       <div ref={ref} className="report-photo is-list bg-surface">
-        <ListSheet title={title} date={date} insideLeft={insideLeft} insideRight={insideRight} outside={outside} unknown={unknown} />
+        <ListSheet title={title} date={date} insideLeft={insideLeft} insideRight={insideRight} outside={outside} unknown={unknown} vegiesLeft={vegiesLeft} vegiesRight={vegiesRight} />
       </div>
     )
   }
@@ -253,6 +257,17 @@ export const LedgerPhotoSheet = forwardRef<HTMLDivElement, LedgerPhotoSheetProps
           right={[{ rows: outside.slice(outsideMidpoint) }]}
           quantityLabel={quantityLabel}
         />
+      ) : null}
+
+      {[...vegiesLeft, ...vegiesRight].some((group) => group.rows.length > 0) ? (
+        vegiesRight.some((group) => group.rows.length > 0) ? (
+          <TwoColumns title="Vegies" left={vegiesLeft} right={vegiesRight} quantityLabel={quantityLabel} />
+        ) : (
+          <>
+            <h3 className="report-area-title">Vegies</h3>
+            <PhotoTable groups={vegiesLeft} quantityLabel={quantityLabel} />
+          </>
+        )
       ) : null}
     </div>
   )

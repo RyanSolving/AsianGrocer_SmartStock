@@ -8,7 +8,12 @@ export const stockModeSchema = z.enum(['stock-in', 'stock-closing'])
 export const catalogLocationOptions = ['Inside Coolroom', 'Outside Coolroom', 'Vegies'] as const
 export const catalogSubLocationInsideOptions = ['Apples', 'Citrus', 'Asian', 'Melon', 'All Year', 'Seasonal', 'Stonefruit'] as const
 export const catalogSubLocationOutsideOptions = ['Outside Coolroom'] as const
-export const catalogSubLocationVegiesOptions = ['Vegies'] as const
+/** The big categories of vegies (the sections on the sheets). Others may be typed in the catalog. */
+export const catalogSubLocationVegiesOptions = [
+  'Leafy & Salad', 'Cabbage & Brassica', 'Stalks & Shoots', 'Beans & Peas', 'Fruiting Veg',
+  'Capsicum & Chilli', 'Gourds, Pumpkin & Squash', 'Mushrooms', 'Root & Starchy',
+  'Potato & Sweet Potato', 'Onion, Garlic & Ginger', 'Herbs, Leaf & Citrus',
+] as const
 // Note: catalogCategoryOptions is now fetched from the database via category-store.ts
 // The schema validation for category is deferred to API routes where we have access to the database
 export const catalogRowPositionOptions = ['left', 'right', 'single'] as const
@@ -75,11 +80,12 @@ export const catalogItemSchema = z.object({
   row_position: z.enum(catalogRowPositionOptions).default('single'),
   is_visible: z.boolean().default(true),
 }).superRefine((value, context) => {
+  // Vegies take any big category (the list above is only what the forms suggest).
+  if (value.location === 'Vegies') return
+
   const validSubLocations: string[] = value.location === 'Outside Coolroom'
     ? [...catalogSubLocationOutsideOptions]
-    : value.location === 'Vegies'
-      ? [...catalogSubLocationVegiesOptions]
-      : [...catalogSubLocationInsideOptions]
+    : [...catalogSubLocationInsideOptions]
 
   if (!validSubLocations.includes(value.sub_location)) {
     context.addIssue({
@@ -87,9 +93,7 @@ export const catalogItemSchema = z.object({
       path: ['sub_location'],
       message: value.location === 'Outside Coolroom'
         ? 'Outside Coolroom must use the Outside Coolroom sub-location.'
-        : value.location === 'Vegies'
-          ? 'Vegies must use the Vegies sub-location.'
-          : 'Select a valid sub-location for the chosen location.',
+        : 'Select a valid sub-location for the chosen location.',
     })
   }
 })

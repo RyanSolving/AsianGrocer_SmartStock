@@ -98,14 +98,18 @@ describe('buildOutsideDisplayColumns', () => {
     expect(columns.right).toHaveLength(3)
   })
 
-  it('collects Vegies rows apart from the coolroom sections', () => {
+  it('groups Vegies rows into their big categories, apart from the coolroom sections', () => {
     const sections = buildPaperSections(indexed([
       row({ official_name: 'Apple' }),
-      row({ official_name: 'Choy Sum', location: 'Vegies', sub_location: 'Vegies', row_position: 'single' }),
-      row({ official_name: 'Bok Choy', location: 'Vegies', sub_location: 'Vegies', row_position: 'single' }),
+      row({ official_name: 'Choy Sum', location: 'Vegies', sub_location: 'Leafy & Salad', row_position: 'single' }),
+      row({ official_name: 'Bok Choy', location: 'Vegies', sub_location: 'Leafy & Salad', row_position: 'single' }),
+      row({ official_name: 'Carrot', location: 'Vegies', sub_location: 'Root & Starchy', row_position: 'single' }),
     ]))
 
-    expect(sections.vegieRows.single.map((x) => x.row.official_name)).toEqual(['Bok Choy', 'Choy Sum'])
+    const vegies = [...sections.vegieLeftColumn, ...sections.vegieRightColumn]
+    expect(vegies.map((section) => section.title)).toEqual(['LEAFY & SALAD', 'ROOT & STARCHY'])
+    expect(vegies[0].id).toBe('vegies-leafy-salad')
+    expect(vegies[0].rows.single.map((x) => x.row.official_name)).toEqual(['Bok Choy', 'Choy Sum'])
     expect(sections.outsideRows.single).toHaveLength(0)
     expect([...sections.leftColumn, ...sections.rightColumn].flatMap((s) => s.rows.left.concat(s.rows.right, s.rows.single))
       .map((x) => x.row.official_name)).toEqual(['Apple'])

@@ -7,7 +7,8 @@ import { describe, expect, it } from '@jest/globals'
 
 import { buildSupabaseStockCheckUpsertRow, type SupabaseStockCheckRecordData } from '../../lib/stock-check-save'
 import { filterBySection, parseSection, parseSectionChoice, sectionOfItems, sectionOfLocation, sectionsOf, splitBySection } from '../../lib/sections'
-import { saveToWarehouseEnvelopeSchema } from '../../lib/stock-schema'
+import { catalogItemSchema, saveToWarehouseEnvelopeSchema } from '../../lib/stock-schema'
+import { toLedgerAreas } from '../../app/components/StockLedger'
 
 const item = (location: string) => ({ location })
 
@@ -106,5 +107,27 @@ describe('splitBySection (Stock In, one record per section)', () => {
 
   it('still returns one (empty) record when nothing is counted, so validation behaves as before', () => {
     expect(splitBySection([line('Vegies', null), line('Inside Coolroom', null)], 'both').map((group) => group.section)).toEqual(['fruit'])
+  })
+})
+
+describe('vegie categories on the sheets', () => {
+  it('puts vegie sections in their own Vegies area, after the coolroom areas', () => {
+    const sections = [
+      { id: 'inside-apples', title: 'APPLES', items: [1] },
+      { id: 'outside-coolroom', title: 'OUTSIDE COOLROOM', items: [2] },
+      { id: 'vegies-leafy-salad', title: 'LEAFY & SALAD', items: [3] },
+      { id: 'vegies-root-starchy', title: 'ROOT & STARCHY', items: [4] },
+    ]
+    const areas = toLedgerAreas(sections, { outside: 'outside-coolroom', unknown: 'unknown', vegiesPrefix: 'vegies-' })
+    expect(areas.map((area) => area.title)).toEqual(['Inside coolroom', 'Outside coolroom', 'Vegies'])
+    expect(areas[2].groups.map((group) => group.title)).toEqual(['LEAFY & SALAD', 'ROOT & STARCHY'])
+    expect(areas[0].groups).toHaveLength(1)
+  })
+
+  it('accepts any big category for a Vegies catalog item, but still checks fruit sub-locations', () => {
+    const base = { code: 'X', category: 'Carrot', official_name: 'Carrot', stocklist_name: 'Carrot' }
+    expect(catalogItemSchema.safeParse({ ...base, location: 'Vegies', sub_location: 'Root & Starchy' }).success).toBe(true)
+    expect(catalogItemSchema.safeParse({ ...base, location: 'Vegies', sub_location: 'A New Group' }).success).toBe(true)
+    expect(catalogItemSchema.safeParse({ ...base, location: 'Inside Coolroom', sub_location: 'Root & Starchy' }).success).toBe(false)
   })
 })

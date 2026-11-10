@@ -48,6 +48,12 @@ export function buildInsideSectionId(title: string) {
   return `inside-${toSectionId(title)}`
 }
 
+export const VEGIES_SECTION_PREFIX = 'vegies-'
+
+export function buildVegieSectionId(title: string) {
+  return `${VEGIES_SECTION_PREFIX}${toSectionId(title)}`
+}
+
 export function splitRows<T extends PaperRow>(items: IndexedPaperRow<T>[]): PaperRowColumns<T> {
   const singles = items.filter((x) => x.row.row_position === 'single')
   const paired = items.filter((x) => x.row.row_position !== 'single')
@@ -126,16 +132,32 @@ export function buildPaperSections<T extends PaperRow>(displayedIndexedRows: Ind
 
   const outsideRows = sortIndexedRowsByName(displayedIndexedRows.filter((x) => x.row.location === 'Outside Coolroom'))
   const unknownRows = sortIndexedRowsByName(displayedIndexedRows.filter((x) => x.row.source === 'unknown'))
-  const vegieRows = sortIndexedRowsByName(
-    displayedIndexedRows.filter((x) => x.row.location === VEGIES_LOCATION && x.row.source !== 'unknown'),
-  )
+  // Vegies: one section per big category (sub-location), like the coolroom sections.
+  const vegieRowsByCategory = new Map<string, IndexedPaperRow<T>[]>()
+  displayedIndexedRows
+    .filter((x) => x.row.location === VEGIES_LOCATION && x.row.source !== 'unknown')
+    .forEach((entry) => {
+      const label = entry.row.sub_location.trim() || 'Other'
+      const existing = vegieRowsByCategory.get(label)
+      if (existing) existing.push(entry)
+      else vegieRowsByCategory.set(label, [entry])
+    })
+  const vegieSections: PaperSection<T>[] = Array.from(vegieRowsByCategory.entries())
+    .sort(([leftLabel], [rightLabel]) => leftLabel.localeCompare(rightLabel, undefined, { sensitivity: 'base', numeric: true }))
+    .map(([label, sectionRows]) => ({
+      id: buildVegieSectionId(label),
+      title: label.toUpperCase(),
+      rows: splitRows(sortIndexedRowsByName(sectionRows)),
+    }))
+  const vegieMidpoint = Math.ceil(vegieSections.length / 2)
 
   return {
     leftColumn: insideSections.slice(0, midpoint),
     rightColumn: insideSections.slice(midpoint),
     outsideRows: splitRows(outsideRows),
     unknownRows: splitRows(unknownRows),
-    vegieRows: splitRows(vegieRows),
+    vegieLeftColumn: vegieSections.slice(0, vegieMidpoint),
+    vegieRightColumn: vegieSections.slice(vegieMidpoint),
   }
 }
 

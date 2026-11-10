@@ -1,134 +1,134 @@
 ID,Code,Location,Sub-location,Category,Product,Attribute,Origin,Inner Quantity,Inner Unit,Official Name,Name on Stocklist,Nagivation Guide
-1,CAR-CAR-PRE,Vegies,Vegies,Carrot,Carrot,Pre-pack,,,box,Carrot Pre-pack,PP Carrot,Fresh veg
-2,CAR-CAR-LOO,Vegies,Vegies,Carrot,Carrot,Loose,,,box,Carrot Loose,Loose Carrot,Fresh veg
-3,BRO-BRO-STD,Vegies,Vegies,Broccoli,Broccoli,,,,box,Broccoli,Broccoli,Fresh veg
-4,HER-LEM-STD,Vegies,Vegies,Herb,Lemongrass,,,,bunch,Lemongrass,Lemongrass,Fresh veg
-5,ROO-LOT-STD,Vegies,Vegies,Root,Lotus Root,,,,box,Lotus Root,Lotus Root,Fresh veg
-6,GOU-SNA-STD,Vegies,Vegies,Gourd,Snake Gourd,,,,box,Snake Gourd,Snake Gourd,Fresh veg
-7,OKR-OKR-SMA,Vegies,Vegies,Okra,Okra,Small,,,box,Okra Small,Okra Sml Size,Fresh veg
-8,OKR-OKR-BIG,Vegies,Vegies,Okra,Okra,Big,,,box,Okra Big,Okra Big Size,Fresh veg
-9,GOU-BIT-STD,Vegies,Vegies,Gourd,Bitter Melon,,,,box,Bitter Melon,Bitter Melon,Fresh veg
-10,GOU-BIT-IND,Vegies,Vegies,Gourd,Bitter Melon,India,,,box,Bitter Melon India,India Bitter,Fresh veg
-11,GOU-LON-STD,Vegies,Vegies,Gourd,Long Melon,,,,box,Long Melon,Long Melon,Fresh veg
-12,GOU-HAI-STD,Vegies,Vegies,Gourd,Hairy Melon,,,,box,Hairy Melon,Hairy Melon,Fresh veg
-13,GOU-LUF-STD,Vegies,Vegies,Gourd,Luffa,,,,box,Luffa,Luffa,Fresh veg
-14,GOU-XIN-STD,Vegies,Vegies,Gourd,Xin Kua,,,,box,Xin Kua,Xin Kua,Fresh veg
-15,BEA-SNA-STD,Vegies,Vegies,Bean,Snake Bean,,,,box,Snake Bean,Snake Bean,Fresh veg
-16,BEA-DRU-STD,Vegies,Vegies,Bean,Drumstick,,,,box,Drumstick,Drumstick,Fresh veg
-17,PLA-PLA-STD,Vegies,Vegies,Plantain,Plantain,,,,box,Plantain,Plaintain,Fresh veg
-18,PAW-GRE-STD,Vegies,Vegies,Pawpaw,Green Pawpaw,,,,box,Green Pawpaw,Green Pawpaw,Fresh veg
-19,BEA-ROU-STD,Vegies,Vegies,Bean,Round Bean,,,,box,Round Bean,Round Bean,Fresh veg
-20,COR-COR-STD,Vegies,Vegies,Corn,Corn,,,,box,Corn,Corn,Fresh veg
-21,PEA-SNO-STD,Vegies,Vegies,Pea,Snow Peas,,,,box,Snow Peas,Snow Peas,Fresh veg
-22,PEA-SUG-STD,Vegies,Vegies,Pea,Sugar Snap,,,,box,Sugar Snap Peas,Sugar Snap,Fresh veg
-23,BEA-FLA-STD,Vegies,Vegies,Bean,Flat Bean,,,,box,Flat Bean,Flat Bean,Fresh veg
-24,MUS-CUP-STD,Vegies,Vegies,Mushroom,Cup Mushroom,,,,box,Cup Mushroom,Cup Mushroom,Fresh veg
-25,MUS-FLA-STD,Vegies,Vegies,Mushroom,Flat Mushroom,,,,box,Flat Mushroom,Flat Mush,Fresh veg
-26,MUS-SWI-STD,Vegies,Vegies,Mushroom,Swiss Mushroom,,,,box,Swiss Mushroom,Swiss Mush,Fresh veg
-27,BEE-BEE-STD,Vegies,Vegies,Beetroot,Beetroot,,,,box,Beetroot,Beetroot,Fresh veg
-28,SAL-SAL-STD,Vegies,Vegies,Salad,Salad Mix,,,,box,Salad Mix,Salad Mix,Fresh veg
-29,SAL-BAB-STD,Vegies,Vegies,Salad,Baby Spinach,,,,box,Baby Spinach,Baby Spinach,Fresh veg
-30,LET-COS-TWI,Vegies,Vegies,Lettuce,Cos,Twin pack,,,box,Cos Twin Pack,Twinpack Cos,Fresh veg
-31,SAL-ROC-STD,Vegies,Vegies,Salad,Rocket,,,,box,Rocket,Rocket,Fresh veg
-32,LET-GRE-STD,Vegies,Vegies,Lettuce,Green Oak,,,,box,Green Oak Lettuce,Green Oak Lettuce,Fresh veg
-33,TAR-TAR-STD,Vegies,Vegies,Taro,Taro,,,,box,Taro,Taro,Fresh veg
-34,TAR-TAR-BAB,Vegies,Vegies,Taro,Taro,Baby,,,box,Baby Taro,Baby Taro,Fresh veg
-35,YAM-YAM-STD,Vegies,Vegies,Yam,Yam Bean,,,,box,Yam Bean,Yam Bean,Fresh veg
-36,YAM-PUR-STD,Vegies,Vegies,Yam,Purple Yam,,,,box,Purple Yam,Purple Yam,Fresh veg
-37,GAR-GAR-PEE,Vegies,Vegies,Garlic,Garlic,Peeled,,,box,Garlic Peeled,Peeled Garlic,Fresh veg
-38,GAR-GAR-STD,Vegies,Vegies,Garlic,Garlic Shoot,,,,box,Garlic Shoot,Garlic Shoot,Fresh veg
-39,HER-FLO-STD,Vegies,Vegies,Herb,Flower Chive,,,,bunch,Flower Chive,Flower Chive,Fresh veg
-40,GIN-GIN-OLD,Vegies,Vegies,Ginger,Ginger,Old,,,box,Ginger Old,Old Ginger,Fresh veg
-41,GIN-GIN-YOU,Vegies,Vegies,Ginger,Ginger,Young,,,box,Ginger Young,Young Ginger,Fresh veg
-42,GIN-GIN-FOR,Vegies,Vegies,Ginger,Ginger,For packing,,,box,Ginger For Packing,Ginger For Packing,Fresh veg
-43,RAD-RED-STD,Vegies,Vegies,Radish,Red Radish,,,,box,Red Radish,Red Radish,Fresh veg
-44,CIT-LIM-LOO,Vegies,Vegies,Citrus,Lime,Loose,,,box,Lime Loose,Lime Loose,Fresh veg
-45,CIT-LIM-FOR,Vegies,Vegies,Citrus,Lime,For packing,,,box,Lime For Packing,Lime Packing,Fresh veg
-46,CIT-LEM-LOO,Vegies,Vegies,Citrus,Lemon,Loose,,,box,Lemon Loose,Lemon Loose,Fresh veg
-47,CIT-LEM-FOR,Vegies,Vegies,Citrus,Lemon,For packing,,,box,Lemon For Packing,Lemon Packing,Fresh veg
-48,CHI-CHI-YEL,Vegies,Vegies,Chilli,Chilli,Yellow hot,,,box,Yellow Hot Chilli,Yellow Hot Chilli,Fresh veg
-49,CHI-CHI-YEL2,Vegies,Vegies,Chilli,Chilli,Yellow sweet,,,box,Yellow Sweet Chilli,Yellow Sweet,Fresh veg
-50,CHI-CHI-LON,Vegies,Vegies,Chilli,Chilli,Long green,,,box,Long Green Chilli,Long Green Chilli,Fresh veg
-51,CHI-CHI-LON2,Vegies,Vegies,Chilli,Chilli,Long red,,,box,Long Red Chilli,Long Red Chilli,Fresh veg
-52,GOU-CHO-STD,Vegies,Vegies,Gourd,Choko,,,,box,Choko,Choko,Fresh veg
-53,CUC-QUK-STD,Vegies,Vegies,Cucumber,Qukes,,,,box,Qukes,Qukes,Fresh veg
-54,CUC-CUC-LEB,Vegies,Vegies,Cucumber,Cucumber,Lebanese,,,box,Lebanese Cucumber,Leb Cucumber,Fresh veg
-55,CUC-CUC-LON,Vegies,Vegies,Cucumber,Cucumber,Long,,,box,Long Cucumber,Long Cucumber,Fresh veg
-56,ZUC-ZUC-STD,Vegies,Vegies,Zucchini,Zucchini,,,,box,Zucchini,Zucchini,Fresh veg
-57,EGG-EGG-ROU,Vegies,Vegies,Eggplant,Eggplant,Round,,,box,Eggplant Round,Eggplant Round,Fresh veg
-58,EGG-EGG-LEB,Vegies,Vegies,Eggplant,Eggplant,Lebanese,,,box,Lebanese Eggplant,Lebanese Eggplant,Fresh veg
-59,CAP-CAP-YEL,Vegies,Vegies,Capsicum,Capsicum,Yellow,,,box,Capsicum Yellow,Yellow Cap,Fresh veg
-60,CAP-CAP-GRE,Vegies,Vegies,Capsicum,Capsicum,Green,,,box,Capsicum Green,Green Cap,Fresh veg
-61,CAP-CAP-RED,Vegies,Vegies,Capsicum,Capsicum,Red,,,box,Capsicum Red,Red Cap,Fresh veg
-62,ASP-ASP-STD,Vegies,Vegies,Asparagus,Asparagus,,,,box,Asparagus,Asparagus,Fresh veg
-63,KOH-KOH-STD,Vegies,Vegies,Kohlrabi,Kohlrabi,,,,box,Kohlrabi,Kohlrabi,Fresh veg
-64,BRO-BRO-STD2,Vegies,Vegies,Broccoli,Broccolini,,,,box,Broccolini,Broccolini,Fresh veg
-65,TOM-TOM-CHE,Vegies,Vegies,Tomato,Tomato,Cherry,,,box,Cherry Tomato,Cherry Tomato,Fresh veg
-66,TOM-TOM-SUG,Vegies,Vegies,Tomato,Tomato,Sugar plum,,,box,Sugar Plum Tomato,Sugar Plum,Fresh veg
-67,TOM-TOM-STD,Vegies,Vegies,Tomato,Tomato,,,,box,Tomato,Tomato,Fresh veg
-68,TOM-TOM-TRU,Vegies,Vegies,Tomato,Tomato,Truss,,,box,Truss Tomato,Truss Tomato,Fresh veg
-69,CAU-CAU-STD,Vegies,Vegies,Cauliflower,Caulini,,,,box,Caulini,Caulini,Fresh veg
-70,CAU-CAU-STD2,Vegies,Vegies,Cauliflower,Cauliflower,,,,box,Cauliflower,Cauliflower,Fresh veg
-71,LET-LET-STD,Vegies,Vegies,Lettuce,Lettuce,,,,box,Lettuce,Lettuce,Fresh veg
-72,CAB-WOM-STD,Vegies,Vegies,Cabbage,Wombok,,,,box,Wombok,Wombok,Fresh veg
-73,CEL-CEL-STD,Vegies,Vegies,Celery,Celery,,,,box,Celery,Celery,Fresh veg
-74,CAB-WOM-BAB,Vegies,Vegies,Cabbage,Wombok,Baby,,,box,Baby Wombok,Baby Wombok,Fresh veg
-75,LEE-LEE-STD,Vegies,Vegies,Leek,Leek,,,,box,Leek,Leek,Fresh veg
-76,CAB-CAB-PLA,Vegies,Vegies,Cabbage,Cabbage,Plain,,,box,Cabbage Plain,Plain Cabbage,Fresh veg
-77,CAB-CAB-RED,Vegies,Vegies,Cabbage,Cabbage,Red,,,box,Cabbage Red,Red Cabbage,Fresh veg
-78,CAB-CAB-SAV,Vegies,Vegies,Cabbage,Cabbage,Savoy,,,box,Cabbage Savoy,Savoy Cabbage,Fresh veg
-79,KAL-KAL-TUS,Vegies,Vegies,Kale,Kale,Tuscan,,,box,Tuscan Kale,Tuscan Kale,Fresh veg
-80,KAL-KAL-CUR,Vegies,Vegies,Kale,Kale,Curly,,,box,Curly Kale,Curly Kale,Fresh veg
-81,YAM-HUA-STD,Vegies,Vegies,Yam,Huai San,,,,box,Huai San (Chinese Yam),Huai San,Fresh veg
-82,CAP-CAP-SNA,Vegies,Vegies,Capsicum,Capsicum,Snacking,,,box,Capsicum Snacking,Snacking Capsicum,Fresh veg
-83,TOM-TOM-KUM,Vegies,Vegies,Tomato,Tomato,Kumato,,,box,Kumato Tomato,Kumato,Fresh veg
-84,TOM-TOM-COC,Vegies,Vegies,Tomato,Tomato,Cocktail truss,,,box,Cocktail Truss Tomato,Cocktail Truss Tomato,Fresh veg
-85,POT-POT-WAS,Vegies,Vegies,Potato,Potato,Washed 5kg,,5,kg,Potato Washed 5kg,Wash Pot 5kg,Roots & onions
-86,POT-POT-WAS2,Vegies,Vegies,Potato,Potato,Washed 15kg,,15,kg,Potato Washed 15kg,Wash Pot 15kg,Roots & onions
-87,POT-POT-DES,Vegies,Vegies,Potato,Potato,Desiree 5kg,,5,kg,Potato Desiree 5kg,Dez Pot 5kg,Roots & onions
-88,POT-POT-DES2,Vegies,Vegies,Potato,Potato,Desiree 15kg,,15,kg,Potato Desiree 15kg,Dez Pot 15kg,Roots & onions
-89,POT-POT-DUT,Vegies,Vegies,Potato,Potato,Dutch cream 15kg,,15,kg,Potato Dutch Cream 15kg,Dutchcream 15kg,Roots & onions
-90,POT-POT-BRU,Vegies,Vegies,Potato,Potato,Brushed 15kg,,15,kg,Potato Brushed 15kg,Brushed 15kg,Roots & onions
-91,ONI-ONI-BRO,Vegies,Vegies,Onion,Onion,Brown 2kg,,2,kg,Onion Brown 2kg,Brown Onion 2kg,Roots & onions
-92,ONI-ONI-BRO2,Vegies,Vegies,Onion,Onion,Brown loose,,,box,Onion Brown Loose,Brown Onion Loose,Roots & onions
-93,ONI-ONI-RED,Vegies,Vegies,Onion,Onion,Red 2kg,,2,kg,Onion Red 2kg,Red Onion 2kg,Roots & onions
-94,ONI-ONI-RED2,Vegies,Vegies,Onion,Onion,Red loose,,,box,Onion Red Loose,Red Onion Loose,Roots & onions
-95,ONI-ONI-BRO3,Vegies,Vegies,Onion,Onion,Brown 10kg,,10,kg,Onion Brown 10kg,Brown Onion 10kg,Roots & onions
-96,ONI-ONI-BRO4,Vegies,Vegies,Onion,Onion,Brown 20kg,,20,kg,Onion Brown 20kg,Brown Onion 20kg,Roots & onions
-97,SHA-SHA-BRO,Vegies,Vegies,Shallot,Shallot,Brown,,,box,Shallot Brown,Brown Shallot,Roots & onions
-98,SHA-SHA-RED,Vegies,Vegies,Shallot,Shallot,Red,,,box,Shallot Red,Red Shallot,Roots & onions
-99,GAR-GAR-LOO,Vegies,Vegies,Garlic,Garlic,Loose,,,box,Garlic Loose,Loose Garlic,Roots & onions
-100,GAR-GAR-PRE,Vegies,Vegies,Garlic,Garlic,Pre-pack,,,box,Garlic Pre-pack,PP Garlic,Roots & onions
-101,GAR-GAR-SIN,Vegies,Vegies,Garlic,Garlic,Single,,,box,Garlic Single,Single Garlic,Roots & onions
-102,SWE-SWE-JAP,Vegies,Vegies,Sweet Potato,Sweet Potato,Japanese red,,,box,Sweet Potato Japanese Red,Jap Red Sweet Potato,Roots & onions
-103,SWE-SWE-JAP2,Vegies,Vegies,Sweet Potato,Sweet Potato,Japanese red pre-pack,,,box,Sweet Potato Japanese Red Pre-pack,Jap Red Sweet Potato PP,Roots & onions
-104,SWE-SWE-GOL,Vegies,Vegies,Sweet Potato,Sweet Potato,Gold,,,box,Sweet Potato Gold,Gold Sweet Potato,Roots & onions
-105,SWE-SWE-GOL2,Vegies,Vegies,Sweet Potato,Sweet Potato,Gold pre-pack,,,box,Sweet Potato Gold Pre-pack,Gold Sweet Potato Prepack,Roots & onions
-106,SWE-SWE-WHI,Vegies,Vegies,Sweet Potato,Sweet Potato,White,,,box,Sweet Potato White,White Sweet Potato,Roots & onions
-107,GOU-WIN-STD,Vegies,Vegies,Gourd,Wintermelon,,,,box,Wintermelon,Wintermelon,Roots & onions
-108,PUM-PUM-JAP,Vegies,Vegies,Pumpkin,Pumpkin,Japanese,,,box,Pumpkin Japanese,Jap Pumpkin,Roots & onions
-109,PUM-PUM-ASI,Vegies,Vegies,Pumpkin,Pumpkin,Asian,,,box,Pumpkin Asian,Asian Pumpkin,Roots & onions
-110,PUM-PUM-BUT,Vegies,Vegies,Pumpkin,Pumpkin,Butternut,,,box,Pumpkin Butternut,Butternut Pumpkin,Roots & onions
-111,POT-POT-COC,Vegies,Vegies,Potato,Potato,Cocktail,,,box,Potato Cocktail,Cocktail Potato,Roots & onions
-112,HER-WAT-STD,Vegies,Vegies,Herb,Watercress,,,,bunch,Watercress,Watercress,Orders (herbs)
-113,HER-MIN-STD,Vegies,Vegies,Herb,Mint,,,,bunch,Mint,Mint,Orders (herbs)
-114,HER-PAR-CUR,Vegies,Vegies,Herb,Parsley,Curly,,,bunch,Parsley Curly,Curly Parsley,Orders (herbs)
-115,HER-BAS-AUS,Vegies,Vegies,Herb,Basil,Aussie,,,bunch,Basil Aussie,Aussie Basil,Orders (herbs)
-116,HER-SPR-STD,Vegies,Vegies,Herb,Spring Onion,,,,bunch,Spring Onion,Spring Onion,Orders (herbs)
-117,HER-CHI-STD,Vegies,Vegies,Herb,Chives,,,,bunch,Chives,Chives,Orders (herbs)
-118,LEA-BAN-STD,Vegies,Vegies,Leaf,Banana Leaf,,,,bunch,Banana Leaf,Banana Leaf,Orders (herbs)
-119,LEA-PAN-STD,Vegies,Vegies,Leaf,Pandan Leaf,,,,bunch,Pandan Leaf,Pandan Leaf,Orders (herbs)
-120,LEA-CUR-STD,Vegies,Vegies,Leaf,Curry Leaf,,,,bunch,Curry Leaf,Curry Leaf,Orders (herbs)
-121,LEA-LIM-STD,Vegies,Vegies,Leaf,Lime Leaf,,,,bunch,Lime Leaf,Lime Leaf,Orders (herbs)
-122,ROO-TUR-STD,Vegies,Vegies,Root,Turmeric,,,,box,Turmeric,Turmeric,Orders (herbs)
-123,ROO-GAL-STD,Vegies,Vegies,Root,Galangal,,,,box,Galangal,Galangal,Orders (herbs)
-124,LEA-SPI-STD,Vegies,Vegies,Leafy,Spinach,,,,bunch,Spinach,Spinach,Orders (herbs)
-125,LEA-KAN-STD,Vegies,Vegies,Leafy,Kang Kong,,,,bunch,Kang Kong,Kang Kong,Orders (herbs)
-126,HER-FEN-STD,Vegies,Vegies,Herb,Fenugreek,,,,bunch,Fenugreek,Fenugreek,Orders (herbs)
-127,HER-DIL-STD,Vegies,Vegies,Herb,Dill,,,,bunch,Dill,Dill,Orders (herbs)
-128,LEA-SNO-SMA,Vegies,Vegies,Leafy,Snow Pea Shoot,Small,,,bunch,Snow Pea Shoot Small,Snow Pea Shoot (S),Orders (herbs)
-129,LEA-SNO-LAR,Vegies,Vegies,Leafy,Snow Pea Shoot,Large,,,bunch,Snow Pea Shoot Large,Snow Pea Shoot (L),Orders (herbs)
-130,CHI-CHI-BUL,Vegies,Vegies,Chilli,Chilli,Bullet,,,box,Bullet Chilli,Bullet Chilli,Orders (herbs)
-131,CHI-CHI-THA,Vegies,Vegies,Chilli,Chilli,Thai red,,,box,Thai Red Chilli,Thai Red Chilli,Orders (herbs)
-132,CHI-CHI-THA2,Vegies,Vegies,Chilli,Chilli,Thai green,,,box,Thai Green Chilli,Thai Green Chilli,Orders (herbs)
-133,COR-COR-BAB,Vegies,Vegies,Corn,Corn,Baby,,,box,Baby Corn,Baby Corn,Orders (herbs)
+1,CAR-CAR-PRE,Vegies,Root & Starchy,Carrot,Carrot,Pre-pack,,,box,Carrot Pre-pack,PP Carrot,Fresh veg
+2,CAR-CAR-LOO,Vegies,Root & Starchy,Carrot,Carrot,Loose,,,box,Carrot Loose,Loose Carrot,Fresh veg
+3,BRO-BRO-STD,Vegies,Cabbage & Brassica,Broccoli,Broccoli,,,,box,Broccoli,Broccoli,Fresh veg
+4,HER-LEM-STD,Vegies,"Herbs, Leaf & Citrus",Herb,Lemongrass,,,,bunch,Lemongrass,Lemongrass,Fresh veg
+5,ROO-LOT-STD,Vegies,Root & Starchy,Root,Lotus Root,,,,box,Lotus Root,Lotus Root,Fresh veg
+6,GOU-SNA-STD,Vegies,"Gourds, Pumpkin & Squash",Gourd,Snake Gourd,,,,box,Snake Gourd,Snake Gourd,Fresh veg
+7,OKR-OKR-SMA,Vegies,Fruiting Veg,Okra,Okra,Small,,,box,Okra Small,Okra Sml Size,Fresh veg
+8,OKR-OKR-BIG,Vegies,Fruiting Veg,Okra,Okra,Big,,,box,Okra Big,Okra Big Size,Fresh veg
+9,GOU-BIT-STD,Vegies,"Gourds, Pumpkin & Squash",Gourd,Bitter Melon,,,,box,Bitter Melon,Bitter Melon,Fresh veg
+10,GOU-BIT-IND,Vegies,"Gourds, Pumpkin & Squash",Gourd,Bitter Melon,India,,,box,Bitter Melon India,India Bitter,Fresh veg
+11,GOU-LON-STD,Vegies,"Gourds, Pumpkin & Squash",Gourd,Long Melon,,,,box,Long Melon,Long Melon,Fresh veg
+12,GOU-HAI-STD,Vegies,"Gourds, Pumpkin & Squash",Gourd,Hairy Melon,,,,box,Hairy Melon,Hairy Melon,Fresh veg
+13,GOU-LUF-STD,Vegies,"Gourds, Pumpkin & Squash",Gourd,Luffa,,,,box,Luffa,Luffa,Fresh veg
+14,GOU-XIN-STD,Vegies,"Gourds, Pumpkin & Squash",Gourd,Xin Kua,,,,box,Xin Kua,Xin Kua,Fresh veg
+15,BEA-SNA-STD,Vegies,Beans & Peas,Bean,Snake Bean,,,,box,Snake Bean,Snake Bean,Fresh veg
+16,BEA-DRU-STD,Vegies,Beans & Peas,Bean,Drumstick,,,,box,Drumstick,Drumstick,Fresh veg
+17,PLA-PLA-STD,Vegies,Root & Starchy,Plantain,Plantain,,,,box,Plantain,Plaintain,Fresh veg
+18,PAW-GRE-STD,Vegies,Root & Starchy,Pawpaw,Green Pawpaw,,,,box,Green Pawpaw,Green Pawpaw,Fresh veg
+19,BEA-ROU-STD,Vegies,Beans & Peas,Bean,Round Bean,,,,box,Round Bean,Round Bean,Fresh veg
+20,COR-COR-STD,Vegies,Fruiting Veg,Corn,Corn,,,,box,Corn,Corn,Fresh veg
+21,PEA-SNO-STD,Vegies,Beans & Peas,Pea,Snow Peas,,,,box,Snow Peas,Snow Peas,Fresh veg
+22,PEA-SUG-STD,Vegies,Beans & Peas,Pea,Sugar Snap,,,,box,Sugar Snap Peas,Sugar Snap,Fresh veg
+23,BEA-FLA-STD,Vegies,Beans & Peas,Bean,Flat Bean,,,,box,Flat Bean,Flat Bean,Fresh veg
+24,MUS-CUP-STD,Vegies,Mushrooms,Mushroom,Cup Mushroom,,,,box,Cup Mushroom,Cup Mushroom,Fresh veg
+25,MUS-FLA-STD,Vegies,Mushrooms,Mushroom,Flat Mushroom,,,,box,Flat Mushroom,Flat Mush,Fresh veg
+26,MUS-SWI-STD,Vegies,Mushrooms,Mushroom,Swiss Mushroom,,,,box,Swiss Mushroom,Swiss Mush,Fresh veg
+27,BEE-BEE-STD,Vegies,Root & Starchy,Beetroot,Beetroot,,,,box,Beetroot,Beetroot,Fresh veg
+28,SAL-SAL-STD,Vegies,Leafy & Salad,Salad,Salad Mix,,,,box,Salad Mix,Salad Mix,Fresh veg
+29,SAL-BAB-STD,Vegies,Leafy & Salad,Salad,Baby Spinach,,,,box,Baby Spinach,Baby Spinach,Fresh veg
+30,LET-COS-TWI,Vegies,Leafy & Salad,Lettuce,Cos,Twin pack,,,box,Cos Twin Pack,Twinpack Cos,Fresh veg
+31,SAL-ROC-STD,Vegies,Leafy & Salad,Salad,Rocket,,,,box,Rocket,Rocket,Fresh veg
+32,LET-GRE-STD,Vegies,Leafy & Salad,Lettuce,Green Oak,,,,box,Green Oak Lettuce,Green Oak Lettuce,Fresh veg
+33,TAR-TAR-STD,Vegies,Root & Starchy,Taro,Taro,,,,box,Taro,Taro,Fresh veg
+34,TAR-TAR-BAB,Vegies,Root & Starchy,Taro,Taro,Baby,,,box,Baby Taro,Baby Taro,Fresh veg
+35,YAM-YAM-STD,Vegies,Root & Starchy,Yam,Yam Bean,,,,box,Yam Bean,Yam Bean,Fresh veg
+36,YAM-PUR-STD,Vegies,Root & Starchy,Yam,Purple Yam,,,,box,Purple Yam,Purple Yam,Fresh veg
+37,GAR-GAR-PEE,Vegies,"Onion, Garlic & Ginger",Garlic,Garlic,Peeled,,,box,Garlic Peeled,Peeled Garlic,Fresh veg
+38,GAR-GAR-STD,Vegies,"Onion, Garlic & Ginger",Garlic,Garlic Shoot,,,,box,Garlic Shoot,Garlic Shoot,Fresh veg
+39,HER-FLO-STD,Vegies,"Onion, Garlic & Ginger",Herb,Flower Chive,,,,bunch,Flower Chive,Flower Chive,Fresh veg
+40,GIN-GIN-OLD,Vegies,"Onion, Garlic & Ginger",Ginger,Ginger,Old,,,box,Ginger Old,Old Ginger,Fresh veg
+41,GIN-GIN-YOU,Vegies,"Onion, Garlic & Ginger",Ginger,Ginger,Young,,,box,Ginger Young,Young Ginger,Fresh veg
+42,GIN-GIN-FOR,Vegies,"Onion, Garlic & Ginger",Ginger,Ginger,For packing,,,box,Ginger For Packing,Ginger For Packing,Fresh veg
+43,RAD-RED-STD,Vegies,Root & Starchy,Radish,Red Radish,,,,box,Red Radish,Red Radish,Fresh veg
+44,CIT-LIM-LOO,Vegies,"Herbs, Leaf & Citrus",Citrus,Lime,Loose,,,box,Lime Loose,Lime Loose,Fresh veg
+45,CIT-LIM-FOR,Vegies,"Herbs, Leaf & Citrus",Citrus,Lime,For packing,,,box,Lime For Packing,Lime Packing,Fresh veg
+46,CIT-LEM-LOO,Vegies,"Herbs, Leaf & Citrus",Citrus,Lemon,Loose,,,box,Lemon Loose,Lemon Loose,Fresh veg
+47,CIT-LEM-FOR,Vegies,"Herbs, Leaf & Citrus",Citrus,Lemon,For packing,,,box,Lemon For Packing,Lemon Packing,Fresh veg
+48,CHI-CHI-YEL,Vegies,Capsicum & Chilli,Chilli,Chilli,Yellow hot,,,box,Yellow Hot Chilli,Yellow Hot Chilli,Fresh veg
+49,CHI-CHI-YEL2,Vegies,Capsicum & Chilli,Chilli,Chilli,Yellow sweet,,,box,Yellow Sweet Chilli,Yellow Sweet,Fresh veg
+50,CHI-CHI-LON,Vegies,Capsicum & Chilli,Chilli,Chilli,Long green,,,box,Long Green Chilli,Long Green Chilli,Fresh veg
+51,CHI-CHI-LON2,Vegies,Capsicum & Chilli,Chilli,Chilli,Long red,,,box,Long Red Chilli,Long Red Chilli,Fresh veg
+52,GOU-CHO-STD,Vegies,"Gourds, Pumpkin & Squash",Gourd,Choko,,,,box,Choko,Choko,Fresh veg
+53,CUC-QUK-STD,Vegies,Fruiting Veg,Cucumber,Qukes,,,,box,Qukes,Qukes,Fresh veg
+54,CUC-CUC-LEB,Vegies,Fruiting Veg,Cucumber,Cucumber,Lebanese,,,box,Lebanese Cucumber,Leb Cucumber,Fresh veg
+55,CUC-CUC-LON,Vegies,Fruiting Veg,Cucumber,Cucumber,Long,,,box,Long Cucumber,Long Cucumber,Fresh veg
+56,ZUC-ZUC-STD,Vegies,"Gourds, Pumpkin & Squash",Zucchini,Zucchini,,,,box,Zucchini,Zucchini,Fresh veg
+57,EGG-EGG-ROU,Vegies,Fruiting Veg,Eggplant,Eggplant,Round,,,box,Eggplant Round,Eggplant Round,Fresh veg
+58,EGG-EGG-LEB,Vegies,Fruiting Veg,Eggplant,Eggplant,Lebanese,,,box,Lebanese Eggplant,Lebanese Eggplant,Fresh veg
+59,CAP-CAP-YEL,Vegies,Capsicum & Chilli,Capsicum,Capsicum,Yellow,,,box,Capsicum Yellow,Yellow Cap,Fresh veg
+60,CAP-CAP-GRE,Vegies,Capsicum & Chilli,Capsicum,Capsicum,Green,,,box,Capsicum Green,Green Cap,Fresh veg
+61,CAP-CAP-RED,Vegies,Capsicum & Chilli,Capsicum,Capsicum,Red,,,box,Capsicum Red,Red Cap,Fresh veg
+62,ASP-ASP-STD,Vegies,Stalks & Shoots,Asparagus,Asparagus,,,,box,Asparagus,Asparagus,Fresh veg
+63,KOH-KOH-STD,Vegies,Cabbage & Brassica,Kohlrabi,Kohlrabi,,,,box,Kohlrabi,Kohlrabi,Fresh veg
+64,BRO-BRO-STD2,Vegies,Cabbage & Brassica,Broccoli,Broccolini,,,,box,Broccolini,Broccolini,Fresh veg
+65,TOM-TOM-CHE,Vegies,Fruiting Veg,Tomato,Tomato,Cherry,,,box,Cherry Tomato,Cherry Tomato,Fresh veg
+66,TOM-TOM-SUG,Vegies,Fruiting Veg,Tomato,Tomato,Sugar plum,,,box,Sugar Plum Tomato,Sugar Plum,Fresh veg
+67,TOM-TOM-STD,Vegies,Fruiting Veg,Tomato,Tomato,,,,box,Tomato,Tomato,Fresh veg
+68,TOM-TOM-TRU,Vegies,Fruiting Veg,Tomato,Tomato,Truss,,,box,Truss Tomato,Truss Tomato,Fresh veg
+69,CAU-CAU-STD,Vegies,Cabbage & Brassica,Cauliflower,Caulini,,,,box,Caulini,Caulini,Fresh veg
+70,CAU-CAU-STD2,Vegies,Cabbage & Brassica,Cauliflower,Cauliflower,,,,box,Cauliflower,Cauliflower,Fresh veg
+71,LET-LET-STD,Vegies,Leafy & Salad,Lettuce,Lettuce,,,,box,Lettuce,Lettuce,Fresh veg
+72,CAB-WOM-STD,Vegies,Cabbage & Brassica,Cabbage,Wombok,,,,box,Wombok,Wombok,Fresh veg
+73,CEL-CEL-STD,Vegies,Stalks & Shoots,Celery,Celery,,,,box,Celery,Celery,Fresh veg
+74,CAB-WOM-BAB,Vegies,Cabbage & Brassica,Cabbage,Wombok,Baby,,,box,Baby Wombok,Baby Wombok,Fresh veg
+75,LEE-LEE-STD,Vegies,Stalks & Shoots,Leek,Leek,,,,box,Leek,Leek,Fresh veg
+76,CAB-CAB-PLA,Vegies,Cabbage & Brassica,Cabbage,Cabbage,Plain,,,box,Cabbage Plain,Plain Cabbage,Fresh veg
+77,CAB-CAB-RED,Vegies,Cabbage & Brassica,Cabbage,Cabbage,Red,,,box,Cabbage Red,Red Cabbage,Fresh veg
+78,CAB-CAB-SAV,Vegies,Cabbage & Brassica,Cabbage,Cabbage,Savoy,,,box,Cabbage Savoy,Savoy Cabbage,Fresh veg
+79,KAL-KAL-TUS,Vegies,Leafy & Salad,Kale,Kale,Tuscan,,,box,Tuscan Kale,Tuscan Kale,Fresh veg
+80,KAL-KAL-CUR,Vegies,Leafy & Salad,Kale,Kale,Curly,,,box,Curly Kale,Curly Kale,Fresh veg
+81,YAM-HUA-STD,Vegies,Root & Starchy,Yam,Huai San,,,,box,Huai San (Chinese Yam),Huai San,Fresh veg
+82,CAP-CAP-SNA,Vegies,Capsicum & Chilli,Capsicum,Capsicum,Snacking,,,box,Capsicum Snacking,Snacking Capsicum,Fresh veg
+83,TOM-TOM-KUM,Vegies,Fruiting Veg,Tomato,Tomato,Kumato,,,box,Kumato Tomato,Kumato,Fresh veg
+84,TOM-TOM-COC,Vegies,Fruiting Veg,Tomato,Tomato,Cocktail truss,,,box,Cocktail Truss Tomato,Cocktail Truss Tomato,Fresh veg
+85,POT-POT-WAS,Vegies,Potato & Sweet Potato,Potato,Potato,Washed 5kg,,5,kg,Potato Washed 5kg,Wash Pot 5kg,Roots & onions
+86,POT-POT-WAS2,Vegies,Potato & Sweet Potato,Potato,Potato,Washed 15kg,,15,kg,Potato Washed 15kg,Wash Pot 15kg,Roots & onions
+87,POT-POT-DES,Vegies,Potato & Sweet Potato,Potato,Potato,Desiree 5kg,,5,kg,Potato Desiree 5kg,Dez Pot 5kg,Roots & onions
+88,POT-POT-DES2,Vegies,Potato & Sweet Potato,Potato,Potato,Desiree 15kg,,15,kg,Potato Desiree 15kg,Dez Pot 15kg,Roots & onions
+89,POT-POT-DUT,Vegies,Potato & Sweet Potato,Potato,Potato,Dutch cream 15kg,,15,kg,Potato Dutch Cream 15kg,Dutchcream 15kg,Roots & onions
+90,POT-POT-BRU,Vegies,Potato & Sweet Potato,Potato,Potato,Brushed 15kg,,15,kg,Potato Brushed 15kg,Brushed 15kg,Roots & onions
+91,ONI-ONI-BRO,Vegies,"Onion, Garlic & Ginger",Onion,Onion,Brown 2kg,,2,kg,Onion Brown 2kg,Brown Onion 2kg,Roots & onions
+92,ONI-ONI-BRO2,Vegies,"Onion, Garlic & Ginger",Onion,Onion,Brown loose,,,box,Onion Brown Loose,Brown Onion Loose,Roots & onions
+93,ONI-ONI-RED,Vegies,"Onion, Garlic & Ginger",Onion,Onion,Red 2kg,,2,kg,Onion Red 2kg,Red Onion 2kg,Roots & onions
+94,ONI-ONI-RED2,Vegies,"Onion, Garlic & Ginger",Onion,Onion,Red loose,,,box,Onion Red Loose,Red Onion Loose,Roots & onions
+95,ONI-ONI-BRO3,Vegies,"Onion, Garlic & Ginger",Onion,Onion,Brown 10kg,,10,kg,Onion Brown 10kg,Brown Onion 10kg,Roots & onions
+96,ONI-ONI-BRO4,Vegies,"Onion, Garlic & Ginger",Onion,Onion,Brown 20kg,,20,kg,Onion Brown 20kg,Brown Onion 20kg,Roots & onions
+97,SHA-SHA-BRO,Vegies,"Onion, Garlic & Ginger",Shallot,Shallot,Brown,,,box,Shallot Brown,Brown Shallot,Roots & onions
+98,SHA-SHA-RED,Vegies,"Onion, Garlic & Ginger",Shallot,Shallot,Red,,,box,Shallot Red,Red Shallot,Roots & onions
+99,GAR-GAR-LOO,Vegies,"Onion, Garlic & Ginger",Garlic,Garlic,Loose,,,box,Garlic Loose,Loose Garlic,Roots & onions
+100,GAR-GAR-PRE,Vegies,"Onion, Garlic & Ginger",Garlic,Garlic,Pre-pack,,,box,Garlic Pre-pack,PP Garlic,Roots & onions
+101,GAR-GAR-SIN,Vegies,"Onion, Garlic & Ginger",Garlic,Garlic,Single,,,box,Garlic Single,Single Garlic,Roots & onions
+102,SWE-SWE-JAP,Vegies,Potato & Sweet Potato,Sweet Potato,Sweet Potato,Japanese red,,,box,Sweet Potato Japanese Red,Jap Red Sweet Potato,Roots & onions
+103,SWE-SWE-JAP2,Vegies,Potato & Sweet Potato,Sweet Potato,Sweet Potato,Japanese red pre-pack,,,box,Sweet Potato Japanese Red Pre-pack,Jap Red Sweet Potato PP,Roots & onions
+104,SWE-SWE-GOL,Vegies,Potato & Sweet Potato,Sweet Potato,Sweet Potato,Gold,,,box,Sweet Potato Gold,Gold Sweet Potato,Roots & onions
+105,SWE-SWE-GOL2,Vegies,Potato & Sweet Potato,Sweet Potato,Sweet Potato,Gold pre-pack,,,box,Sweet Potato Gold Pre-pack,Gold Sweet Potato Prepack,Roots & onions
+106,SWE-SWE-WHI,Vegies,Potato & Sweet Potato,Sweet Potato,Sweet Potato,White,,,box,Sweet Potato White,White Sweet Potato,Roots & onions
+107,GOU-WIN-STD,Vegies,"Gourds, Pumpkin & Squash",Gourd,Wintermelon,,,,box,Wintermelon,Wintermelon,Roots & onions
+108,PUM-PUM-JAP,Vegies,"Gourds, Pumpkin & Squash",Pumpkin,Pumpkin,Japanese,,,box,Pumpkin Japanese,Jap Pumpkin,Roots & onions
+109,PUM-PUM-ASI,Vegies,"Gourds, Pumpkin & Squash",Pumpkin,Pumpkin,Asian,,,box,Pumpkin Asian,Asian Pumpkin,Roots & onions
+110,PUM-PUM-BUT,Vegies,"Gourds, Pumpkin & Squash",Pumpkin,Pumpkin,Butternut,,,box,Pumpkin Butternut,Butternut Pumpkin,Roots & onions
+111,POT-POT-COC,Vegies,Potato & Sweet Potato,Potato,Potato,Cocktail,,,box,Potato Cocktail,Cocktail Potato,Roots & onions
+112,HER-WAT-STD,Vegies,Leafy & Salad,Herb,Watercress,,,,bunch,Watercress,Watercress,Orders (herbs)
+113,HER-MIN-STD,Vegies,"Herbs, Leaf & Citrus",Herb,Mint,,,,bunch,Mint,Mint,Orders (herbs)
+114,HER-PAR-CUR,Vegies,"Herbs, Leaf & Citrus",Herb,Parsley,Curly,,,bunch,Parsley Curly,Curly Parsley,Orders (herbs)
+115,HER-BAS-AUS,Vegies,"Herbs, Leaf & Citrus",Herb,Basil,Aussie,,,bunch,Basil Aussie,Aussie Basil,Orders (herbs)
+116,HER-SPR-STD,Vegies,"Onion, Garlic & Ginger",Herb,Spring Onion,,,,bunch,Spring Onion,Spring Onion,Orders (herbs)
+117,HER-CHI-STD,Vegies,"Onion, Garlic & Ginger",Herb,Chives,,,,bunch,Chives,Chives,Orders (herbs)
+118,LEA-BAN-STD,Vegies,"Herbs, Leaf & Citrus",Leaf,Banana Leaf,,,,bunch,Banana Leaf,Banana Leaf,Orders (herbs)
+119,LEA-PAN-STD,Vegies,"Herbs, Leaf & Citrus",Leaf,Pandan Leaf,,,,bunch,Pandan Leaf,Pandan Leaf,Orders (herbs)
+120,LEA-CUR-STD,Vegies,"Herbs, Leaf & Citrus",Leaf,Curry Leaf,,,,bunch,Curry Leaf,Curry Leaf,Orders (herbs)
+121,LEA-LIM-STD,Vegies,"Herbs, Leaf & Citrus",Leaf,Lime Leaf,,,,bunch,Lime Leaf,Lime Leaf,Orders (herbs)
+122,ROO-TUR-STD,Vegies,"Herbs, Leaf & Citrus",Root,Turmeric,,,,box,Turmeric,Turmeric,Orders (herbs)
+123,ROO-GAL-STD,Vegies,"Herbs, Leaf & Citrus",Root,Galangal,,,,box,Galangal,Galangal,Orders (herbs)
+124,LEA-SPI-STD,Vegies,Leafy & Salad,Leafy,Spinach,,,,bunch,Spinach,Spinach,Orders (herbs)
+125,LEA-KAN-STD,Vegies,Leafy & Salad,Leafy,Kang Kong,,,,bunch,Kang Kong,Kang Kong,Orders (herbs)
+126,HER-FEN-STD,Vegies,"Herbs, Leaf & Citrus",Herb,Fenugreek,,,,bunch,Fenugreek,Fenugreek,Orders (herbs)
+127,HER-DIL-STD,Vegies,"Herbs, Leaf & Citrus",Herb,Dill,,,,bunch,Dill,Dill,Orders (herbs)
+128,LEA-SNO-SMA,Vegies,Stalks & Shoots,Leafy,Snow Pea Shoot,Small,,,bunch,Snow Pea Shoot Small,Snow Pea Shoot (S),Orders (herbs)
+129,LEA-SNO-LAR,Vegies,Stalks & Shoots,Leafy,Snow Pea Shoot,Large,,,bunch,Snow Pea Shoot Large,Snow Pea Shoot (L),Orders (herbs)
+130,CHI-CHI-BUL,Vegies,Capsicum & Chilli,Chilli,Chilli,Bullet,,,box,Bullet Chilli,Bullet Chilli,Orders (herbs)
+131,CHI-CHI-THA,Vegies,Capsicum & Chilli,Chilli,Chilli,Thai red,,,box,Thai Red Chilli,Thai Red Chilli,Orders (herbs)
+132,CHI-CHI-THA2,Vegies,Capsicum & Chilli,Chilli,Chilli,Thai green,,,box,Thai Green Chilli,Thai Green Chilli,Orders (herbs)
+133,COR-COR-BAB,Vegies,Fruiting Veg,Corn,Corn,Baby,,,box,Baby Corn,Baby Corn,Orders (herbs)

@@ -33,6 +33,7 @@ import { formatDayLabel, formatTimeLabel } from '../lib/date-utils'
 import { sectionFromQuery } from '../lib/hub-navigation'
 import { useKeypadEntry } from '../lib/use-keypad-entry'
 import { latestReportDate } from '../lib/report-records'
+import { catalogSubLocationVegiesOptions } from '../lib/stock-schema'
 import { filterBySection, sectionLabel, sectionOfLocation, sectionsOf, splitBySection, type Section, type SectionChoice } from '../lib/sections'
 import { useSectionChoice } from '../lib/section-store'
 import { friendlyError, toast } from '../lib/toast-store'
@@ -300,10 +301,11 @@ type InlineCreateItemForm = {
   inner_unit: CatalogInnerUnit
 }
 const OUTSIDE_SECTION_ID = 'outside-coolroom'
+const buildVegieSectionId = (title: string) => `vegies-${toSectionId(title)}`
 const UNKNOWN_SECTION_ID = 'unclassified-staff-inspection'
 const INSIDE_SUB_LOCATION_OPTIONS = ['Apples', 'Citrus', 'Asian', 'Melon', 'All Year', 'Seasonal', 'Stonefruit'] as const
 const OUTSIDE_SUB_LOCATION_OPTIONS = ['Outside Coolroom'] as const
-const VEGIES_SUB_LOCATION_OPTIONS = ['Vegies'] as const
+const VEGIES_SUB_LOCATION_OPTIONS = catalogSubLocationVegiesOptions
 const INNER_UNIT_OPTIONS: CatalogInnerUnit[] = ['box', 'bag', 'punnet', 'piece', 'tray', 'bunch', 'pack', 'kg', 'g']
 
 function toSectionId(value: string) {
@@ -1295,11 +1297,32 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     const outside = sortIndexedItemsByName(indexedItems.filter((row) => row.item.location === 'Outside Coolroom'))
     const unknown = sortIndexedItemsByName(indexedItems.filter((row) => row.source === 'unknown'))
 
+    // Vegies: one section per big category, like the coolroom sections.
+    const vegieRowsByCategory = new Map<string, IndexedItem[]>()
+    indexedItems
+      .filter((row) => row.item.location === 'Vegies' && row.source !== 'unknown')
+      .forEach((entry) => {
+        const label = entry.item.sub_location.trim() || 'Other'
+        const existing = vegieRowsByCategory.get(label)
+        if (existing) existing.push(entry)
+        else vegieRowsByCategory.set(label, [entry])
+      })
+    const vegieSections = Array.from(vegieRowsByCategory.entries())
+      .sort(([leftLabel], [rightLabel]) => leftLabel.localeCompare(rightLabel, undefined, { sensitivity: 'base', numeric: true }))
+      .map(([label, sectionRows]) => ({
+        id: buildVegieSectionId(label),
+        title: label.toUpperCase(),
+        rows: splitRows(sortIndexedItemsByName(sectionRows)),
+      }))
+    const vegieMidpoint = Math.ceil(vegieSections.length / 2)
+
     return {
       leftColumn: insideSections.slice(0, midpoint),
       rightColumn: insideSections.slice(midpoint),
       outsideRows: splitRows(outside),
       unknownRows: splitRows(unknown),
+      vegieLeftColumn: vegieSections.slice(0, vegieMidpoint),
+      vegieRightColumn: vegieSections.slice(vegieMidpoint),
     }
   }, [indexedItems])
 
@@ -1339,6 +1362,8 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       insideRight: toGroups(paperSections.rightColumn),
       outside: counted(all(paperSections.outsideRows)),
       unknown: counted(all(paperSections.unknownRows)),
+      vegiesLeft: toGroups(paperSections.vegieLeftColumn),
+      vegiesRight: toGroups(paperSections.vegieRightColumn),
     }
     // priceStateOf reads the catalog prices, so the photo follows them.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1375,6 +1400,11 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
         title: 'OUTSIDE COOLROOM',
         items: [...outsideDisplayColumns.left, ...outsideDisplayColumns.middle, ...outsideDisplayColumns.right],
       },
+      ...[...paperSections.vegieLeftColumn, ...paperSections.vegieRightColumn].map((section) => ({
+        id: section.id,
+        title: section.title,
+        items: [...section.rows.left, ...section.rows.right, ...section.rows.single],
+      })),
     ]
 
     const unknownItemsForCard = [
@@ -1392,10 +1422,10 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
     }
 
     return sections.filter((section) => section.items.length > 0)
-  }, [outsideDisplayColumns.left, outsideDisplayColumns.middle, outsideDisplayColumns.right, paperSections.leftColumn, paperSections.rightColumn, paperSections.unknownRows.left, paperSections.unknownRows.right, paperSections.unknownRows.single])
+  }, [outsideDisplayColumns.left, outsideDisplayColumns.middle, outsideDisplayColumns.right, paperSections.leftColumn, paperSections.rightColumn, paperSections.vegieLeftColumn, paperSections.vegieRightColumn, paperSections.unknownRows.left, paperSections.unknownRows.right, paperSections.unknownRows.single])
 
   const dataEntryLedgerAreas = useMemo(
-    () => toLedgerAreas(dataEntryCardSections, { outside: OUTSIDE_SECTION_ID, unknown: UNKNOWN_SECTION_ID }),
+    () => toLedgerAreas(dataEntryCardSections, { outside: OUTSIDE_SECTION_ID, unknown: UNKNOWN_SECTION_ID, vegiesPrefix: 'vegies-' }),
     [dataEntryCardSections],
   )
 
@@ -3487,7 +3517,7 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                                       <option key={`out-${sub}`} value={`Outside Coolroom|${sub}`}>Outside · {sub}</option>
                                     ))}
                                     {VEGIES_SUB_LOCATION_OPTIONS.map((sub) => (
-                                      <option key={`veg-${sub}`} value={`Vegies|${sub}`}>Vegies</option>
+                                      <option key={`veg-${sub}`} value={`Vegies|${sub}`}>Vegies · {sub}</option>
                                     ))}
                                   </select>
                                 </label>
@@ -3539,6 +3569,8 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
                         insideRight={stockInPhoto.insideRight}
                         outside={stockInPhoto.outside}
                         unknown={stockInPhoto.unknown}
+                        vegiesLeft={stockInPhoto.vegiesLeft}
+                        vegiesRight={stockInPhoto.vegiesRight}
                         layout="list"
                       />
                     </div>

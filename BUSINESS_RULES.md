@@ -201,6 +201,11 @@ Fruit and Vegies are two sections of one store, counted and received separately.
 - **Both** (reports and dashboard): the two sections are loaded and shown together. Each item's sold
   figure uses its own section's previous closing, so a missed vegies day does not change fruit.
   If one section has no closing for the date, the other still reports and a note says which is missing.
+- **Big categories of vegies:** a vegie item's `sub_location` is its big category (Leafy & Salad,
+  Cabbage & Brassica, Stalks & Shoots, Beans & Peas, Fruiting Veg, Capsicum & Chilli, Gourds Pumpkin
+  & Squash, Mushrooms, Root & Starchy, Potato & Sweet Potato, Onion Garlic & Ginger, Herbs Leaf &
+  Citrus). On Stock Close, Stock In and the Daily Report, vegies appear as a "Vegies" area with one
+  headed section per big category, like the coolroom sections. Other categories can be typed in the catalog.
 - **Same rules for now:** sold, current, stock-out/low/over-stock badges all work the same for
   both sections. Vegies use the catalog units (kg, bunch, box) until changed.
 - **Warehouse (BigQuery):** vegies are not sent; their records live in Supabase only.
