@@ -154,6 +154,8 @@ type RecheckWarning = {
   reason: 'now_zero' | 'now_blank'
   /** Index of the sheet row this warning is about, so the count can be typed in place. */
   rowIndex: number | null
+  /** Catalog code, so a count can be typed for an item that is not on the sheet yet. */
+  code?: string
 }
 
 type SaveCheckData = {
@@ -1012,6 +1014,21 @@ export function EmbeddedStockCheckPanel({
     updateRow(index, { quantity: next === null || Number.isNaN(next) ? null : next })
   }
 
+  /** Count typed in the save popup for an item that has no row on the sheet yet: add the row. */
+  function setWarningQuantityForMissingItem(warning: RecheckWarning, value: string) {
+    const item = warning.code
+      ? visibleCatalogItems.find((candidate) => candidate.code.trim().toUpperCase() === warning.code?.trim().toUpperCase())
+      : undefined
+    if (!item) return
+    const next = value.trim().length === 0 ? null : Number(value.replace(',', '.'))
+    if (next === null || Number.isNaN(next)) return
+    const newIndex = rows.length
+    addKnownFromSuggestion(item, next)
+    setTouchedRowIndexes((current) => new Set(current).add(newIndex))
+    setLastAddedCheck(null)
+    setRecheckWarnings((current) => current.map((entry) => (entry.key === warning.key ? { ...entry, rowIndex: newIndex } : entry)))
+  }
+
   function toggleRed(index: number) {
     updateRow(index, { red_marked: !rows[index].red_marked })
   }
@@ -1264,6 +1281,7 @@ export function EmbeddedStockCheckPanel({
       currentQuantity: item.current,
       reason: item.reason === 'blank' ? 'now_blank' : 'now_zero',
       rowIndex: knownRowIndex(item.code),
+      code: item.code,
     }))
 
     if (previousRecord) {
@@ -2215,6 +2233,18 @@ export function EmbeddedStockCheckPanel({
                     className="stock-qty-input mt-1 w-20"
                     value={rows[warning.rowIndex].quantity ?? ''}
                     onChange={(event) => setQuantity(warning.rowIndex as number, event.target.value)}
+                  />
+                ) : warning.code ? (
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    enterKeyHint="done"
+                    autoComplete="off"
+                    placeholder="0"
+                    aria-label={`Count for ${warning.label}`}
+                    className="stock-qty-input mt-1 w-20"
+                    value=""
+                    onChange={(event) => setWarningQuantityForMissingItem(warning, event.target.value)}
                   />
                 ) : (
                   <p className="text-[15px] font-semibold text-warning">{warning.currentQuantity === null ? 'blank' : warning.currentQuantity}</p>
