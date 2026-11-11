@@ -1341,7 +1341,7 @@ export function EmbeddedStockCheckPanel({
 
   function buildPayload(exportFormat?: 'csv' | 'pdf' | 'image') {
     const known = rows.filter((x) => isKnownRow(x))
-    const unknown = rows.filter((x) => x.source === 'unknown')
+    const unknown = rows.filter((x) => x.source === 'unknown' && x.quantity !== null)
 
     return {
       date: stockDateRef.current,
@@ -1373,7 +1373,7 @@ export function EmbeddedStockCheckPanel({
 
   function buildWarehouseEnvelopePayload(inputRows: StockCheckRow[], validated: boolean) {
     const known = inputRows.filter((x) => isKnownRow(x))
-    const unknown = inputRows.filter((x) => x.source === 'unknown')
+    const unknown = inputRows.filter((x) => x.source === 'unknown' && x.quantity !== null)
 
     const knownItems = known.map((x) => ({
       catalog_code: x.code as string,
@@ -1686,6 +1686,36 @@ export function EmbeddedStockCheckPanel({
     const key = listRowKey(before)
     const wasTouched = touchedRowIndexes.has(item.index)
     const name = before.official_name || before.stocklist_name || before.product || 'Item'
+
+    // Free-typed (unknown) rows have no catalog entry to hide, so they are deleted outright.
+    // Hiding them by key does not survive a reload, because their ids are regenerated.
+    if (!before.code) {
+      setRows((prev) => prev.filter((row) => row.id !== before.id))
+      setTouchedRowIndexes((current) => {
+        const next = new Set<number>()
+        current.forEach((index) => {
+          if (index < item.index) next.add(index)
+          else if (index > item.index) next.add(index - 1)
+        })
+        return next
+      })
+      setLastAddedCheck(null)
+      toast.info(`${name} removed from today's list`, {
+        duration: 6000,
+        action: {
+          label: 'Undo',
+          onClick: () => {
+            setRows((prev) => {
+              if (prev.some((row) => row.id === before.id)) return prev
+              const next = [...prev]
+              next.splice(Math.min(item.index, next.length), 0, before)
+              return next
+            })
+          },
+        },
+      })
+      return
+    }
 
     updateRow(item.index, { quantity: null, red_marked: false })
     setTouchedRowIndexes((current) => {
