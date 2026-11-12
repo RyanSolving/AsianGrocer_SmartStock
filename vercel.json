@@ -4,6 +4,6 @@
   "buildCommand": "npm run build",
   "outputDirectory": "web-app/.next",
   "regions": [
-    "hnd1"
+    "syd1"
   ]
 }
