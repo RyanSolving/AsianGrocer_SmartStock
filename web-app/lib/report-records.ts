@@ -207,3 +207,59 @@ export function buildSalesTrend(input: {
   }
   return days
 }
+
+/** How many days an item that is no longer on the closing stays on the report as out of stock. */
+export const OUT_OF_STOCK_VISIBLE_DAYS = 7
+
+/**
+ * Codes that had stock (more than 0) at a closing in the `OUT_OF_STOCK_VISIBLE_DAYS` days before
+ * `date`, but are not on `date`'s closing. Maps each code to the last closing date it had stock.
+ */
+export function findRecentlyStockedCodes(input: {
+  date: string
+  closingByCode: QuantityByCode
+  earlierClosings: Array<{ date: string; item_data: unknown }>
+}): Record<string, string> {
+  const onClosing = new Set(Object.keys(input.closingByCode).map((code) => code.trim().toUpperCase()))
+  const from = addDays(input.date, -OUT_OF_STOCK_VISIBLE_DAYS)
+  const found: Record<string, string> = {}
+  for (const row of input.earlierClosings) {
+    if (row.date < from || row.date >= input.date) continue
+    for (const [code, quantity] of Object.entries(readClosingItems(row.item_data).quantities)) {
+      if (quantity <= 0 || onClosing.has(code.trim().toUpperCase())) continue
+      if (!found[code] || row.date > found[code]) found[code] = row.date
+    }
+  }
+  return found
+}
+
+/**
+ * The closing and "arrived since" figures the report works from, with two kinds of item that a
+ * blank or forgotten closing count would otherwise hide:
+ * - on the newest report, stock in for the period of an item that is not on the closing counts as
+ *   arrived (so a delivery missed at Stock Close still shows, as New);
+ * - an item that had stock at a closing in the last 7 days but is not on this closing shows with
+ *   a closing of 0 (out of stock) until the 7 days pass.
+ */
+export function withMissedCounts(input: {
+  closingByCode: QuantityByCode
+  stockInByCode: QuantityByCode
+  arrivedSinceByCode?: QuantityByCode
+  recentlyStockedByCode?: Record<string, string>
+  isLatestClosing?: boolean | null
+}) {
+  const closingByCode: QuantityByCode = { ...input.closingByCode }
+  const arrivedSinceByCode: QuantityByCode = { ...(input.arrivedSinceByCode ?? {}) }
+
+  if (input.isLatestClosing === true) {
+    for (const [code, quantity] of Object.entries(input.stockInByCode)) {
+      if (!(quantity > 0) || code in closingByCode) continue
+      arrivedSinceByCode[code] = (arrivedSinceByCode[code] ?? 0) + quantity
+    }
+  }
+  for (const code of Object.keys(input.recentlyStockedByCode ?? {})) {
+    if (code in closingByCode || (arrivedSinceByCode[code] ?? 0) > 0) continue
+    closingByCode[code] = 0
+  }
+  return { closingByCode, arrivedSinceByCode }
+}

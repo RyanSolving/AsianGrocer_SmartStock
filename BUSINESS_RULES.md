@@ -146,6 +146,12 @@ current = closing + stock in saved after the closing date, up to today
   today's closing is saved. Older dates show **Closing** as before.
 - An item that arrived after the closing but is not on it gets its own row tagged **New**,
   with current = what arrived and sold shown as `-`.
+- On the newest report, stock in for the period that is **not on the closing** (for example a
+  delivery missed at Stock Close) is counted as arrived, so the item still shows, tagged **New**.
+- An item that had stock at a closing in the last **7 days** but is not on this closing (blank
+  or left off) stays on the report with a closing of 0, so it shows **Stock-out**. After 7 days
+  without stock it drops off. Code: `findRecentlyStockedCodes` / `withMissedCounts` in
+  `web-app/lib/report-records.ts`.
 - Live: when anyone saves or changes a Stock In or Stock Close, Welcome, Daily Report and
   Dashboard reload by themselves (Supabase realtime; also on returning to the app).
 - Stock flags, refill hints, "Stock left" and "Products in hand" use current stock, so a

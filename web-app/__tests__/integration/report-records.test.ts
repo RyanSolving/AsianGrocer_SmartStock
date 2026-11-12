@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals'
 
-import { addDays, buildSalesTrend, combineStockInByDate, daysBetween, combineStockInRecords, describeStockInRecords, latestReportDate } from '../../lib/report-records'
+import { addDays, buildSalesTrend, combineStockInByDate, daysBetween, combineStockInRecords, describeStockInRecords, findRecentlyStockedCodes, latestReportDate, withMissedCounts } from '../../lib/report-records'
 
 const closing = (date: string, quantities: Record<string, number>) => ({
   date,
@@ -175,5 +175,41 @@ describe('combineStockInByDate counts', () => {
     expect(result.extraCount).toBe(1)
     expect(result.replacedCount).toBe(1)
     expect(result.latest?.log_time).toBe('2026-11-07T09:00:00Z')
+  })
+})
+
+describe('findRecentlyStockedCodes', () => {
+  const earlierClosings = [closing('2026-11-04', { A: 3 }), closing('2026-11-09', { B: 2, C: 0, D: 1 }), closing('2026-11-12', { E: 1 })]
+
+  it('keeps items that had stock in the last 7 days and are not on the closing', () => {
+    expect(findRecentlyStockedCodes({ date: '2026-11-12', closingByCode: { D: 4 }, earlierClosings })).toEqual({ B: '2026-11-09' })
+  })
+
+  it('drops items last stocked more than 7 days ago', () => {
+    expect(findRecentlyStockedCodes({ date: '2026-11-12', closingByCode: {}, earlierClosings })).not.toHaveProperty('A')
+    expect(findRecentlyStockedCodes({ date: '2026-11-11', closingByCode: {}, earlierClosings })).toHaveProperty('A', '2026-11-04')
+  })
+})
+
+describe('withMissedCounts', () => {
+  it('counts a delivery missing from the closing as arrived, on the newest report', () => {
+    const result = withMissedCounts({ closingByCode: { A: 5 }, stockInByCode: { A: 2, CHERRY: 40 }, isLatestClosing: true })
+    expect(result.arrivedSinceByCode).toEqual({ CHERRY: 40 })
+    expect(result.closingByCode).toEqual({ A: 5 })
+  })
+
+  it('leaves older reports alone', () => {
+    expect(withMissedCounts({ closingByCode: {}, stockInByCode: { CHERRY: 40 }, isLatestClosing: false }).arrivedSinceByCode).toEqual({})
+  })
+
+  it('shows a recently stocked item as out of stock, unless it just arrived', () => {
+    const result = withMissedCounts({
+      closingByCode: { A: 5 },
+      stockInByCode: { NEW: 3 },
+      recentlyStockedByCode: { B: '2026-11-09', NEW: '2026-11-08' },
+      isLatestClosing: true,
+    })
+    expect(result.closingByCode).toEqual({ A: 5, B: 0 })
+    expect(result.arrivedSinceByCode).toEqual({ NEW: 3 })
   })
 })

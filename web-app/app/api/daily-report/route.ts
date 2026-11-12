@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAuthContext } from '../../../lib/supabase/route-auth'
 import { isMissingTableError } from '../../../lib/supabase/errors'
 import { parseSection } from '../../../lib/sections'
-import { addDays, combineStockInByDate, daysBetween, readClosingItems, stockDateOf } from '../../../lib/report-records'
+import { addDays, combineStockInByDate, daysBetween, findRecentlyStockedCodes, OUT_OF_STOCK_VISIBLE_DAYS, readClosingItems, stockDateOf } from '../../../lib/report-records'
 
 export const runtime = 'nodejs'
 
@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
     // Stock in saved after this closing, up to today, counts toward current stock until the
     // next closing is saved (then that closing already includes it).
     const lookAhead = today !== '' && today > date
-    const [closingResult, prevClosingResult, stockInResult, overrideResult, laterClosingResult, laterStockInResult] = await Promise.all([
+    const [closingResult, prevClosingResult, stockInResult, overrideResult, laterClosingResult, laterStockInResult, recentClosingsResult] = await Promise.all([
       auth.supabase
         .from('event_stock_check')
         .select('date, item_data, record_name, created_at')
@@ -111,10 +111,18 @@ export async function GET(request: NextRequest) {
           .gt('final_output->>stock_date', date)
           .lte('final_output->>stock_date', today)
         : Promise.resolve({ data: [], error: null }),
+      // Closings of the last days, to keep items that just ran out on the report.
+      auth.supabase
+        .from('event_stock_check')
+        .select('date, item_data')
+        .eq('mode', 'closing_check')
+        .eq('section', section)
+        .gte('date', addDays(date, -OUT_OF_STOCK_VISIBLE_DAYS))
+        .lt('date', date),
     ])
 
     const firstError = closingResult.error ?? prevClosingResult.error ?? stockInResult.error
-      ?? laterClosingResult.error ?? laterStockInResult.error
+      ?? laterClosingResult.error ?? laterStockInResult.error ?? recentClosingsResult.error
     if (firstError) {
       return NextResponse.json(
         { error: 'Failed to load daily report data.', details: firstError.message },
@@ -161,6 +169,15 @@ export async function GET(request: NextRequest) {
       ? combineStockInByDate(laterStockInResult.data ?? [], (record) => stockDateOf(record))
       : { quantities: {}, dates: [] as string[] }
 
+    // Had stock at a closing in the last 7 days, but is not on this closing: still listed, as out of stock.
+    const recentlyStockedByCode = closing
+      ? findRecentlyStockedCodes({
+        date,
+        closingByCode: closing.quantities,
+        earlierClosings: (recentClosingsResult.data ?? []).map((row) => ({ date: String(row.date), item_data: row.item_data })),
+      })
+      : {}
+
     // Overrides are optional: before the migration runs, the report still works without them.
     const overridesAvailable = !isMissingTableError(overrideResult.error)
     if (overrideResult.error && overridesAvailable) {
@@ -194,6 +211,8 @@ export async function GET(request: NextRequest) {
         isLatestClosing: today === '' ? null : nextClosingDate === null,
         arrivedSinceByCode: arrived.quantities,
         arrivedSinceDates: arrived.dates,
+        /** Code -> last closing date with stock, for items that ran out in the last 7 days. */
+        recentlyStockedByCode,
         // Which saved records these figures come from, for the "Sources" row.
         sources: {
           closing: closingResult.data

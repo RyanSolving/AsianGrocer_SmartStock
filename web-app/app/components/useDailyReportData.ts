@@ -6,7 +6,7 @@ import type { ReportEntry } from '../../lib/report-aggregations'
 import { applyFlagOverrides, computeItemInsights, formatQuantity, summarizeInsights, type StockFlag } from '../../lib/report-insights'
 import { friendlyError, toast } from '../../lib/toast-store'
 import type { IndexedPaperRow, PaperRow } from '../../lib/stock-paper-layout'
-import { addDays, daysBetween, describeStockInRecords } from '../../lib/report-records'
+import { addDays, daysBetween, describeStockInRecords, withMissedCounts } from '../../lib/report-records'
 import { formatDayLabel, getLocalTodayDate } from '../../lib/date-utils'
 import { sectionLabel, sectionsOf, VEGIES_LOCATION, type Section, type SectionChoice } from '../../lib/sections'
 
@@ -80,6 +80,8 @@ export type DailyReportResponse = {
   /** Stock in saved after this closing date, up to today, while no later closing exists. */
   arrivedSinceByCode?: Record<string, number>
   arrivedSinceDates?: string[]
+  /** Items that had stock at a closing in the last 7 days but are not on this one. */
+  recentlyStockedByCode?: Record<string, string>
   sources?: ReportSources
   flagOverrides?: Record<string, { flag: string | null; updatedAt?: string }>
   /** False until the flag-override migration has been applied. */
@@ -113,6 +115,18 @@ function toReportRow(item: ReportCatalogItem, closing: number, current: number, 
     current,
     redMarked,
   }
+}
+
+function reportFigures(part: DailyReportResponse) {
+  // Without a saved closing there is nothing to add missed counts to.
+  if (!part.closingFound) return { closingByCode: part.closingByCode, arrivedSinceByCode: part.arrivedSinceByCode ?? {} }
+  return withMissedCounts({
+    closingByCode: part.closingByCode,
+    stockInByCode: part.stockInByCode,
+    arrivedSinceByCode: part.arrivedSinceByCode,
+    recentlyStockedByCode: part.recentlyStockedByCode,
+    isLatestClosing: part.isLatestClosing,
+  })
 }
 
 /**
@@ -184,6 +198,7 @@ function mergeReports(parts: DailyReportResponse[]): DailyReportResponse {
       : latestFlags.every((flag) => flag === true),
     arrivedSinceByCode: join((part) => part.arrivedSinceByCode),
     arrivedSinceDates: arrivedDates,
+    recentlyStockedByCode: join((part) => part.recentlyStockedByCode),
     // Sources: the first closing found; the newest Stock In of either section.
     sources: base.sources
       ? {
@@ -272,13 +287,16 @@ export function useDailyReportData(date: string, catalogItems: ReportCatalogItem
   const insights = useMemo(() => {
     if (!data) return {}
     // Each section against its own previous closing.
-    const calculated = Object.assign({}, ...parts.map((part) => computeItemInsights({
-      closingByCode: part.closingByCode,
-      prevClosingByCode: part.prevClosingByCode,
-      stockInByCode: part.stockInByCode,
-      arrivedSinceByCode: part.arrivedSinceByCode ?? {},
-      days: part.prevClosingDate ? daysBetween(part.prevClosingDate, part.date) : 1,
-    })))
+    const calculated = Object.assign({}, ...parts.map((part) => {
+      const figures = reportFigures(part)
+      return computeItemInsights({
+        closingByCode: figures.closingByCode,
+        prevClosingByCode: part.prevClosingByCode,
+        stockInByCode: part.stockInByCode,
+        arrivedSinceByCode: figures.arrivedSinceByCode,
+        days: part.prevClosingDate ? daysBetween(part.prevClosingDate, part.date) : 1,
+      })
+    }))
     return applyFlagOverrides(calculated, data.flagOverrides ?? {})
   }, [data, parts])
 
@@ -334,23 +352,29 @@ export function useDailyReportData(date: string, catalogItems: ReportCatalogItem
 
     const catalogByCode = new Map(catalogItems.map((item) => [item.code.trim().toUpperCase(), item]))
     const rows: ReportRow[] = []
+    // Missed counts included: deliveries not on the closing, and items that ran out in the last 7 days.
+    const partFigures = parts.map(reportFigures)
+    const figures = {
+      closingByCode: Object.assign({}, ...partFigures.map((entry) => entry.closingByCode)) as Record<string, number>,
+      arrivedSinceByCode: Object.assign({}, ...partFigures.map((entry) => entry.arrivedSinceByCode)) as Record<string, number>,
+    }
 
-    for (const [code, closing] of Object.entries(data.closingByCode)) {
+    for (const [code, closing] of Object.entries(figures.closingByCode)) {
       const item = catalogByCode.get(code.trim().toUpperCase())
       if (!item) continue
-      const current = closing + (data.arrivedSinceByCode?.[code] ?? 0)
+      const current = closing + (figures.arrivedSinceByCode[code] ?? 0)
       rows.push(toReportRow(item, closing, current, data.redMarkedByCode[code] === true))
     }
     // New today: arrived after the closing but not on it. Closing counts as 0.
-    for (const [code, arrived] of Object.entries(data.arrivedSinceByCode ?? {})) {
-      if (code in data.closingByCode || !(arrived > 0)) continue
+    for (const [code, arrived] of Object.entries(figures.arrivedSinceByCode)) {
+      if (code in figures.closingByCode || !(arrived > 0)) continue
       const item = catalogByCode.get(code.trim().toUpperCase())
       if (!item) continue
       rows.push({ ...toReportRow(item, 0, arrived, false), isNew: true })
     }
 
     return rows.map((row, index) => ({ row, index }))
-  }, [catalogItems, data])
+  }, [catalogItems, data, parts])
 
   const entries = useMemo<ReportEntry[]>(
     () => indexedRows
