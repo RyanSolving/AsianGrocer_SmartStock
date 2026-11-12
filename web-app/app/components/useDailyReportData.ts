@@ -295,6 +295,7 @@ export function useDailyReportData(date: string, catalogItems: ReportCatalogItem
         stockInByCode: part.stockInByCode,
         arrivedSinceByCode: figures.arrivedSinceByCode,
         days: part.prevClosingDate ? daysBetween(part.prevClosingDate, part.date) : 1,
+        previousClosingExists: Boolean(part.prevClosingDate),
       })
     }))
     return applyFlagOverrides(calculated, data.flagOverrides ?? {})

@@ -202,6 +202,7 @@ export function buildSalesTrend(input: {
       prevClosingByCode: closingByDate.get(previous.date) ?? {},
       stockInByCode: combineStockInByDate(sinceRecords, (row) => row.stock_date).quantities,
       days: daysBetween(previous.date, date),
+      previousClosingExists: true,
     })
     days.push({ date, unitsSold: summarizeInsights(insights).totalSold, stockIn, closingFound: true })
   }

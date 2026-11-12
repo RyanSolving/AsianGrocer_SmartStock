@@ -114,6 +114,9 @@ units sold (per day) = total ÷ days between the two closings
     category bars, refill table and the photo header use the daily figure.
   - Welcome: "units sold a day" with "2-day average … · 28 in total".
   - Badge picker: "Sold 2 a day (4 over 2 days)".
+- A **new item** with stock in since the previous closing that is not on that closing counts
+  as 0 there (it was not in stock yet), so its sold figure is worked out (e.g. 0 + 8 in − 6 =
+  2 sold). With no stock in, or no earlier closing at all, it stays `-`.
 - Badges use the daily figure, so cover stays "days of stock left" (§3). Total units sold is
   the sum of the totals ÷ days, not a sum of rounded averages.
 

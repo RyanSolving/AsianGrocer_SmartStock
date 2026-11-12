@@ -262,3 +262,16 @@ describe('closings more than a day apart (Thursday, then Saturday)', () => {
     expect(describeAutoFlag(insight)).toContain('6 sold a day')
   })
 })
+
+describe('new item that arrived since the previous closing', () => {
+  it('works out sold from a baseline of 0 when an earlier closing exists', () => {
+    const insight = computeItemInsight('NEW', { closing: 6, prevClosing: undefined, stockIn: 8, previousClosingExists: true })
+    expect(insight.status).toBe('ok')
+    expect(insight.sold).toBe(2)
+  })
+
+  it('still reports no baseline without stock in, or without an earlier closing', () => {
+    expect(computeItemInsight('A', { closing: 6, prevClosing: undefined, stockIn: 0, previousClosingExists: true }).status).toBe('no-baseline')
+    expect(computeItemInsight('B', { closing: 6, prevClosing: undefined, stockIn: 8 }).status).toBe('no-baseline')
+  })
+})

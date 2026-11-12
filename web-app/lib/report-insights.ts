@@ -91,11 +91,19 @@ export function computeItemInsight(
     arrivedSince?: number | null | undefined
     /** Days since the previous closing. Default 1. */
     days?: number
+    /**
+     * True when there is an earlier closing for this section. A new item that arrived since
+     * then and is not on it started from 0, so its sold figure can be worked out.
+     */
+    previousClosingExists?: boolean
   },
 ): ItemInsight {
   const closing = toNumber(input.closing)
-  const prevClosing = toNumber(input.prevClosing)
   const stockIn = toNumber(input.stockIn) ?? 0
+  const rawPrevClosing = toNumber(input.prevClosing)
+  // Never treat a missing baseline as zero, except for an item with stock in since the previous
+  // closing that is not on it: it was not in stock then (a blank is asked about when saving).
+  const prevClosing = rawPrevClosing === null && input.previousClosingExists === true && stockIn > 0 ? 0 : rawPrevClosing
   const arrivedSince = toNumber(input.arrivedSince) ?? 0
   // An item not on the closing that has arrived since is new stock: current is what arrived.
   const current = closing === null ? (arrivedSince > 0 ? arrivedSince : null) : closing + arrivedSince
@@ -168,6 +176,8 @@ export function computeItemInsights(input: {
   arrivedSinceByCode?: QuantityMap
   /** Days since the previous closing; sold is averaged per day when more than 1. */
   days?: number
+  /** True when an earlier closing exists (see computeItemInsight). */
+  previousClosingExists?: boolean
 }): Record<string, ItemInsight> {
   const result: Record<string, ItemInsight> = {}
 
@@ -180,6 +190,7 @@ export function computeItemInsights(input: {
       stockIn: input.stockInByCode[code],
       arrivedSince: input.arrivedSinceByCode?.[code],
       days: input.days,
+      previousClosingExists: input.previousClosingExists,
     })
   }
 
