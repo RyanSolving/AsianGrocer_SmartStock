@@ -163,7 +163,7 @@ type SaveCheckData = {
   stockInByCode: Record<string, number>
 }
 
-const SAVE_CHECK_TIMEOUT_MS = 6000
+const SAVE_CHECK_TIMEOUT_MS = 10000
 
 type ParsedPhotoItem = {
   catalog_code?: string | null
@@ -1313,8 +1313,20 @@ export function EmbeddedStockCheckPanel({
     return warnings
   }
 
+  /**
+   * Last closing and today's deliveries from the server. Tried twice, because without it the
+   * check cannot see a delivery that was not counted. A failure while online is announced.
+   */
   async function loadSaveCheckData(): Promise<SaveCheckData | null> {
     if (typeof navigator !== 'undefined' && !navigator.onLine) return null
+    const data = (await fetchSaveCheckData()) ?? (await fetchSaveCheckData())
+    if (!data && typeof navigator !== 'undefined' && navigator.onLine) {
+      toast.info("Couldn't check today's deliveries, so only the last closing was used to look for uncounted items.", { duration: 8000 })
+    }
+    return data
+  }
+
+  async function fetchSaveCheckData(): Promise<SaveCheckData | null> {
     const controller = new AbortController()
     const timer = window.setTimeout(() => controller.abort(), SAVE_CHECK_TIMEOUT_MS)
     try {
