@@ -25,6 +25,10 @@ Code: `web-app/app/api/daily-report/route.ts`, `combineStockInRecords` in `web-a
 - A new Stock In for a date that already has one asks: **Extra delivery** (added to that day's
   stock in) or **Same delivery, counted again** (replaces the earlier one in the report).
 - Editing a saved record skips both questions.
+- Stock Close draft: kept on the phone (per section) once one count is entered. Cleared when the
+  save reaches the server **or** is saved on the phone to upload later (offline; the upload queue
+  holds its own copy), and when a new sheet is started. Editing the sheet after a save makes it a
+  draft again. Code: `markSavedAndClearDraft` in `EmbeddedStockCheckPanel.tsx`.
 
 ### 1c. Shared store data
 

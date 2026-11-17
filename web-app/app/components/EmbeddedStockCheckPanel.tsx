@@ -462,6 +462,8 @@ export function EmbeddedStockCheckPanel({
   const [stockCheckQueueCount, setStockCheckQueueCount] = useState(0)
   const [hasStockCheckLocalDraft, setHasStockCheckLocalDraft] = useState(false)
   const [hasRestoredOfflineDraft, setHasRestoredOfflineDraft] = useState(false)
+  /** The rows of the last save (uploaded or queued offline): not kept as a draft until edited. */
+  const savedRowsRef = useRef<StockCheckRow[] | null>(null)
   const [newItemName, setNewItemName] = useState('')
   const [createCatalogItemPrefillName, setCreateCatalogItemPrefillName] = useState('')
   const [showCreateCatalogItemModal, setShowCreateCatalogItemModal] = useState(false)
@@ -624,8 +626,9 @@ export function EmbeddedStockCheckPanel({
   useEffect(() => {
     if (!hasRestoredOfflineDraft) return
 
-    // A sheet with nothing counted yet (the catalog pre-fill) is not a draft worth resuming.
-    if (rows.length === 0 || !rows.some((row) => row.quantity !== null)) {
+    // A sheet with nothing counted yet (the catalog pre-fill) is not a draft worth resuming,
+    // and neither is one just saved (uploaded or waiting to upload) until it is edited again.
+    if (rows.length === 0 || !rows.some((row) => row.quantity !== null) || rows === savedRowsRef.current) {
       clearOfflineDraft(draftFeature)
       setHasStockCheckLocalDraft(false)
       return
@@ -1478,6 +1481,17 @@ export function EmbeddedStockCheckPanel({
     }
   }
 
+  /**
+   * After a save (uploaded, or waiting in the offline queue, which holds its own copy):
+   * the draft is cleared and not written again for these rows, so it is not offered as
+   * "continue draft". An edit after the save makes it a draft again.
+   */
+  function markSavedAndClearDraft() {
+    savedRowsRef.current = rows
+    clearOfflineDraft(draftFeature)
+    setHasStockCheckLocalDraft(false)
+  }
+
   async function saveStockCheck(): Promise<'saved' | 'queued' | 'failed'> {
     const requestEnvelope = buildWarehouseEnvelopePayload(rows, true)
 
@@ -1492,6 +1506,7 @@ export function EmbeddedStockCheckPanel({
         endpoint: '/api/stock-check/save-to-supabase',
         payload: requestEnvelope,
       })
+      markSavedAndClearDraft()
       setStatus('Saved on this phone. It will upload when the connection is back.')
       setIsSaving(false)
       return 'queued'
@@ -1510,8 +1525,7 @@ export function EmbeddedStockCheckPanel({
       }
 
       // Clear the local draft so it doesn't get incorrectly restored next time
-      clearOfflineDraft(draftFeature)
-      setHasStockCheckLocalDraft(false)
+      markSavedAndClearDraft()
       return 'saved'
     } catch (e) {
       if (isNetworkRequestError(e)) {
@@ -1520,6 +1534,7 @@ export function EmbeddedStockCheckPanel({
           endpoint: '/api/stock-check/save-to-supabase',
           payload: requestEnvelope,
         })
+        markSavedAndClearDraft()
         setStatus('Saved on this phone. It will upload when the connection is back.')
         return 'queued'
       }
