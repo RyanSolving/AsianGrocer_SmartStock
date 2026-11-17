@@ -364,11 +364,19 @@ or confirm the 0 is right (**Save anyway**).
 - Hidden catalog items and items removed from the catalog are not asked about.
 - A code on two rows counts as counted if either row has a number.
 - Free-typed (unknown) items are compared with the last validated sheet instead, by name.
-- Offline, or if the check can't load within 6 seconds, catalog items are compared with the last
-  validated sheet in history, without stock-in.
+- The phone keeps a copy of the previous closing and the day's stock-in (both sections, today),
+  refreshed while the app is open and online: on opening, on coming back online, when a Stock In
+  or Stock Close is saved, and every 5 minutes. Opening the app in the shop before going into the
+  coolroom is enough; offline, Stock Close says when that copy was loaded.
+- At Save: online, the server is asked (twice, 10 s each; once with 4 s when a phone copy exists).
+  Offline or on failure, the phone copy for that section and date is used, and a message says up
+  to what time its deliveries go. Stock In saved after that time is not in it.
+- With no phone copy either, catalog items are compared with the last validated sheet in history,
+  without stock-in.
 
 Code: `findUncountedItems` in `web-app/lib/closing-completeness.ts`; `buildSaveWarnings` and
-`handleSave` in `web-app/app/components/EmbeddedStockCheckPanel.tsx`.
+`handleSave` in `web-app/app/components/EmbeddedStockCheckPanel.tsx`; the phone copy in
+`web-app/lib/offline/save-check-cache.ts` (prefetched in `StockHub.tsx`).
 
 ### 8b. Type and Photo on Check Stock
 

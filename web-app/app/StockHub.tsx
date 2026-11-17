@@ -73,6 +73,7 @@ import { STATUS } from '../lib/status-messages'
 import { getLocalTodayDate } from '../lib/date-utils'
 import { useHistoryRealtime } from '../lib/realtime/history-realtime'
 import { WAREHOUSE_SYNC_ENABLED } from '../lib/warehouse-sync'
+import { fetchAndCacheSaveCheck, SAVE_CHECK_PREFETCH_INTERVAL_MS } from '../lib/offline/save-check-cache'
 
 function shouldSilenceOfflineNetworkError(error: unknown) {
   if (typeof window === 'undefined' || window.navigator.onLine) {
@@ -987,6 +988,35 @@ export function StockHub({ initialSection }: { initialSection: HubSection }) {
       window.removeEventListener('offline', handleOffline)
     }
   }, [refreshOfflineQueueState, runOfflineSync])
+
+  // Phone copy of the last closing and today's deliveries for both sections, refreshed while
+  // the app is open and online, so the Stock Close save check works in the coolroom without
+  // internet (BUSINESS_RULES.md §8).
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    let inFlight = false
+    const refresh = () => {
+      if (inFlight || !window.navigator.onLine || document.visibilityState === 'hidden') return
+      inFlight = true
+      const date = getLocalTodayDate()
+      void Promise.all([fetchAndCacheSaveCheck('fruit', date), fetchAndCacheSaveCheck('vegies', date)]).finally(() => {
+        inFlight = false
+      })
+    }
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refresh()
+    }
+    refresh()
+    const timer = window.setInterval(refresh, SAVE_CHECK_PREFETCH_INTERVAL_MS)
+    window.addEventListener('online', refresh)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('online', refresh)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+    // liveReportKey: a Stock In / Stock Close was just saved (here or on another phone).
+  }, [liveReportKey])
 
   // Count from the saved draft itself: on the start screen the editor is still empty.
   const stockInDraftItemCount = useMemo(() => {

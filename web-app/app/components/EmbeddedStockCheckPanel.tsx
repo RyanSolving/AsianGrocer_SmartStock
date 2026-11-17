@@ -43,6 +43,7 @@ import { sectionQuestion } from '../../lib/section-question'
 import { useSectionChoice } from '../../lib/section-store'
 import { filterBySection, sectionLabel, type Section, type SectionChoice } from '../../lib/sections'
 import { getOfflineDraftAge } from '../../lib/offline/queue'
+import { fetchAndCacheSaveCheck, formatFetchedAt, readSaveCheckCache, SAVE_CHECK_PREFETCH_INTERVAL_MS, subscribeSaveCheckCache, type CachedSaveCheck, type SaveCheckData } from '../../lib/offline/save-check-cache'
 import { formatDayLabel, formatTimeLabel, getLocalTodayDate } from '../../lib/date-utils'
 import { WAREHOUSE_SYNC_ENABLED } from '../../lib/warehouse-sync'
 import { findUncountedItems } from '../../lib/closing-completeness'
@@ -158,12 +159,8 @@ type RecheckWarning = {
   code?: string
 }
 
-type SaveCheckData = {
-  prevClosingByCode: Record<string, number>
-  stockInByCode: Record<string, number>
-}
-
-const SAVE_CHECK_TIMEOUT_MS = 10000
+/** With a phone copy to fall back on, a weak coolroom signal should not hold Save for long. */
+const SAVE_CHECK_TIMEOUT_WITH_COPY_MS = 4000
 
 type ParsedPhotoItem = {
   catalog_code?: string | null
@@ -566,6 +563,38 @@ export function EmbeddedStockCheckPanel({
       window.removeEventListener('offline', handleOffline)
     }
   }, [refreshOfflineState])
+
+  // Keep a phone copy of the last closing and today's deliveries while there is internet,
+  // so the save check works inside the coolroom (BUSINESS_RULES.md §8).
+  const [saveCheckCopy, setSaveCheckCopy] = useState<CachedSaveCheck | null>(null)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const readCopy = () => setSaveCheckCopy(readSaveCheckCache(section, stockDate))
+    readCopy()
+    const unsubscribe = subscribeSaveCheckCache(readCopy)
+    // Today's copy is also refreshed app-wide (StockHub); this covers another date picked here.
+    let inFlight = false
+    const refresh = () => {
+      if (inFlight || !window.navigator.onLine || document.visibilityState === 'hidden') return
+      inFlight = true
+      void fetchAndCacheSaveCheck(section, stockDate).finally(() => {
+        inFlight = false
+      })
+    }
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refresh()
+    }
+    refresh()
+    const timer = window.setInterval(refresh, SAVE_CHECK_PREFETCH_INTERVAL_MS)
+    window.addEventListener('online', refresh)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      unsubscribe()
+      window.clearInterval(timer)
+      window.removeEventListener('online', refresh)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [section, stockDate])
 
   useEffect(() => {
     if (typeof window === 'undefined' || hasRestoredOfflineDraft || phase !== 'editing') return
@@ -1314,34 +1343,32 @@ export function EmbeddedStockCheckPanel({
   }
 
   /**
-   * Last closing and today's deliveries from the server. Tried twice, because without it the
-   * check cannot see a delivery that was not counted. A failure while online is announced.
+   * Last closing and today's deliveries. Online: from the server (tried twice; once and sooner
+   * when a phone copy exists). Offline or on failure: the copy fetched earlier on this phone,
+   * so a save in the coolroom without internet still sees today's deliveries.
    */
   async function loadSaveCheckData(): Promise<SaveCheckData | null> {
-    if (typeof navigator !== 'undefined' && !navigator.onLine) return null
-    const data = (await fetchSaveCheckData()) ?? (await fetchSaveCheckData())
-    if (!data && typeof navigator !== 'undefined' && navigator.onLine) {
-      toast.info("Couldn't check today's deliveries, so only the last closing was used to look for uncounted items.", { duration: 8000 })
+    const date = stockDateRef.current
+    const copy = readSaveCheckCache(section, date)
+    const online = typeof navigator === 'undefined' || navigator.onLine
+    let data: SaveCheckData | null = null
+    if (online) {
+      data = copy
+        ? await fetchAndCacheSaveCheck(section, date, { timeoutMs: SAVE_CHECK_TIMEOUT_WITH_COPY_MS })
+        : (await fetchAndCacheSaveCheck(section, date)) ?? (await fetchAndCacheSaveCheck(section, date))
     }
-    return data
-  }
-
-  async function fetchSaveCheckData(): Promise<SaveCheckData | null> {
-    const controller = new AbortController()
-    const timer = window.setTimeout(() => controller.abort(), SAVE_CHECK_TIMEOUT_MS)
-    try {
-      const response = await fetch(`/api/daily-report?date=${encodeURIComponent(stockDateRef.current)}&section=${section}`, { cache: 'no-store', signal: controller.signal })
-      if (!response.ok) return null
-      const payload = await response.json()
-      return {
-        prevClosingByCode: payload?.prevClosingByCode ?? {},
-        stockInByCode: payload?.stockInByCode ?? {},
-      }
-    } catch {
-      return null
-    } finally {
-      window.clearTimeout(timer)
+    if (data) return data
+    if (copy) {
+      toast.info(`No connection, so deliveries saved up to ${formatFetchedAt(copy.fetchedAt)} were used to look for uncounted items.`, { duration: 8000 })
+      return copy
     }
+    toast.info(
+      online
+        ? "Couldn't check today's deliveries, so only the last closing was used to look for uncounted items."
+        : "Deliveries weren't loaded on this phone, so only the last closing was used. Open Stock Close with internet before going in to have them.",
+      { duration: 8000 },
+    )
+    return null
   }
 
   function applyValidatedState() {
@@ -1915,6 +1942,13 @@ export function EmbeddedStockCheckPanel({
           {stockCheckQueueCount > 0 || !isOnline ? (
             <p className="inline-flex items-center gap-1.5 rounded-full bg-warning-soft px-2.5 py-1 text-[13px] font-medium text-warning">
               {!isOnline ? 'Offline · saves stay on this phone' : `${stockCheckQueueCount} save${stockCheckQueueCount > 1 ? 's' : ''} waiting to upload`}
+            </p>
+          ) : null}
+          {!isOnline ? (
+            <p className="mt-1.5 text-[13px] text-muted">
+              {saveCheckCopy
+                ? `Deliveries for the save check loaded at ${formatFetchedAt(saveCheckCopy.fetchedAt)}`
+                : 'Deliveries not loaded on this phone: the save check uses the last closing only'}
             </p>
           ) : null}
           {visibleCatalogItems.length === 0 && (
